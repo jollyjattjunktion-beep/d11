@@ -71,7 +71,16 @@ POST /api/v1/matches/ind-nz-odi-2026-1/squad
 
 Allowed roles: `WK`, `BAT`, `AR`, `BOWL`. Use verified player IDs, credits and status. Unknown credits remain null and team generation will refuse to guess them.
 
-### 3. Import historical records
+### 3. Register historical player identities
+
+Before importing past scorecards, register each player once. Player IDs are global identities; match-specific team, role, credits and availability are stored separately for each match.
+
+```json
+POST /api/v1/players
+{"id":"p1","name":"Player One"}
+```
+
+### 4. Import historical records
 
 ```json
 POST /api/v1/history/import
@@ -84,11 +93,11 @@ POST /api/v1/history/import
 
 For the baseline predictor, provide historical `fantasy_points`. The raw statistics are also stored for later scoring and model development. Records for players not yet in the player table are skipped.
 
-### 4. Get predictions
+### 5. Get predictions
 
 `GET /api/v1/matches/ind-nz-odi-2026-1/predictions`
 
-### 5. Generate teams
+### 6. Generate teams
 
 ```json
 POST /api/v1/matches/ind-nz-odi-2026-1/teams
