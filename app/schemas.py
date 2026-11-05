@@ -14,6 +14,10 @@ class MatchIn(BaseModel):
     status: str = "upcoming"
     source: str | None = None
 
+class PlayerIdentityIn(BaseModel):
+    id: str
+    name: str
+
 class PlayerIn(BaseModel):
     id: str
     name: str
