@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.database import Base, engine, get_db
-from app.models import Match, Player, PlayerMatchStats
+from app.models import Match, Player, MatchSquad, PlayerMatchStats
 from app.schemas import MatchIn, SquadImport, StatsImport, TeamRequest
 from app.predictor import predict_match
 from app.optimizer import build_teams
@@ -47,7 +47,7 @@ def get_match(match_id: str, db: Session = Depends(get_db)):
     if not m: raise HTTPException(404, "Match not found")
     return {"id":m.id,"name":m.name,"format":m.format,"start_time":m.start_time,
             "venue":m.venue,"team_a":m.team_a,"team_b":m.team_b,"status":m.status,
-            "players":len(m.players)}
+            "players":len(m.squad)}
 
 @app.post("/api/v1/matches/{match_id}/squad")
 def import_squad(match_id: str, payload: SquadImport, db: Session = Depends(get_db)):
@@ -55,13 +55,19 @@ def import_squad(match_id: str, payload: SquadImport, db: Session = Depends(get_
     saved = 0
     for item in payload.players:
         data = item.model_dump()
-        row = db.get(Player, data["id"])
-        if row is None:
-            row = Player(**data, match_id=match_id)
-            db.add(row)
+        player = db.get(Player, data["id"])
+        if player is None:
+            player = Player(id=data["id"], name=data["name"])
+            db.add(player)
         else:
-            for key,value in data.items(): setattr(row,key,value)
-            row.match_id = match_id
+            player.name = data["name"]
+        squad = db.get(MatchSquad, (match_id, data["id"]))
+        squad_data = {k:v for k,v in data.items() if k not in {"id","name"}}
+        if squad is None:
+            squad = MatchSquad(match_id=match_id, player_id=data["id"], **squad_data)
+            db.add(squad)
+        else:
+            for key,value in squad_data.items(): setattr(squad,key,value)
         saved += 1
     db.commit()
     return {"saved":saved,"match_id":match_id}
@@ -94,12 +100,12 @@ def get_predictions(match_id: str, db: Session = Depends(get_db)):
 def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(get_db)):
     if not db.get(Match, match_id): raise HTTPException(404, "Match not found")
     predictions = predict_match(db, match_id)
-    players = db.scalars(select(Player).where(Player.match_id == match_id)).all()
-    by_id = {p.id:p for p in players}
+    squads = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match_id)).all()
+    squad_by_id = {s.player_id:s for s in squads}
     combined = []
     for prediction in predictions:
-        p = by_id[prediction["player_id"]]
-        combined.append({**prediction,"credits":p.credits,"selection_pct":p.selection_pct,"status":p.status})
+        s = squad_by_id[prediction["player_id"]]
+        combined.append({**prediction,"credits":s.credits,"selection_pct":s.selection_pct,"status":s.status})
     results = {}
     for strategy in payload.strategies:
         try:
