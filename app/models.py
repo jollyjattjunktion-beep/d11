@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import String, Float, Integer, DateTime, ForeignKey, UniqueConstraint, Text
+from sqlalchemy import String, Float, Integer, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -14,21 +14,28 @@ class Match(Base):
     team_b: Mapped[str] = mapped_column(String(100))
     status: Mapped[str] = mapped_column(String(30), default="upcoming")
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    players: Mapped[list["Player"]] = relationship(back_populates="match")
+    squad: Mapped[list["MatchSquad"]] = relationship(back_populates="match", cascade="all, delete-orphan")
 
 class Player(Base):
+    # Global player identity; match-specific role/team/credits live in MatchSquad.
     __tablename__ = "players"
     id: Mapped[str] = mapped_column(String(120), primary_key=True)
     name: Mapped[str] = mapped_column(String(180), index=True)
+    stats: Mapped[list["PlayerMatchStats"]] = relationship(back_populates="player")
+
+class MatchSquad(Base):
+    __tablename__ = "match_squads"
+    __table_args__ = (UniqueConstraint("match_id", "player_id", name="uq_match_squad_player"),)
+    match_id: Mapped[str] = mapped_column(ForeignKey("matches.id"), primary_key=True)
+    player_id: Mapped[str] = mapped_column(ForeignKey("players.id"), primary_key=True)
     team: Mapped[str] = mapped_column(String(100), index=True)
-    role: Mapped[str] = mapped_column(String(20), index=True)  # WK, BAT, AR, BOWL
+    role: Mapped[str] = mapped_column(String(20), index=True)
     credits: Mapped[float | None] = mapped_column(Float, nullable=True)
     selection_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="unknown")
-    match_id: Mapped[str] = mapped_column(ForeignKey("matches.id"), index=True)
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    match: Mapped["Match"] = relationship(back_populates="players")
-    stats: Mapped[list["PlayerMatchStats"]] = relationship(back_populates="player")
+    match: Mapped["Match"] = relationship(back_populates="squad")
+    player: Mapped["Player"] = relationship()
 
 class PlayerMatchStats(Base):
     __tablename__ = "player_match_stats"
