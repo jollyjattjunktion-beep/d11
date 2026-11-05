@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.database import Base, engine, get_db
 from app.models import Match, Player, MatchSquad, PlayerMatchStats
-from app.schemas import MatchIn, SquadImport, StatsImport, TeamRequest
+from app.schemas import MatchIn, PlayerIdentityIn, SquadImport, StatsImport, TeamRequest
 from app.predictor import predict_match
 from app.optimizer import build_teams
 from app.config import MODEL_VERSION
@@ -48,6 +48,24 @@ def get_match(match_id: str, db: Session = Depends(get_db)):
     return {"id":m.id,"name":m.name,"format":m.format,"start_time":m.start_time,
             "venue":m.venue,"team_a":m.team_a,"team_b":m.team_b,"status":m.status,
             "players":len(m.squad)}
+
+@app.post("/api/v1/players")
+def upsert_player(payload: PlayerIdentityIn, db: Session = Depends(get_db)):
+    row = db.get(Player, payload.id)
+    if row is None:
+        row = Player(id=payload.id, name=payload.name)
+        db.add(row)
+    else:
+        row.name = payload.name
+    db.commit()
+    return {"saved": True, "player_id": row.id}
+
+@app.get("/api/v1/players/{player_id}")
+def get_player(player_id: str, db: Session = Depends(get_db)):
+    row = db.get(Player, player_id)
+    if row is None: raise HTTPException(404, "Player not found")
+    stats_count = db.query(PlayerMatchStats).filter(PlayerMatchStats.player_id == player_id).count()
+    return {"id": row.id, "name": row.name, "historical_records": stats_count}
 
 @app.post("/api/v1/matches/{match_id}/squad")
 def import_squad(match_id: str, payload: SquadImport, db: Session = Depends(get_db)):
