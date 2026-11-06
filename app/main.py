@@ -9,14 +9,17 @@ import httpx
 from datetime import datetime, timezone
 from pathlib import Path
 from app.database import Base, engine, get_db
-from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile
+from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
-                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, VenueUrlImportRequest)
+                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest)
 from app.predictor import predict_match
 from app.optimizer import build_teams
 from app.config import MODEL_VERSION, ADMIN_TOKEN, TG_API_TOKEN
 from app.importers.ai11 import (fetch_page, parse_analysis, parse_fantasy, AI11RateLimitError)
 from app.importers.crex import fetch_crex_page, parse_crex_venue_report
+from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_series_page,
+    parse_cricbuzz_venue, parse_cricbuzz_series_venues)
+from app.venue_analysis import analyse_venue, compare_squad_strength, analysis_context_fields
 
 Base.metadata.create_all(bind=engine)
 app = FastAPI(
@@ -925,64 +928,175 @@ def save_playing_xi(match_id: str, payload: PlayingXIUpdate,
 
 
 
+
+def _save_cricbuzz_venue(db: Session, report: dict) -> Venue:
+    provider_key = "CRICBUZZ:" + str(report["provider_venue_id"])
+    row = db.get(Venue, provider_key)
+    aliases = report.get("aliases") or []
+    urls = [report["source_url"]] if report.get("source_url") else []
+    profile = {
+        "facts": report.get("facts") or {},
+        "profile_text": report.get("profile_text"),
+        "pitch_text": report.get("pitch_text"),
+        "series_name": report.get("series_name"),
+    }
+    if row is None:
+        row = Venue(
+            provider_key=provider_key,
+            name=report["name"],
+            city_country=report.get("city_country"),
+            aliases=aliases,
+            provider="CRICBUZZ",
+            provider_venue_id=str(report["provider_venue_id"]),
+            facts=report.get("facts") or {},
+            formats=report.get("formats") or {},
+            profile=profile,
+            source_urls=urls,
+        )
+        db.add(row)
+    else:
+        row.name = report["name"] or row.name
+        row.city_country = report.get("city_country") or row.city_country
+        row.aliases = sorted(set((row.aliases or []) + aliases))
+        row.facts = {**(row.facts or {}), **(report.get("facts") or {})}
+        row.formats = {**(row.formats or {}), **(report.get("formats") or {})}
+        row.profile = {**(row.profile or {}), **profile}
+        row.source_urls = sorted(set((row.source_urls or []) + urls))
+    return row
+
+
+def _venue_report_for_match(db: Session, match: Match):
+    rows = db.scalars(select(Venue).where(Venue.provider == "CRICBUZZ")).all()
+    normalize = lambda value: "".join(ch for ch in str(value or "").casefold() if ch.isalnum())
+    wanted = normalize(match.venue)
+    for venue in rows:
+        names = [venue.name, venue.city_country] + list(venue.aliases or [])
+        if any(normalize(name) == wanted or (wanted and normalize(name).startswith(wanted)) for name in names if name):
+            fmt = "T20" if match.format.upper() in {"T20", "T20I", "WT20", "WT20I"} else "ODI" if match.format.upper() in {"ODI", "WODI"} else "TEST"
+            return venue, (venue.formats or {}).get(fmt)
+    return None, None
+
+
 @app.post("/api/v1/admin/matches/{match_id}/venue/import")
-def import_crex_venue_report(match_id: str, payload: VenueUrlImportRequest,
-                             _admin: bool = Depends(require_admin),
-                             db: Session = Depends(get_db)):
+def import_cricbuzz_venue_report(match_id: str, payload: CricbuzzVenueImportRequest,
+                                 _admin: bool = Depends(require_admin),
+                                 db: Session = Depends(get_db)):
     match = db.get(Match, match_id)
     if not match:
         raise HTTPException(404, "Match not found")
     try:
-        html = fetch_crex_page(payload.url)
-        report = parse_crex_venue_report(html, payload.url)
+        html = fetch_cricbuzz_venue_page(payload.url)
+        report = parse_cricbuzz_venue(html, payload.url)
     except ValueError as exc:
-        raise HTTPException(422, "CREX import rejected: " + str(exc)[:400])
+        raise HTTPException(422, "Cricbuzz import rejected: " + str(exc)[:400])
     except httpx.HTTPStatusError as exc:
         raise HTTPException(502, detail={
-            "message": "CREX refused the page request.",
+            "message": "Cricbuzz refused the venue page request.",
             "upstream_status": exc.response.status_code,
-            "action": "Open the match Info/Venue page in a browser and retry its HTTPS CREX URL."
+            "action": "Open the Cricbuzz venue page in a browser and retry its HTTPS venue URL."
         })
     except httpx.RequestError as exc:
-        raise HTTPException(502, "Could not fetch CREX venue page: " + type(exc).__name__)
+        raise HTTPException(502, "Could not fetch Cricbuzz venue page: " + type(exc).__name__)
 
-    match.venue = report["venue"]
-    row = db.get(MatchIntelligence, match_id)
-    data = dict(row.data or {}) if row and isinstance(row.data, dict) else {}
-    data["crex_venue_report"] = report
+    venue_row = _save_cricbuzz_venue(db, report)
+    match.venue = report["name"]
+    venue_analysis = analyse_venue(report, match.format)
+    intel_row = db.get(MatchIntelligence, match_id)
+    data = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+    data["cricbuzz_venue_report"] = report
     data["venue_report_source_url"] = payload.url
-    data["venue"] = report["venue"]
-    if report.get("average_first_innings") is not None:
-        data["average_first_innings"] = report["average_first_innings"]
-    if report.get("venue_matches") is not None:
-        data["venue_matches"] = report["venue_matches"]
-    weather = report.get("weather") or {}
-    if weather.get("humidity_pct") is not None:
-        data["humidity"] = weather["humidity_pct"]
-    if weather.get("rain_probability_pct") is not None:
-        data["rain_probability"] = weather["rain_probability_pct"]
-    weather_bits = [
-        str(weather.get("condition")) if weather.get("condition") else None,
-        (str(weather["temperature_c"]) + "°C") if weather.get("temperature_c") is not None else None,
-        ("Humidity " + str(weather["humidity_pct"]) + "%") if weather.get("humidity_pct") is not None else None,
-        ("Rain chance " + str(weather["rain_probability_pct"]) + "%") if weather.get("rain_probability_pct") is not None else None,
-    ]
-    if any(weather_bits):
-        data["weather_summary"] = " • ".join(x for x in weather_bits if x)
-    if report.get("pitch_report") and not data.get("pitch_notes"):
-        data["pitch_notes"] = report["pitch_report"]
-    if row is None:
+    data["venue_provider"] = "CRICBUZZ"
+    data["venue_id"] = venue_row.provider_key
+    data["auto_venue_analysis"] = venue_analysis
+    data.update(analysis_context_fields(venue_analysis))
+
+    # Team-strength recommendation is generated only when both sides have enough
+    # format-matched historical player points. It is not a prediction of match winner.
+    predictions = predict_match(db, match_id)
+    strength = compare_squad_strength(match.team_a, match.team_b, predictions)
+    data["team_strength_analysis"] = strength
+    data["strong_team"] = strength.get("strong_team")
+    if intel_row is None:
         db.add(MatchIntelligence(match_id=match_id, data=data))
     else:
-        row.data = data
+        intel_row.data = data
     db.commit()
     return {
         "imported": True,
         "match_id": match_id,
-        "venue": report["venue"],
-        "source": "CREX",
+        "venue_id": venue_row.provider_key,
+        "venue": report["name"],
+        "format_used": venue_analysis.get("format"),
         "report": report,
-        "note": "CREX venue statistics and available weather/pitch text were saved. A missing field remains null and is not guessed."
+        "venue_analysis": venue_analysis,
+        "team_strength_analysis": strength,
+        "note": "Venue and toss recommendations use format-specific Cricbuzz ground statistics. Strong-team comparison uses the current squads' format-matched player estimates; it is not a match-winner probability."
+    }
+
+
+@app.post("/api/v1/admin/venues/import-series")
+def import_cricbuzz_series_venues(payload: CricbuzzSeriesImportRequest,
+                                   _admin: bool = Depends(require_admin),
+                                   db: Session = Depends(get_db)):
+    try:
+        html = fetch_cricbuzz_series_page(payload.url)
+        venue_links = parse_cricbuzz_series_venues(html, payload.url)
+    except ValueError as exc:
+        raise HTTPException(422, "Cricbuzz series import rejected: " + str(exc)[:400])
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(502, detail={"message": "Cricbuzz series page request failed.", "upstream_status": exc.response.status_code})
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Could not fetch Cricbuzz series page: " + type(exc).__name__)
+
+    imported, skipped, errors = [], [], []
+    for item in venue_links[:60]:
+        try:
+            page = fetch_cricbuzz_venue_page(item["source_url"])
+            report = parse_cricbuzz_venue(page, item["source_url"])
+            _save_cricbuzz_venue(db, report)
+            imported.append({"venue_id": "CRICBUZZ:" + str(report["provider_venue_id"]), "name": report["name"], "city_country": report.get("city_country")})
+        except Exception as exc:
+            skipped.append(item.get("name") or item["provider_venue_id"])
+            errors.append({"venue": item.get("name") or item["provider_venue_id"], "error": type(exc).__name__})
+    db.commit()
+    return {
+        "provider": "CRICBUZZ",
+        "series_url": payload.url,
+        "series_venues_found": len(venue_links),
+        "venues_imported": len(imported),
+        "venues_skipped": len(skipped),
+        "imported": imported,
+        "skipped": skipped,
+        "errors": errors[:20],
+        "note": "The venue catalogue grows as you import Cricbuzz series Venues pages from different countries and competitions. This does not claim to be a complete world-stadium census."
+    }
+
+
+@app.get("/api/v1/admin/venues")
+def search_venue_catalogue(q: str | None = None, limit: int = 100,
+                           _admin: bool = Depends(require_admin),
+                           db: Session = Depends(get_db)):
+    limit = max(1, min(limit, 300))
+    query = select(Venue).order_by(Venue.name.asc())
+    rows = db.scalars(query).all()
+    if q:
+        needle = "".join(ch for ch in q.casefold() if ch.isalnum())
+        rows = [v for v in rows if any(
+            needle in "".join(ch for ch in str(value or "").casefold() if ch.isalnum())
+            for value in [v.name, v.city_country, *(v.aliases or [])]
+        )]
+    return {
+        "count": len(rows[:limit]),
+        "total_matches": len(rows),
+        "venues": [{
+            "venue_id": v.provider_key,
+            "name": v.name,
+            "city_country": v.city_country,
+            "aliases": v.aliases or [],
+            "formats_available": sorted((v.formats or {}).keys()),
+            "source_urls": v.source_urls or [],
+            "updated_at": v.updated_at.isoformat() if v.updated_at else None,
+        } for v in rows[:limit]]
     }
 
 
