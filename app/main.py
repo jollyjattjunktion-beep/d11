@@ -692,6 +692,7 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
             "ownership": item.get("ownership"),
             "captain_pct": item.get("captainPct"),
             "vice_captain_pct": item.get("viceCaptainPct"),
+            "points": item.get("points", item.get("fantasyPoints")),
             "fantasy_ids": item.get("fantasyIds") or {},
         }
         profile = db.get(PlayerSourceProfile, (match_id, player_id, profile_source))
@@ -838,6 +839,7 @@ def get_match_wizard_data(match_id: str, _admin: bool = Depends(require_admin),
             "image": profile.get("image"),
             "captain_pct": profile.get("captain_pct"),
             "vice_captain_pct": profile.get("vice_captain_pct"),
+            "points": profile.get("points", profile.get("fantasy_points")),
             "batting_order": profile.get("batting_order"),
             "lineup_order": profile.get("lineup_order"),
             "dream11_id": (profile.get("fantasy_ids") or {}).get("dream11"),
