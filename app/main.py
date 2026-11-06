@@ -1315,7 +1315,8 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
         match.team_b: {"players": set(), "matches": set(), "points": [], "runs": [], "wickets": []},
     }
     for stats, historical_match in history_rows:
-        if normalize(historical_match.venue) != target:
+        historical_venue = normalize(historical_match.venue)
+        if not (historical_venue == target or (target and target in historical_venue) or (historical_venue and historical_venue in target)):
             continue
         player_id = stats.player_id
         if player_id not in squad_by_id:
