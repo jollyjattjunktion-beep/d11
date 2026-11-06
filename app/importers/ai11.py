@@ -222,26 +222,47 @@ def parse_analysis(html: str):
         headers = []
         for index, row in enumerate(rows):
             candidate = [c.get_text(" ", strip=True).lower() for c in row.find_all(["th", "td"])]
-            if any(x in {"name", "player"} for x in candidate) and any("s%" in x for x in candidate):
-                header_index, headers = index, candidate
+            previous = [c.get_text(" ", strip=True).lower() for c in rows[index - 1].find_all(["th", "td"])] if index > 0 else []
+            has_name = any(x in {"name", "player"} for x in candidate + previous)
+            has_selection = any("s%" in x for x in candidate)
+            if has_name and has_selection:
+                header_index = index
+                # AI11 uses rowspans for identity columns and colspans for
+                # Batting/Bowling groups. Reconstruct a flat logical header.
+                if not any(x in {"name", "player"} for x in candidate) and index > 0:
+                    group_cells = rows[index - 1].find_all(["th", "td"])
+                    sub_cells = row.find_all(["th", "td"])
+                    expanded = []
+                    group_by_index = {}
+                    sub_cursor = 0
+                    for cell in group_cells:
+                        label = cell.get_text(" ", strip=True).lower()
+                        try:
+                            span = max(1, int(cell.get("colspan", 1)))
+                        except (TypeError, ValueError):
+                            span = 1
+                        try:
+                            rowspan = max(1, int(cell.get("rowspan", 1)))
+                        except (TypeError, ValueError):
+                            rowspan = 1
+                        if rowspan > 1 or span == 1 and label in {"name", "player", "t", "team", "r", "role", "s", "status"}:
+                            expanded.append(label)
+                            group_by_index[len(expanded) - 1] = label
+                        else:
+                            for _ in range(span):
+                                sub = sub_cells[sub_cursor].get_text(" ", strip=True).lower() if sub_cursor < len(sub_cells) else ""
+                                expanded.append(sub)
+                                group_by_index[len(expanded) - 1] = label
+                                sub_cursor += 1
+                    headers = expanded
+                else:
+                    headers = candidate
+                    group_by_index = {}
                 break
         if header_index is None:
             continue
-        # Expand the preceding grouped header (e.g. Batting / Bowling) across
-        # its colspan so repeated Inn/Avg/SR labels remain unambiguous.
-        group_by_index = {}
-        if header_index > 0:
-            group_row = rows[header_index - 1]
-            cursor = 0
-            for cell in group_row.find_all(["th", "td"]):
-                label = cell.get_text(" ", strip=True).casefold()
-                try:
-                    span = max(1, int(cell.get("colspan", 1)))
-                except (TypeError, ValueError):
-                    span = 1
-                for offset in range(span):
-                    group_by_index[cursor + offset] = label
-                cursor += span
+        if "group_by_index" not in locals():
+            group_by_index = {}
         name_idx = next((i for i, x in enumerate(headers) if x in {"name", "player"}), None)
         team_idx = next((i for i, x in enumerate(headers) if x in {"t", "team"}), None)
         role_idx = next((i for i, x in enumerate(headers) if x in {"r", "role"}), None)
