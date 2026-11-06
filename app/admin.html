@@ -270,6 +270,109 @@ const token=()=> $('adminToken').value.trim();
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function headers(){if(!token())throw new Error('Enter your admin token first.');return {'Content-Type':'application/json','X-Admin-Token':token()};}
 async function api(url,options={}){const r=await fetch(url,{...options,headers:{...headers(),...(options.headers||{})}});const raw=await r.text();let data;try{data=JSON.parse(raw)}catch{data={detail:raw.slice(0,1000)}}if(!r.ok){if(r.status===401)$('adminToken').value='';throw new Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail||data));}return data;}
+
+let adminMatches=[],adminVenues=[];
+function adminLibraryNotice(id,msg,kind=''){
+ const el=$(id);el.className='notice '+kind;el.textContent=msg;el.style.display='block';
+}
+async function loadAdminVenueOptions(){
+ const d=await api('/api/v1/admin/venues?limit=300');
+ adminVenues=d.venues||[];
+ const select=$('editVenueCatalogue');
+ const keep=select.value;
+ select.innerHTML='<option value="__auto__">Auto-match by venue name</option>';
+ adminVenues.forEach(v=>{
+  const opt=document.createElement('option');opt.value=v.venue_id;
+  opt.textContent=v.name+(v.city_country?' — '+v.city_country:'')+' ['+(v.formats_available||[]).join('/')+']';
+  select.append(opt);
+ });
+ if(keep)select.value=keep;
+}
+function renderAdminMatches(){
+ const root=$('adminMatchList');root.innerHTML='';
+ $('adminMatchCount').textContent=adminMatches.length+' matches';
+ if(!adminMatches.length){root.innerHTML='<div class="match-library-empty">No saved matches matched this search. Import or sync a fixture first.</div>';return;}
+ adminMatches.forEach(m=>{
+  const row=document.createElement('div');row.className='admin-match-row';
+  const main=document.createElement('div');
+  const title=document.createElement('strong');title.textContent=(m.team_a||'?')+' vs '+(m.team_b||'?')+' — '+(m.format||'');
+  const sub=document.createElement('small');sub.textContent=(m.name||m.id)+' • ID '+m.id+' • '+(m.start_time||'Time TBC')+' • '+(m.source||'manual');
+  main.append(title,sub);
+  const venue=document.createElement('div');
+  const venueStatus=document.createElement('span');venueStatus.className='admin-match-status '+(m.venue_data_available?'':'');
+  venueStatus.textContent=m.venue_data_available?'STADIUM DATA READY':m.venue_linked?'STADIUM LINKED — STATS MISSING':'NO STADIUM LINK';
+  const venueName=document.createElement('small');venueName.textContent=m.venue||'Venue not provided';
+  const pitch=document.createElement('small');pitch.textContent=m.venue_pitch_recommendation||'Pitch analysis not available';
+  venue.append(venueStatus,venueName,pitch);
+  const actions=document.createElement('div');actions.className='admin-match-actions';
+  const edit=document.createElement('button');edit.className='btn outline';edit.type='button';edit.textContent='Edit';edit.addEventListener('click',()=>openAdminMatchEditor(m));
+  const open=document.createElement('button');open.className='btn secondary';open.type='button';open.textContent='Open workspace';open.addEventListener('click',()=>openMatchWorkspace(m.id));
+  actions.append(edit,open);row.append(main,venue,actions);root.append(row);
+ });
+}
+async function loadAdminMatches(){
+ const btn=$('loadAdminMatches');if(btn){btn.disabled=true;btn.textContent='Loading…';}
+ try{
+  const q=$('adminMatchSearch').value.trim();
+  const status=$('adminMatchStatus').value;
+  const d=await api('/api/v1/admin/matches?q='+encodeURIComponent(q)+'&status='+encodeURIComponent(status)+'&limit=500');
+  adminMatches=d.matches||[];renderAdminMatches();
+  adminLibraryNotice('adminMatchNotice','Loaded '+d.count+' of '+d.total_matches+' saved SQL matches. Click Edit to correct details or assign a stadium.','good');
+  await loadAdminVenueOptions();
+ }catch(e){adminLibraryNotice('adminMatchNotice',e.message,'error');}
+ finally{if(btn){btn.disabled=false;btn.textContent='Load saved matches';}}
+}
+function openAdminMatchEditor(m){
+ $('adminMatchEditor').hidden=false;
+ $('adminMatchEditorTitle').textContent='Edit '+(m.team_a||'Team A')+' vs '+(m.team_b||'Team B')+' • '+m.id;
+ $('editMatchId').value=m.id;$('editMatchName').value=m.name||'';
+ $('editMatchFormat').value=(m.format||'T20').toUpperCase();
+ if(!$('editMatchFormat').value){$('editMatchFormat').value='T20';}
+ if(![...$('editMatchFormat').options].some(o=>o.value===$('editMatchFormat').value)){
+  const opt=document.createElement('option');opt.value=m.format;opt.textContent=m.format;$('editMatchFormat').append(opt);$('editMatchFormat').value=m.format;
+ }
+ $('editTeamA').value=m.team_a||'';$('editTeamB').value=m.team_b||'';
+ $('editMatchStatus').value=m.status||'upcoming';
+ $('editMatchStart').value=m.start_time||'';$('editMatchVenue').value=m.venue||'';
+ $('editVenueCatalogue').value=m.venue_id||'__auto__';
+ $('adminMatchEditNotice').style.display='none';
+ $('adminMatchEditor').scrollIntoView({behavior:'smooth',block:'center'});
+}
+async function saveAdminMatch(){
+ const id=$('editMatchId').value;if(!id)return;
+ const button=$('saveAdminMatch');button.disabled=true;button.textContent='Saving…';
+ try{
+  const payload={
+   name:$('editMatchName').value.trim(),
+   format:$('editMatchFormat').value,
+   team_a:$('editTeamA').value.trim(),
+   team_b:$('editTeamB').value.trim(),
+   status:$('editMatchStatus').value,
+   start_time:$('editMatchStart').value.trim()||null,
+   venue:$('editMatchVenue').value.trim()||null
+  };
+  const venueChoice=$('editVenueCatalogue').value;
+  if(venueChoice!=='__auto__')payload.venue_id=venueChoice;
+  const d=await api('/api/v1/admin/matches/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify(payload)});
+  adminLibraryNotice('adminMatchEditNotice','Saved '+d.match.team_a+' vs '+d.match.team_b+'. '+(d.venue_analysis?.pitch_recommendation||'No matching-format venue analysis is available yet.'),'good');
+  await loadAdminMatches();
+ }catch(e){adminLibraryNotice('adminMatchEditNotice',e.message,'error');}
+ finally{button.disabled=false;button.textContent='Save match changes';}
+}
+async function openMatchWorkspace(id){
+ try{
+  state.matchId=id;await loadWizard();setStep(1);
+  $('matchUrl').value='https://teamgeneration.in/match/'+id;
+  $('matchSummary').scrollIntoView({behavior:'smooth',block:'start'});
+ }catch(e){adminLibraryNotice('adminMatchNotice',e.message,'error');}
+}
+$('loadAdminMatches').onclick=loadAdminMatches;
+$('searchAdminMatches').onclick=loadAdminMatches;
+$('refreshAdminMatches').onclick=loadAdminMatches;
+$('adminMatchSearch').addEventListener('keydown',e=>{if(e.key==='Enter')loadAdminMatches();});
+$('closeAdminMatchEditor').onclick=()=>{$('adminMatchEditor').hidden=true;};
+$('saveAdminMatch').onclick=saveAdminMatch;
+$('openAdminMatch').onclick=()=>openMatchWorkspace($('editMatchId').value);
 $('syncPublicFeed').onclick=async()=>{const b=$('syncPublicFeed');b.disabled=true;b.textContent='Syncing…';try{const d=await api('/api/v1/admin/public-matches/sync',{method:'POST'});b.textContent='Synced '+d.visible_matches+' matches';setTimeout(()=>b.textContent='Sync Fixtures',2500);}catch(e){alert(e.message);b.textContent='Sync Fixtures';}finally{b.disabled=false;}};
 function idFromUrl(v){const s=v.trim();if(/^\d{4,}$/.test(s))return s;const m=s.match(/\/match\/([A-Za-z0-9_-]+)/i)||s.match(/\/matches\/([A-Za-z0-9_-]+)/i);if(!m)throw new Error('Paste a Team Generation match URL such as https://teamgeneration.in/match/113941');return m[1];}
 function setStep(n){if(!state.matchId&&n!==1)return;if(n===4){state.roleFilter='ALL';if(state.players.length)renderFixed();}state.step=n;document.querySelectorAll('.step').forEach(e=>{const x=Number(e.dataset.step);e.classList.toggle('active',x===n);e.classList.toggle('done',x<n)});document.querySelectorAll('.step-view').forEach(e=>e.classList.toggle('active',e.id==='view'+n));$('stepBadge').textContent='STEP 0'+n+' / 05';const titles=['Fetch match and import players','Confirm Playing XI for both teams','Automatic venue and team analysis','Choose 4–5 high-selection players','Generate and review fantasy teams'];$('panelTitle').textContent='Step '+n+' — '+titles[n-1];}
