@@ -229,7 +229,7 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
             "captain_pool":payload.captain_pool,"vice_captain_pool":payload.vice_captain_pool},
         "warnings":[
             "AI Prediction Mode uses format-matched historical statistical estimates; it is not a trained machine-learning model."
-        ] + (["Provisional teams use selection and AI11 C/VC trends as weak selection signals only. Projected fantasy points are null and no points prediction is claimed."] if not history_ready or "provisional" in modes else [])
+        ] + (["Provisional teams use imported source ownership and captain/vice-captain trends as weak selection signals only. Projected fantasy points are null and no points prediction is claimed."] if not history_ready or "provisional" in modes else [])
     }
 
 @app.get("/api/v1/model/status")
@@ -537,7 +537,7 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
     left_name = str(left.get("code") or left.get("name") or "TEAM_A")
     right_name = str(right.get("code") or right.get("name") or "TEAM_B")
     series = str(match_data.get("series") or "Cricket")
-    match_format = "ODI" if "ODI" in series.upper() else ("T20I" if "T20I" in series.upper() else "T20")
+    match_format = "ODI" if "ODI" in series.upper() else ("TEST" if "TEST" in series.upper() else "T20")
     match_values = {
         "name": left_name + " vs " + right_name + " - " + series,
         "format": match_format,
