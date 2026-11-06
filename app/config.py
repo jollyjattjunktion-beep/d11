@@ -5,6 +5,7 @@ load_dotenv()
 APP_ENV = os.getenv("APP_ENV", "development")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./preet_fantasy.db")
 MODEL_VERSION = "hybrid-context-stat-v2"
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
 SCORING = {
     "run": 1, "four_bonus": 1, "six_bonus": 2, "thirty_bonus": 4,
     "half_century_bonus": 8, "century_bonus": 16, "duck_penalty": -2,
