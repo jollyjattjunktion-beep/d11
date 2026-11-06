@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{PAGE_TITLE}}</title>
+<meta name="description" content="{{META_DESCRIPTION}}">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<link rel="canonical" href="{{CANONICAL_URL}}">
+<meta name="theme-color" content="#31205d">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Preet Fantasy AI">
+<meta property="og:title" content="{{PAGE_TITLE}}">
+<meta property="og:description" content="{{META_DESCRIPTION}}">
+<meta property="og:url" content="{{CANONICAL_URL}}">
+<meta property="og:image" content="{{OG_IMAGE}}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{PAGE_TITLE}}">
+<meta name="twitter:description" content="{{META_DESCRIPTION}}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script type="application/ld+json">{{JSON_LD}}</script>
+<style>
+:root{--purple:#5c3c91;--purple2:#7654b5;--ink:#20263a;--muted:#727d91;--line:#e7e9f0;--bg:#f4f5f9;--green:#0c9a69;--red:#d94357;--gold:#b98519}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);font-family:Inter,system-ui,-apple-system,Segoe UI,Arial,sans-serif;color:var(--ink);line-height:1.5}
+a{color:inherit}
+.site-header{background:linear-gradient(115deg,#251a45,#553785 65%,#31235b);color:#fff;box-shadow:0 6px 24px #20163d24}
+.header-inner{max-width:1120px;margin:auto;padding:18px 22px;display:flex;justify-content:space-between;align-items:center;gap:20px}
+.brand{display:flex;align-items:center;gap:11px;text-decoration:none;color:#fff}
+.brand-mark{width:42px;height:42px;border-radius:12px;background:#ffffff1b;border:1px solid #ffffff3b;display:grid;place-items:center;font-size:23px}
+.brand-name{font-size:19px;font-weight:900;letter-spacing:.4px}.brand-name span{color:#d8c3ff}
+.brand-tag{font-size:10px;letter-spacing:1.4px;color:#e5dbf5;margin-top:1px}
+.nav{display:flex;align-items:center;gap:21px}.nav a{text-decoration:none;color:#eee6fb;font-size:12px;font-weight:700}.nav a:hover{color:#fff}
+.hero{background:linear-gradient(125deg,#302255,#51347f);color:#fff}
+.hero-inner{max-width:1120px;margin:auto;padding:35px 22px 37px;display:grid;grid-template-columns:1.2fr .8fr;gap:25px;align-items:center}
+.eyebrow{font-size:10px;letter-spacing:2px;font-weight:900;color:#d7c5f8;text-transform:uppercase}
+.hero h1{font-size:clamp(27px,4vw,41px);line-height:1.12;margin:10px 0 12px;letter-spacing:-1.2px}
+.hero p{font-size:13px;line-height:1.75;color:#eee7f8;max-width:650px;margin:0}
+.hero-side{background:#ffffff12;border:1px solid #ffffff35;border-radius:18px;padding:19px 20px}
+.hero-stat{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #ffffff25;font-size:12px;color:#e6def3}
+.hero-stat:last-child{border:0}.hero-stat strong{color:#fff;font-size:17px}
+main{max-width:1120px;margin:0 auto;padding:25px 22px 48px}
+.section-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin:0 0 13px}
+.section-head h2{font-size:19px;margin:0;letter-spacing:-.3px}
+.section-head p{font-size:11px;color:var(--muted);margin:3px 0 0}
+.refresh-label{font-size:10px;color:var(--muted);text-align:right}
+.match-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+.match-card{background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 3px 12px #29344b08;transition:transform .16s,box-shadow .16s}
+.match-card:hover{transform:translateY(-2px);box-shadow:0 9px 24px #29344b13}
+.match-card-link{display:block;text-decoration:none;padding:13px 15px 11px}
+.series-line{display:flex;align-items:center;gap:7px;color:#737b8e;font-size:11px;border-bottom:1px solid #edf0f4;padding-bottom:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.format-mark{width:19px;height:19px;border-radius:50%;display:grid;place-items:center;background:#f0edf8;color:var(--purple);font-size:9px;font-weight:900;flex:none}
+.match-status{margin-left:auto;font-size:9px;letter-spacing:.4px;font-weight:900;padding:4px 8px;border-radius:30px;flex:none}
+.match-status.live{background:#fff0f2;color:#d52e46}.match-status.upcoming{background:#eee8fb;color:#6541a5}.match-status.postponed{background:#fff7e6;color:#94640a}
+.versus-row{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:8px;align-items:center;padding:15px 0 13px}
+.team{display:flex;align-items:center;gap:9px;min-width:0}
+.team.right{justify-content:flex-end;text-align:right}
+.team-badge{width:42px;height:42px;border-radius:50%;border:1px solid #e7e9ef;background:#f5f6fa;object-fit:cover;flex:none}
+.team-initial{width:42px;height:42px;border-radius:50%;background:#eee8fb;color:var(--purple);display:grid;place-items:center;font-size:12px;font-weight:900;flex:none}
+.team-label{min-width:0}
+.team-code{font-size:14px;font-weight:900;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.team-full{font-size:9px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px}
+.match-time{text-align:center;min-width:105px}
+.match-time strong{font-size:12px;color:#4e347f;display:block;white-space:nowrap}
+.match-time small{font-size:9px;color:var(--muted)}
+.card-bottom{display:flex;align-items:center;justify-content:space-between;gap:9px;background:#f8f8fb;padding:9px 15px;font-size:10px;color:var(--muted)}
+.card-tags{display:flex;gap:5px;flex-wrap:wrap}
+.tag{padding:3px 8px;border-radius:20px;font-weight:800;font-size:9px;background:#eee9f7;color:#61458d}
+.tag.t20{background:#eaf5ff;color:#286395}.tag.odi{background:#e9f6ef;color:#217248}.tag.test{background:#fff4e4;color:#976313}
+.card-venue{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;max-width:48%}
+.empty-state{background:#fff;border:1px dashed #ccd2df;border-radius:14px;padding:36px 18px;text-align:center;color:var(--muted);grid-column:1/-1}
+.empty-state strong{display:block;color:var(--ink);font-size:15px;margin-bottom:5px}
+.content-section{margin-top:38px;background:#fff;border:1px solid var(--line);border-radius:15px;padding:21px 22px}
+.content-section h2{font-size:18px;margin:0 0 10px}.content-section h3{font-size:14px;margin:20px 0 5px}
+.content-section p,.content-section li{font-size:12px;color:#667085;line-height:1.8}
+.content-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}
+.info-card{background:#f8f8fb;border:1px solid #eceef3;border-radius:11px;padding:13px}
+.info-card strong{display:block;font-size:12px;margin-bottom:4px}.info-card p{margin:0;font-size:11px}
+.faq details{border-top:1px solid var(--line);padding:12px 0}.faq summary{font-size:12px;font-weight:800;cursor:pointer}.faq details p{margin:8px 0 0}
+.site-footer{background:#211936;color:#dcd4e9;padding:25px 22px}
+.footer-inner{max-width:1120px;margin:auto;display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.footer-inner strong{font-size:13px;color:white}.footer-inner p{font-size:10px;line-height:1.7;color:#c2b8d3;max-width:660px;margin:6px 0 0}
+.footer-links{display:flex;gap:15px;align-items:flex-start;flex-wrap:wrap}.footer-links a{font-size:11px;color:#e8dff5;text-decoration:none}
+.freshness{font-size:10px;color:var(--muted);margin-top:13px}
+@media(max-width:760px){.header-inner{padding:14px 16px}.nav{gap:12px}.nav a{font-size:10px}.hero-inner{grid-template-columns:1fr;padding:27px 16px}.hero-side{display:grid;grid-template-columns:repeat(2,1fr);gap:0 12px}.hero-stat{font-size:10px}.hero-stat strong{font-size:14px}main{padding:20px 13px 38px}.match-grid{grid-template-columns:1fr}.section-head h2{font-size:17px}.content-grid{grid-template-columns:1fr}.content-section{padding:17px 15px}.brand-name{font-size:16px}.brand-tag{font-size:8px}.brand-mark{width:37px;height:37px}.refresh-label{font-size:9px}}
+@media(max-width:390px){.nav{gap:8px}.nav a{font-size:9px}.match-time{min-width:88px}.team-badge,.team-initial{width:36px;height:36px}.team{gap:6px}.team-code{font-size:12px}}
+</style>
+</head>
+<body>
+<header class="site-header">
+ <div class="header-inner">
+  <a class="brand" href="/" aria-label="Preet Fantasy AI home">
+   <span class="brand-mark" aria-hidden="true">🏏</span>
+   <span><span class="brand-name">PREET <span>FANTASY AI</span></span><span class="brand-tag">CRICKET MATCH CENTRE</span></span>
+  </a>
+  <nav class="nav" aria-label="Main navigation"><a href="#matches">Matches</a><a href="#features">Features</a><a href="#faq">FAQs</a><a href="/docs">API</a></nav>
+ </div>
+</header>
+<section class="hero">
+ <div class="hero-inner">
+  <div>
+   <div class="eyebrow">Cricket fixtures • Match centre</div>
+   <h1>Upcoming Cricket Matches, Live Fixtures & Match Information</h1>
+   <p>Follow upcoming cricket fixtures across international, women's and domestic competitions. Check match formats, participating teams, scheduled start times and available ground information in one simple cricket match centre.</p>
+  </div>
+  <div class="hero-side" aria-label="Fixture coverage">
+   <div class="hero-stat"><span>Matches on this page</span><strong>{{MATCH_COUNT}}</strong></div>
+   <div class="hero-stat"><span>Live matches</span><strong>{{LIVE_COUNT}}</strong></div>
+   <div class="hero-stat"><span>Upcoming matches</span><strong>{{UPCOMING_COUNT}}</strong></div>
+   <div class="hero-stat"><span>Fixture source</span><strong>Team Generation</strong></div>
+  </div>
+ </div>
+</section>
+<main>
+ <section id="matches" aria-labelledby="matches-heading">
+  <div class="section-head">
+   <div><h2 id="matches-heading">Latest Cricket Matches</h2><p>Live and upcoming fixtures, refreshed automatically from the fixture feed.</p></div>
+   <div class="refresh-label">Last checked: {{UPDATED_AT}}</div>
+  </div>
+  <div class="match-grid" id="match-grid">
+   {{MATCH_LIST}}
+  </div>
+  <p class="freshness">Completed, cancelled and no-longer-listed fixtures are removed from this public list. Match records are retained in the database for historical analysis.</p>
+ </section>
+
+ <section class="content-section" id="features">
+  <h2>Cricket Match Schedule & Fixture Centre</h2>
+  <p>Preet Fantasy AI brings cricket schedule information together in a mobile-friendly match centre. The fixture list is designed to help cricket followers quickly identify the teams, competition and format for each scheduled game. Match availability depends on the latest data returned by the fixture provider.</p>
+  <div class="content-grid">
+   <article class="info-card"><strong>International cricket</strong><p>Find available ODI, T20 and Test fixtures featuring national teams.</p></article>
+   <article class="info-card"><strong>Women's & domestic cricket</strong><p>Follow women's competitions, domestic leagues and other fixtures supplied by the source feed.</p></article>
+   <article class="info-card"><strong>Match information</strong><p>See the scheduled start time, team names, competition and venue where those details are available.</p></article>
+  </div>
+  <h3>Automatic fixture updates</h3>
+  <p>The match centre periodically checks the fixture provider and stores match information in the Preet Fantasy AI database. Upcoming and live matches remain visible. When a match is reported as completed or cancelled, or is no longer included in the provider's current fixture list, it is hidden from the public homepage. Its stored record is retained so imported player and scorecard history is not deleted.</p>
+  <h3>Fantasy cricket analysis</h3>
+  <p>Preet Fantasy AI also includes a separate team-building workspace with player roles, credits, selection trends, stadium information and rule-checked team combinations. Any fantasy estimates depend on the historical records available for a particular match and format. They are analytical estimates, not guaranteed outcomes or official match broadcasts.</p>
+ </section>
+
+ <section class="content-section faq" id="faq">
+  <h2>Frequently Asked Questions</h2>
+  <details><summary>Where does the cricket fixture list come from?</summary><p>Public fixtures are imported from the connected Team Generation cricket fixture feed. Team names, competition labels, match timings and available team images are displayed from that source.</p></details>
+  <details><summary>How often are upcoming matches updated?</summary><p>The application checks the source feed periodically while the service is running and refreshes the list when someone opens the match centre after the refresh interval.</p></details>
+  <details><summary>Why does a completed match disappear?</summary><p>Completed and cancelled fixtures are hidden from the public upcoming/live list. The underlying match record remains in SQL so historical scorecards, player records and analysis can still refer to it.</p></details>
+  <details><summary>Does Preet Fantasy AI provide official live scores or a broadcast?</summary><p>No. The homepage is a fixture and match-information display. It is not an official broadcaster, and match status depends on the connected fixture provider.</p></details>
+ </section>
+</main>
+<footer class="site-footer">
+ <div class="footer-inner">
+  <div><strong>PREET FANTASY AI — Cricket Match Centre</strong><p>Fixture information is supplied by the connected provider and may change. Preet Fantasy AI is an independent cricket information and fantasy analysis project and is not affiliated with an official cricket board or broadcaster.</p></div>
+  <div class="footer-links"><a href="/">Home</a><a href="#matches">Matches</a><a href="#faq">FAQs</a><a href="/docs">API documentation</a></div>
+ </div>
+</footer>
+<script>
+document.querySelectorAll('time[data-start]').forEach(el=>{
+ const d=new Date(el.dataset.start);if(!Number.isNaN(d.getTime()))el.textContent=d.toLocaleString('en-IN',{timeZone:'Asia/Kolkata',weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:true});
+});
+</script>
+</body>
+</html>
