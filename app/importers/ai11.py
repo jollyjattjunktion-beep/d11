@@ -127,10 +127,10 @@ def _stat_header_key(value: str) -> str | None:
         "inn": "innings", "no": "not_outs", "runs": "runs", "r": "runs",
         "hs": "highest_score", "avg": "batting_average", "sr": "strike_rate",
         "50+": "fifties", "100+": "hundreds", "4/6": "fours_sixes",
-        "4s": "fours", "6s": "sixes", "wk": "wickets", "w": "wickets",
+        "4s": "fours", "6s": "sixes", "4w": "four_wicket_hauls", "wk": "wickets", "w": "wickets",
         "ov": "overs", "overs": "overs", "eco": "economy", "econ": "economy",
         "best": "best_bowling", "c/st": "catches_stumpings", "c": "catches",
-        "st": "stumpings", "pts": "fantasy_points", "pt": "fantasy_points",
+        "st": "stumpings", "pts": "source_reported_points", "pt": "source_reported_points",
         "s%": "selection_pct", "vc": "vice_captain_pct",
     }
     if compact in aliases:
