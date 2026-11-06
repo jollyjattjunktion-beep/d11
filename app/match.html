@@ -58,6 +58,60 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
 .info{background:#fafafe;border:1px solid var(--line);border-radius:10px;padding:12px}.info small{display:block;color:var(--muted);font-size:9px;text-transform:uppercase;font-weight:800}.info strong{font-size:12px}
 .footer{text-align:center;color:var(--muted);font-size:10px;padding:22px 0}
 @media(max-width:650px){main{margin:16px auto;padding:0 12px 35px}.hero{padding:17px}.teams{gap:5px}.logo,.logo-fallback{width:42px;height:42px}.teamname{font-size:16px}.teamfull{font-size:9px}.stats{grid-template-columns:repeat(2,1fr)}.squad-grid{grid-template-columns:1fr}.squad+.squad{border-left:0;border-top:1px solid var(--line)}.info-grid{grid-template-columns:1fr}}
+
+.builder-section{padding:16px}
+.builder-intro{font-size:12px;color:var(--muted);line-height:1.65;margin:0 0 15px}
+.mode-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:14px 0}
+.mode-tab{appearance:none;border:1px solid var(--line);background:#fff;color:#4b5365;border-radius:11px;padding:12px 9px;text-align:left;cursor:pointer;min-width:0}
+.mode-tab strong{display:block;font-size:12px}.mode-tab small{display:block;font-size:9px;color:var(--muted);margin-top:4px;line-height:1.35}
+.mode-tab.active{border:2px solid var(--purple);background:#f5f0ff;color:var(--purple);padding:11px 8px;box-shadow:0 3px 12px #5c3c9114}
+.mode-panel{border:1px solid var(--line);border-radius:12px;padding:15px;background:#fafafe}
+.mode-panel[hidden]{display:none}
+.option-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.scenario-choice{border:1px solid var(--line);border-radius:10px;background:white;padding:13px 10px;text-align:center;cursor:pointer;color:var(--ink)}
+.scenario-choice strong{display:block;font-size:12px}.scenario-choice small{display:block;color:var(--muted);font-size:9px;margin-top:4px}
+.scenario-choice.selected{border:2px solid var(--purple);background:#f5f0ff;color:var(--purple);padding:12px 9px}
+.field-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
+.builder-field label{display:block;font-size:11px;font-weight:800;margin:0 0 6px}
+.builder-field select,.builder-field input{display:block;width:100%;padding:10px 11px;border:1px solid #d8dce6;border-radius:9px;background:white;color:var(--ink);font:inherit;font-size:12px}
+.builder-help{font-size:10px;color:var(--muted);margin-top:6px;line-height:1.55}
+.builder-common{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:13px;padding:14px;background:#f4f2f9;border-radius:11px}
+.strategy-picks{display:flex;gap:8px;flex-wrap:wrap}
+.strategy-pick{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:9px;padding:9px 11px;background:white;font-size:11px;font-weight:700}
+.fixed-picker{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:10px}
+.fixed-option{display:flex;align-items:center;gap:9px;border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px;min-width:0}
+.fixed-option input{accent-color:var(--purple);width:16px;height:16px;flex:none}
+.fixed-option img,.fixed-avatar{width:36px;height:36px;border-radius:50%;object-fit:cover;background:#edf0f6;flex:none}
+.fixed-avatar{display:grid;place-items:center;color:var(--purple);font-weight:900}
+.fixed-meta{min-width:0}.fixed-meta strong{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.fixed-meta small{display:block;font-size:9px;color:var(--muted)}
+.fixed-count{font-size:10px;font-weight:900;color:var(--purple);margin-top:8px}
+.builder-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
+.generate-btn{border:0;background:linear-gradient(110deg,#5b3991,#7651b8);color:white;padding:12px 19px;border-radius:10px;font-weight:900;cursor:pointer}
+.generate-btn:disabled{opacity:.55;cursor:wait}
+.builder-alert{display:none;margin-top:12px;padding:11px 13px;border-radius:9px;font-size:11px;white-space:pre-wrap}
+.builder-alert.error{display:block;background:#fff0f1;color:#a72b39;border:1px solid #ffd2d8}
+.builder-alert.info{display:block;background:#f2effb;color:#5b4387;border:1px solid #e1d8f2}
+.generated-results{display:grid;gap:13px;margin-top:16px}
+.generated-card{border:1px solid var(--line);background:white;border-radius:13px;overflow:hidden}
+.generated-head{padding:13px 15px;background:#f4f0fb;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.generated-head strong{font-size:12px}.generated-head small{display:block;font-size:9px;color:var(--muted);margin-top:3px}
+.generated-stats{display:flex;gap:6px;flex-wrap:wrap;padding:10px 13px;border-bottom:1px solid var(--line)}
+.generated-stat{background:#f6f7fa;border-radius:7px;padding:5px 8px;font-size:9px;font-weight:800;color:#4b5365}
+.generated-player-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0}
+.generated-role{padding:11px 13px;border-bottom:1px solid #eef0f4}
+.generated-role:nth-child(odd){border-right:1px solid #eef0f4}
+.generated-role h4{margin:0 0 8px;font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted)}
+.generated-player{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:7px;align-items:center;padding:5px 0}
+.generated-player img,.generated-fallback{width:28px;height:28px;border-radius:50%;object-fit:cover;background:#edf0f6}
+.generated-fallback{display:grid;place-items:center;color:var(--purple);font-size:10px;font-weight:900}
+.generated-player strong{display:block;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.generated-player small{display:block;font-size:9px;color:var(--muted)}
+.player-mark{font-size:8px;font-weight:900;border-radius:5px;padding:3px 5px;background:#fff0bd;color:#815500}
+.player-mark.vc{background:#e5efff;color:#315b9c}
+.generated-footer{background:#f8f8fb;padding:11px 14px;font-size:10px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;color:var(--muted)}
+.generated-copy{border:1px solid #d8cbed;border-radius:7px;background:#fff;color:var(--purple);padding:6px 9px;font-size:9px;font-weight:800;cursor:pointer}
+@media(max-width:650px){.mode-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.option-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.builder-common{grid-template-columns:1fr}.fixed-picker{grid-template-columns:1fr}.generated-player-groups{grid-template-columns:1fr}.generated-role:nth-child(odd){border-right:0}}
+
 </style>
 </head>
 <body>
@@ -86,6 +140,70 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
   <div class="notice {{IMPORT_NOTICE_CLASS}}">{{IMPORT_NOTICE}}</div>
  </section>
 
+
+ <section class="section" id="fantasy-builder">
+  <div class="section-head"><h2>Create your fantasy team</h2><small>Four strategy paths • Rule-checked combinations</small></div>
+  <div class="builder-section" id="teamBuilder" data-match-id="{{MATCH_ID}}" data-team-a="{{TEAM_A}}" data-team-b="{{TEAM_B}}" data-format="{{FORMAT}}" data-lineup-confirmed="{{LINEUP_CONFIRMED}}">
+   <p class="builder-intro">Build teams using match conditions, an innings score scenario, multiple strategies or high-selection fixed players. The score scenario and pitch choices influence player-selection preferences; they are not guaranteed score or fantasy-point predictions.</p>
+   <div class="mode-tabs" role="tablist" aria-label="Team generation method">
+    <button class="mode-tab active" type="button" data-mode="pitch" role="tab" aria-selected="true"><strong>Pitch based</strong><small>Batting • Pace • Spin • Balanced</small></button>
+    <button class="mode-tab" type="button" data-mode="score" role="tab" aria-selected="false"><strong>Score based</strong><small>First innings • Chasing</small></button>
+    <button class="mode-tab" type="button" data-mode="combo" role="tab" aria-selected="false"><strong>Powerful combination</strong><small>Safe • Balanced • Grand League</small></button>
+    <button class="mode-tab" type="button" data-mode="smart" role="tab" aria-selected="false"><strong>Smart selection</strong><small>Lock 4–5 players at 80%+</small></button>
+   </div>
+
+   <div class="mode-panel" id="panel-pitch" role="tabpanel">
+    <strong style="font-size:12px">Choose pitch conditions</strong>
+    <div class="option-grid" style="margin-top:10px">
+     <button class="scenario-choice selected" type="button" data-scenario="neutral"><strong>⚖ Balanced</strong><small>Neutral surface</small></button>
+     <button class="scenario-choice" type="button" data-scenario="batting_friendly"><strong>🏏 Batting</strong><small>Prioritise batters</small></button>
+     <button class="scenario-choice" type="button" data-scenario="pace_friendly"><strong>⚡ Pace</strong><small>Seam conditions</small></button>
+     <button class="scenario-choice" type="button" data-scenario="spin_friendly"><strong>🌀 Spin</strong><small>Spin conditions</small></button>
+    </div>
+    <p class="builder-help">Bowling-friendly and pace-friendly use the seam-bowling adjustment. Spin-friendly separately raises the spin-condition preference.</p>
+   </div>
+
+   <div class="mode-panel" id="panel-score" role="tabpanel" hidden>
+    <strong style="font-size:12px">Select innings scenario</strong>
+    <div class="option-grid" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:10px">
+     <button class="scenario-choice selected" type="button" data-score-mode="first_innings"><strong>1st innings</strong><small>Batting-first scenario</small></button>
+     <button class="scenario-choice" type="button" data-score-mode="chasing"><strong>2nd innings</strong><small>Chasing scenario</small></button>
+    </div>
+    <div class="field-row">
+     <div class="builder-field"><label for="scoreTeam">Batting-first / chasing team</label><select id="scoreTeam"><option value="{{TEAM_A}}">{{TEAM_A}}</option><option value="{{TEAM_B}}">{{TEAM_B}}</option></select></div>
+     <div class="builder-field"><label for="scenarioScore">Scenario score / target</label><input id="scenarioScore" type="number" min="1" max="600" placeholder="Enter score e.g. 180"></div>
+    </div>
+    <p class="builder-help">Enter your own score assumption. In 1st innings mode, choose the batting-first team. In chasing mode, choose the chasing team and enter the target. The score is a small selection preference only, not an AI-predicted total.</p>
+   </div>
+
+   <div class="mode-panel" id="panel-combo" role="tabpanel" hidden>
+    <strong style="font-size:12px">Powerful combination strategies</strong>
+    <div class="strategy-picks" style="margin-top:10px">
+     <label class="strategy-pick"><input type="checkbox" class="strategy-check" value="safe" checked> Safe</label>
+     <label class="strategy-pick"><input type="checkbox" class="strategy-check" value="balanced" checked> Balanced</label>
+     <label class="strategy-pick"><input type="checkbox" class="strategy-check" value="grand_league" checked> Grand League</label>
+    </div>
+    <p class="builder-help">Generates separate teams for each selected strategy. Each combination still follows the 11-player, 100-credit, role and maximum-seven-per-side rules.</p>
+   </div>
+
+   <div class="mode-panel" id="panel-smart" role="tabpanel" hidden>
+    <strong style="font-size:12px">Fix 4–5 high-selection players in every team</strong>
+    <p class="builder-help">Only players with at least 80% provider selection are listed. Select four or five. If the Playing XI is confirmed, players outside the XI are excluded from this picker.</p>
+    <div class="fixed-count" id="fixedCount">0 selected</div>
+    <div class="fixed-picker" id="fixedPicker">{{FIXED_PLAYER_OPTIONS}}</div>
+   </div>
+
+   <div class="builder-common">
+    <div class="builder-field"><label for="builderSplit">Team A : Team B split</label><select id="builderSplit"><option value="auto">Automatic / flexible</option><option value="6-5">6 : 5</option><option value="5-6">5 : 6</option><option value="7-4">7 : 4</option><option value="4-7">4 : 7</option></select></div>
+    <div class="builder-field"><label for="builderTeams">Teams per strategy</label><select id="builderTeams"><option value="1">1 team</option><option value="2" selected>2 teams</option><option value="3">3 teams</option><option value="5">5 teams</option></select></div>
+    <div class="builder-field"><label for="builderGeneration">Points mode</label><select id="builderGeneration"><option value="both" selected>AI estimates + provisional</option><option value="provisional">Selection-based only</option><option value="ai_prediction">AI estimates only</option></select></div>
+   </div>
+   <div class="builder-actions"><button type="button" class="generate-btn" id="generateMatchTeams">Generate fantasy teams</button><span class="builder-help">Teams are generated from imported squads and verified credits.</span></div>
+   <div class="builder-alert" id="builderAlert" role="alert"></div>
+   <div class="generated-results" id="generatedTeams" aria-live="polite"></div>
+  </div>
+ </section>
+
  <section class="section">
   <div class="section-head"><h2>Squads & player information</h2><small>Source: Team Generation</small></div>
   {{SQUAD_CONTENT}}
@@ -107,5 +225,123 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
  </section>
  <div class="footer">Preet Fantasy AI • Independent cricket information and fantasy analysis • Not an official broadcast</div>
 </main>
+
+<script>
+(()=>{
+ const root=document.getElementById('teamBuilder');
+ if(!root)return;
+ const matchId=root.dataset.matchId,teamA=root.dataset.teamA,teamB=root.dataset.teamB,format=root.dataset.format;
+ const lineupConfirmed=root.dataset.lineupConfirmed==='true';
+ const $=id=>document.getElementById(id);
+ let activeMode='pitch',pitchScenario='neutral',scoreMode='first_innings',lastTeams=[];
+ const alertBox=$('builderAlert'),results=$('generatedTeams'),generate=$('generateMatchTeams');
+ function showAlert(msg,kind='info'){alertBox.textContent=msg;alertBox.className='builder-alert '+kind;}
+ function clearAlert(){alertBox.textContent='';alertBox.className='builder-alert';}
+ function switchMode(mode){
+  activeMode=mode;
+  document.querySelectorAll('.mode-tab').forEach(b=>{const on=b.dataset.mode===mode;b.classList.toggle('active',on);b.setAttribute('aria-selected',String(on));});
+  document.querySelectorAll('.mode-panel').forEach(p=>p.hidden=p.id!=='panel-'+mode);
+  clearAlert();results.innerHTML='';
+ }
+ document.querySelectorAll('.mode-tab').forEach(b=>b.addEventListener('click',()=>switchMode(b.dataset.mode)));
+ document.querySelectorAll('[data-scenario]').forEach(b=>b.addEventListener('click',()=>{
+  pitchScenario=b.dataset.scenario;
+  document.querySelectorAll('[data-scenario]').forEach(x=>x.classList.toggle('selected',x===b));
+ }));
+ document.querySelectorAll('[data-score-mode]').forEach(b=>b.addEventListener('click',()=>{
+  scoreMode=b.dataset.scoreMode;
+  document.querySelectorAll('[data-score-mode]').forEach(x=>x.classList.toggle('selected',x===b));
+  $('scoreTeam').previousElementSibling.textContent=scoreMode==='first_innings'?'Batting-first team':'Chasing team';
+ }));
+ function selectedFixed(){return [...document.querySelectorAll('.fixed-choice:checked')].map(x=>x.value);}
+ function updateFixedCount(){const n=selectedFixed().length;$('fixedCount').textContent=n+' / 5 selected'+(n>=4?' • ready':' • choose 4–5');}
+ document.querySelectorAll('.fixed-choice').forEach(x=>x.addEventListener('change',()=>{
+  const selected=selectedFixed();
+  if(selected.length>5){x.checked=false;showAlert('A maximum of five fixed players is allowed.','error');}
+  updateFixedCount();
+ }));
+ updateFixedCount();
+ function element(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;}
+ function renderPlayer(parent,p,t){
+  const row=element('div','generated-player');
+  const src=p.team_generation_image||p.image;
+  if(src){const img=element('img');img.src=src;img.alt=p.player_name||'Player';img.loading='lazy';img.onerror=()=>{const f=element('span','generated-fallback',(p.player_name||'?').slice(0,1));img.replaceWith(f);};row.append(img);}
+  else row.append(element('span','generated-fallback',(p.player_name||'?').slice(0,1)));
+  const info=element('div');const name=element('strong','',p.player_name||'Unknown player');const small=element('small','',(p.role||'')+' • '+(p.team||'')+' • '+(p.credits??'—')+' cr');info.append(name,small);row.append(info);
+  if(p.player_id===t.captain_id)row.append(element('span','player-mark','C'));
+  else if(p.player_id===t.vice_captain_id)row.append(element('span','player-mark vc','VC'));
+  parent.append(row);
+ }
+ function renderTeam(team,strategy,mode,index){
+  const card=element('article','generated-card');
+  const head=element('div','generated-head');
+  const left=element('div');const title=element('strong','',strategy.toUpperCase().replaceAll('_',' ')+' • '+mode.toUpperCase()+' • TEAM '+(index+1));
+  const sub=element('small','',(team.points_available&&team.projected_points!=null?'Estimated fantasy points: '+team.projected_points:'Provisional selection build • fantasy points unavailable'));
+  left.append(title,sub);
+  const copy=element('button','generated-copy','Copy team');
+  copy.addEventListener('click',()=>{
+   const text=(team.players||[]).map(p=>p.player_name+' — '+p.role+' — '+p.team+' — '+p.credits+' cr'+(p.player_id===team.captain_id?' — C':p.player_id===team.vice_captain_id?' — VC':'')).join('\n')+'\nTotal credits: '+team.total_credits;
+   if(navigator.clipboard?.writeText)navigator.clipboard.writeText(text).then(()=>{copy.textContent='Copied';setTimeout(()=>copy.textContent='Copy team',1400)}).catch(()=>showAlert(text,'info'));
+   else showAlert(text,'info');
+  });
+  head.append(left,copy);card.append(head);
+  const stats=element('div','generated-stats');
+  const split=team.team_split||{};
+  [team.players.length+' players',team.total_credits+' / 100 credits',teamA+' '+(split[teamA]??0)+' : '+(split[teamB]??0)+' '+teamB].forEach(x=>stats.append(element('span','generated-stat',x)));
+  card.append(stats);
+  const groupRoot=element('div','generated-player-groups');
+  const labels={WK:'Wicket-keepers',BAT:'Batters',AR:'All-rounders',BOWL:'Bowlers'};
+  ['WK','BAT','AR','BOWL'].forEach(role=>{
+   const groupPlayers=(team.players||[]).filter(p=>p.role===role);if(!groupPlayers.length)return;
+   const group=element('section','generated-role');group.append(element('h4','',labels[role]));
+   groupPlayers.forEach(p=>renderPlayer(group,p,team));groupRoot.append(group);
+  });
+  card.append(groupRoot);
+  const foot=element('div','generated-footer');
+  foot.append(element('span','', 'Captain: '+((team.players||[]).find(p=>p.player_id===team.captain_id)?.player_name||'—')+' • Vice-captain: '+((team.players||[]).find(p=>p.player_id===team.vice_captain_id)?.player_name||'—')));
+  foot.append(element('span','',team.score_scenario?'Score scenario: '+team.score_scenario.mode.replace('_',' ')+' • '+team.score_scenario.scenario_score:'Selection score: '+team.selection_score));
+  card.append(foot);return card;
+ }
+ generate.addEventListener('click',async()=>{
+  clearAlert();results.innerHTML='';
+  const selectedStrategies=[...document.querySelectorAll('.strategy-check:checked')].map(x=>x.value);
+  let strategies=['balanced'],scenario='neutral',locked=[],score_mode='none',score_team=null,scenario_score=null,generationMode=$('builderGeneration').value;
+  if(activeMode==='pitch'){scenario=pitchScenario;strategies=['balanced'];}
+  if(activeMode==='score'){
+   strategies=['balanced'];score_mode=scoreMode;score_team=$('scoreTeam').value;scenario_score=Number($('scenarioScore').value);
+   if(!Number.isInteger(scenario_score)||scenario_score<1||scenario_score>600){showAlert('Enter a valid scenario score between 1 and 600.','error');return;}
+  }
+  if(activeMode==='combo'){
+   if(!selectedStrategies.length){showAlert('Select at least one strategy: Safe, Balanced or Grand League.','error');return;}
+   strategies=selectedStrategies;
+  }
+  if(activeMode==='smart'){
+   locked=selectedFixed();
+   if(locked.length<4||locked.length>5){showAlert('Choose four or five fixed players with 80%+ selection.','error');return;}
+   generationMode='provisional';strategies=['safe','balanced'];
+  }
+  let team_a_count=null;const split=$('builderSplit').value;if(split!=='auto')team_a_count=Number(split.split('-')[0]);
+  const request={
+   strategies,teams_per_strategy:Number($('builderTeams').value),
+   rules:{team_size:11,max_from_one_team:7,max_credits:100,min_role:{WK:1,BAT:3,AR:1,BOWL:3},max_role:{WK:4,BAT:6,AR:4,BOWL:6},playing_xi_only:lineupConfirmed,team_a_count},
+   scenario,score_mode,score_team,scenario_score,locked_player_ids:locked,excluded_player_ids:[],captain_pool:[],vice_captain_pool:[],
+   team_mode:'automatic',generation_mode:generationMode
+  };
+  generate.disabled=true;generate.textContent='Building teams…';
+  try{
+   const response=await fetch('/api/v1/matches/'+encodeURIComponent(matchId)+'/teams',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(request)});
+   const data=await response.json();
+   if(!response.ok){const detail=data.detail;throw new Error(typeof detail==='string'?detail:(detail?.message||JSON.stringify(detail)||'Team generation failed.'));}
+   const modes=data.teams||{};let total=0;
+   Object.entries(modes).forEach(([mode,strategiesOut])=>Object.entries(strategiesOut||{}).forEach(([strategy,teams])=>(teams||[]).forEach((team,i)=>{results.append(renderTeam(team,strategy,mode,i));total++;})));
+   if(!total)throw new Error('No legal team was returned. Change team split, fixed players or generation settings.');
+   const notes=(data.warnings||[]).join(' ');
+   showAlert(total+' team(s) generated. '+(data.history_status==='ready'?'Format-matched history is available.':'No complete format-matched fantasy history: provisional teams use selection trends only.')+(notes?' '+notes:''),'info');
+  }catch(err){showAlert(err.message||'Team generation failed.','error');}
+  finally{generate.disabled=false;generate.textContent='Generate fantasy teams';}
+ });
+})();
+</script>
+
 </body>
 </html>
