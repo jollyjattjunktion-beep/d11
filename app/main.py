@@ -5,6 +5,7 @@ from urllib.parse import urljoin, urlparse
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 import secrets
+from datetime import datetime, timezone
 from app.database import Base, engine, get_db
 from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
