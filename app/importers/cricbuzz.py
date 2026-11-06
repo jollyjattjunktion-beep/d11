@@ -209,3 +209,46 @@ def parse_cricbuzz_series_venues(html: str, source_url: str) -> list[dict]:
     if not results:
         raise ValueError("No Cricbuzz venue links were found on this series Venues page.")
     return list(results.values())
+
+
+def validate_cricbuzz_series_index_url(value: str) -> str:
+    parsed = _validate_cricbuzz_host(value)
+    if not (
+        re.fullmatch(r"/cricket-schedule/series/all/?", parsed.path)
+        or re.fullmatch(r"/cricket-scorecard-archives(?:/\d{4})?/?", parsed.path)
+    ):
+        raise ValueError("Use Cricbuzz's all-series schedule page or a scorecard archive page (optionally with a year).")
+    return value
+
+
+def fetch_cricbuzz_series_index(value: str) -> str:
+    return _fetch_html(value, validate_cricbuzz_series_index_url)
+
+
+def parse_cricbuzz_series_index(html: str, source_url: str) -> list[dict]:
+    validate_cricbuzz_series_index_url(source_url)
+    soup = BeautifulSoup(html, "html.parser")
+    results = {}
+    for anchor in soup.find_all("a", href=True):
+        href = anchor.get("href", "")
+        if not re.search(r"/cricket-series/\d+/[^/]+/(?:matches|venues)/?$", href):
+            continue
+        full_url = str(httpx.URL(source_url).join(href))
+        parsed = urlparse(full_url)
+        if parsed.hostname not in ALLOWED_HOSTS:
+            continue
+        match = re.search(r"/cricket-series/(\d+)/([^/]+)/", parsed.path)
+        if not match:
+            continue
+        series_id, slug = match.group(1), match.group(2)
+        name = anchor.get_text(" ", strip=True)
+        if not name:
+            name = re.sub(r"[-_]+", " ", slug).title()
+        results[series_id] = {
+            "series_id": series_id,
+            "name": name[:200],
+            "venues_url": f"https://www.cricbuzz.com/cricket-series/{series_id}/{slug}/venues",
+        }
+    if not results:
+        raise ValueError("No Cricbuzz series links were found. Check that the page is the all-series schedule or an archive page.")
+    return list(results.values())
