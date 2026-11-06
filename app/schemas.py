@@ -80,6 +80,17 @@ class MatchIntelligenceIn(BaseModel):
     lineup_confirmed: bool | None = None
     lineup_selected_player_ids: list[str] = Field(default_factory=list, max_length=30)
 
+class AdminMatchUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=250)
+    format: str | None = Field(default=None, min_length=2, max_length=20)
+    start_time: str | None = Field(default=None, max_length=50)
+    venue: str | None = Field(default=None, max_length=200)
+    team_a: str | None = Field(default=None, max_length=100)
+    team_b: str | None = Field(default=None, max_length=100)
+    status: str | None = Field(default=None, max_length=30)
+    venue_id: str | None = Field(default=None, max_length=160)
+
+
 class SquadPlayerEdit(BaseModel):
     credits: float | None = Field(default=None, ge=0, le=20)
     selection_pct: float | None = Field(default=None, ge=0, le=100)
