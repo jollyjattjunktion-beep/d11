@@ -297,3 +297,15 @@ The public detail page shows both squads, match metadata, venue/toss information
 
 - `GET /match/{match_id}` — SEO-friendly public HTML match detail page.
 - `GET /api/v1/public/matches/{match_id}` — public match, squad, scorecard and limited lineup/venue data. Raw admin intelligence is not returned.
+
+
+### Public match-page fantasy team builder
+
+The public match detail page includes four team-generation modes, all calling `POST /api/v1/matches/{match_id}/teams` and respecting the configured 11-player, 100-credit, role and seven-per-side rules:
+
+1. **Pitch based:** Balanced, Batting, Bowling or Spin. These map to the existing neutral, batting-friendly, bowling-friendly and spin-friendly scenario preferences.
+2. **Score based:** First innings or second-innings chase. The user selects the batting-first/chasing team and enters a scenario score/target. This applies a small role-and-team selection multiplier (format-specific score bands); the entered score is a user assumption, not an AI score prediction or guaranteed fantasy-points forecast.
+3. **Powerful combination:** Generates teams across selected Safe, Balanced and Grand League strategies.
+4. **Smart selection:** Shows only squad players with provider selection percentage >=80%, preselects the top four eligible players, allows up to five, and locks the chosen players into generated teams. Confirmed-XI mode excludes players outside the provider-confirmed XI.
+
+Team split controls remain available (automatic, 6:5, 5:6, 7:4, 4:7). AI estimate and provisional generation remain clearly distinguished; when format-matched fantasy history is unavailable, the API returns provisional selection-priority teams without claiming projected fantasy points.
