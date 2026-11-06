@@ -55,6 +55,7 @@ class StatsImport(BaseModel):
     records: list[StatsIn]
 
 class MatchIntelligenceIn(BaseModel):
+    venue: str | None = Field(default=None, max_length=200)
     pitch_type: str | None = None
     pitch_notes: str | None = None
     batting_friendly: float | None = Field(default=None, ge=0, le=1)
