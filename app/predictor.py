@@ -48,10 +48,12 @@ def _condition_adjustment(role, context, fmt):
 
 def _form_profile(rows):
     values = [float(r.fantasy_points) for r in rows if r.fantasy_points is not None]
-    if not values:
+    # Require a minimum match-level sample before emitting any fantasy-point
+    # estimate. One or two scores are too fragile to call a projection.
+    if len(values) < 3:
         return {"expected_points": None, "floor_points": None, "ceiling_points": None,
                 "consistency": 0.0, "upside": 0.0, "confidence_score": 0,
-                "confidence": "insufficient_data", "risk": "unknown", "matches_used": 0}
+                "confidence": "insufficient_data", "risk": "unknown", "matches_used": len(values)}
     mu = _weighted_mean(values)
     variance = _weighted_mean([(v - mu) ** 2 for v in values])
     sd = sqrt(max(variance, 0))
