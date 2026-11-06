@@ -76,6 +76,53 @@ def _role_context(squad, context):
 
 
 
+def _ai11_profile_adjustment(role: str, fmt: str, profile: dict):
+    """Small supporting adjustment from AI11 career/series aggregates, never a fantasy-points source."""
+    stats = profile.get("ai11_statistics") if isinstance(profile, dict) else None
+    if not isinstance(stats, dict):
+        return 1.0, []
+    sample = stats.get("matches") or stats.get("batting_innings") or stats.get("bowling_innings") or 0
+    try:
+        if float(sample) < 3:
+            return 1.0, ["AI11 profile sample too small for a performance adjustment"]
+    except (TypeError, ValueError):
+        return 1.0, []
+    signals = []
+    role = (role or "").upper()
+    if role in {"BAT", "WK", "AR"}:
+        try:
+            average = float(stats.get("batting_average"))
+            baseline = 32.0 if fmt == "ODI" else 25.0 if fmt == "T20" else 35.0
+            signals.append(max(-1.0, min(1.0, (average - baseline) / baseline)) * 0.025)
+        except (TypeError, ValueError):
+            pass
+        try:
+            strike_rate = float(stats.get("batting_strike_rate") or stats.get("strike_rate"))
+            baseline = 85.0 if fmt == "ODI" else 125.0 if fmt == "T20" else 50.0
+            signals.append(max(-1.0, min(1.0, (strike_rate - baseline) / baseline)) * 0.015)
+        except (TypeError, ValueError):
+            pass
+    if role in {"BOWL", "AR"}:
+        try:
+            wickets = float(stats.get("wickets"))
+            innings = float(stats.get("bowling_innings") or sample)
+            if innings > 0:
+                signals.append(max(-1.0, min(1.0, (wickets / innings - 0.8) / 0.8)) * 0.025)
+        except (TypeError, ValueError):
+            pass
+        try:
+            economy = float(stats.get("economy"))
+            baseline = 6.0 if fmt == "ODI" else 8.0 if fmt == "T20" else 3.2
+            signals.append(max(-1.0, min(1.0, (baseline - economy) / baseline)) * 0.015)
+        except (TypeError, ValueError):
+            pass
+    if not signals:
+        return 1.0, []
+    # Keep aggregate profile influence deliberately small and bounded.
+    factor = _bounded(1.0 + sum(signals) / len(signals), 0.95, 1.05)
+    return factor, [f"AI11 {profile.get('data_type', 'career/series')} profile used as a small supporting form adjustment ({factor:.3f}x)"]
+
+
 def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad,
                    match: Match | None = None, context: dict | None = None) -> dict:
     fmt = (match.format if match else "T20").upper()
@@ -93,12 +140,15 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
     tg_profile = db.get(PlayerSourceProfile, (match_id, player.id, "TEAM_GENERATION"))
     tg_data = tg_profile.data if tg_profile and isinstance(tg_profile.data, dict) else {}
     usage = _role_context(squad, context)
+    ai11_factor, ai11_reasons = _ai11_profile_adjustment(squad.role, fmt, source_data)
     base = {"match_id":match_id,"player_id":player.id,"player_name":player.name,
             "team":squad.team,"role":squad.role,"status":squad.status,
             "credits":squad.credits,"selection_pct":squad.selection_pct,
             "ai11_captain_pct":source_data.get("ai11_captain_pct"),
             "ai11_vice_captain_pct":source_data.get("ai11_vice_captain_pct"),
             "source_profile_available":bool(source_data),
+            "ai11_statistics":source_data.get("ai11_statistics"),
+            "ai11_profile_factor":round(ai11_factor, 3),
             "team_generation_image":tg_data.get("image"),
             "batting_position":usage.get("batting_position", tg_data.get("batting_position")),
             "expected_overs":usage.get("expected_overs", tg_data.get("expected_overs")),
@@ -119,7 +169,11 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
     expected = max(0.0, float(form["expected_points"]) * condition_factor * availability)
     floor = max(0.0, float(form["floor_points"]) * condition_factor * availability)
     ceiling = max(expected, float(form["ceiling_points"]) * condition_factor * availability)
+    expected *= ai11_factor
+    floor = max(0.0, floor * ai11_factor)
+    ceiling = max(expected, ceiling * ai11_factor)
     reasons = [f"Format-matched recent form: {form['matches_used']} records; recency-weighted mean {form['expected_points']:.1f}"]
+    reasons.extend(ai11_reasons)
     reasons.extend(condition_reasons)
     if status in {"playing","confirmed"}:
         reasons.append("Playing status confirmed")
