@@ -288,10 +288,7 @@ def _load_public_match_detail(match_id: str, db: Session) -> dict:
     now = datetime.now(timezone.utc)
     detail_stale = last_detail_sync is None or (now - last_detail_sync) >= timedelta(minutes=15)
     retry_allowed = last_detail_attempt is None or (now - last_detail_attempt) >= timedelta(minutes=5)
-    should_import_detail = bool(
-        (not existing_squads and retry_allowed)
-        or (existing_squads and detail_stale)
-    )
+    should_import_detail = bool(retry_allowed and (not existing_squads or detail_stale))
     import_note = "Squad data is loaded from the connected Team Generation match source."
     import_ok = True
 
