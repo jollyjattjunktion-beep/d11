@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Preet Fantasy AI — Team Builder</title>
+<style>
+:root{--navy:#151b31;--purple:#6541a5;--purple2:#8156c7;--ink:#20283a;--muted:#718096;--line:#e4e8ef;--bg:#f3f5fa;--green:#15986e;--red:#db4d59;--gold:#d49b22}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);font:14px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Arial;color:var(--ink)}
+.topbar{background:linear-gradient(110deg,#171d34,#35245f);color:#fff;padding:18px max(20px,calc((100% - 1180px)/2));display:flex;align-items:center;justify-content:space-between;gap:16px;box-shadow:0 5px 18px #171d3425}
+.brand{font-size:20px;font-weight:800;letter-spacing:.4px}.brand span{color:#c2a5ff}.subbrand{font-size:11px;color:#d7d0e9;margin-top:2px}.auth{display:flex;gap:8px;align-items:center}.auth input{width:205px;background:#ffffff15;color:white;border:1px solid #ffffff40;padding:10px 12px;border-radius:9px}.auth input::placeholder{color:#ddd}
+.wrap{max-width:1180px;margin:26px auto;padding:0 18px 50px}.intro{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:0 0 18px}.intro h1{font-size:25px;margin:0 0 4px}.muted{color:var(--muted)}.pill{display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:5px 10px;font-size:12px;font-weight:700;background:#eee8fb;color:var(--purple)}
+.stepper{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:18px 0 20px}.step{border:1px solid var(--line);background:white;border-radius:12px;padding:11px 12px;display:flex;align-items:center;gap:9px;color:#7b8496;cursor:pointer}.step .num{width:27px;height:27px;border-radius:50%;display:grid;place-items:center;background:#edf0f5;font-weight:800}.step.active{border-color:#a78bdb;box-shadow:0 0 0 3px #8156c71a;color:var(--purple);background:#fcfaff}.step.active .num,.step.done .num{background:var(--purple);color:#fff}.step.done{color:#356a58}.step.done .num{background:var(--green)}.step strong{display:block;font-size:12px}.step small{display:block;font-size:10px;color:var(--muted)}
+.panel{background:white;border:1px solid var(--line);border-radius:16px;box-shadow:0 8px 24px #1b25400a;overflow:hidden}.panelhead{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:center}.panelhead h2{font-size:18px;margin:0}.panelbody{padding:22px}.step-view{display:none}.step-view.active{display:block}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.urlbox{display:flex;gap:10px;max-width:850px}.urlbox input{flex:1;min-width:240px}.field,input,select{font:inherit}.field{width:100%;padding:12px 14px;border:1px solid #cfd6e2;border-radius:9px;background:#fff;color:var(--ink)}.btn{border:0;border-radius:9px;padding:11px 16px;font-weight:750;cursor:pointer;background:var(--purple);color:white;transition:.15s}.btn:hover{filter:brightness(1.06);transform:translateY(-1px)}.btn:disabled{opacity:.55;cursor:not-allowed;transform:none}.btn.secondary{background:#eef0f6;color:#30394c}.btn.green{background:var(--green)}.btn.dark{background:#20283a}.btn.outline{background:#fff;color:var(--purple);border:1px solid #c9b6e8}.btn.danger{background:#fff0f1;color:#c73946;border:1px solid #ffd3d7}.helper{font-size:12px;color:var(--muted);margin-top:8px}.notice{padding:12px 14px;border-radius:10px;background:#f4f1fb;color:#59418a;border:1px solid #e6dcf5;margin:12px 0}.notice.warn{background:#fff8e8;border-color:#f4e1ad;color:#855e11}.notice.good{background:#eaf8f2;border-color:#caeddd;color:#176b4d}.notice.error{background:#fff0f1;border-color:#ffd4d9;color:#a72b39}
+.match-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}.stat{background:#f8f9fc;border:1px solid var(--line);border-radius:11px;padding:13px}.stat b{font-size:19px;display:block}.stat small{color:var(--muted)}
+.fixtures{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}.fixture{border:1px solid var(--line);border-radius:11px;padding:13px;display:flex;justify-content:space-between;gap:12px;align-items:center}.fixture strong{display:block}.fixture small{color:var(--muted)}
+.team-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.team-box{border:1px solid var(--line);border-radius:13px;overflow:hidden}.team-title{display:flex;align-items:center;justify-content:space-between;background:#f6f3fb;padding:12px 14px;font-weight:800}.player-list{padding:4px 12px}.player{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #eff1f5}.player:last-child{border:0}.avatar{width:42px;height:42px;border-radius:50%;object-fit:cover;background:#e9edf4}.pname{font-weight:750}.pmeta{font-size:11px;color:var(--muted)}.status{font-size:10px;font-weight:800;padding:3px 7px;border-radius:99px;background:#eef0f5;color:#667085}.status.playing{background:#e4f7ee;color:#14734f}.status.not_playing{background:#fff0f1;color:#b93a46}.status.not_announced{background:#fff8e8;color:#946b14}.checkbox{width:20px;height:20px;accent-color:var(--purple);cursor:pointer}
+.controls{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:20px;border-top:1px solid var(--line);padding-top:18px}
+.choice-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.choice{border:1px solid var(--line);border-radius:12px;padding:18px 14px;background:#fff;cursor:pointer;text-align:center}.choice strong{display:block;font-size:15px}.choice small{color:var(--muted)}.choice.selected{border:2px solid var(--purple);background:#faf7ff;box-shadow:0 0 0 3px #8156c714}.section-label{font-size:15px;font-weight:800;margin:12px 0 10px}
+.inline-options{display:flex;gap:10px;flex-wrap:wrap}.option{border:1px solid var(--line);border-radius:10px;padding:11px 15px;background:#fff;cursor:pointer}.option.selected{border:2px solid var(--purple);background:#faf7ff;color:var(--purple);font-weight:800}
+.suggestions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.suggestion{border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;grid-template-columns:42px 1fr auto;gap:10px;align-items:center}.suggestion .metrics{font-size:11px;color:var(--muted)}.tag{font-size:10px;padding:3px 7px;border-radius:99px;background:#eaf8f2;color:#176b4d;font-weight:800}
+.results{display:grid;gap:15px}.result-team{border:1px solid var(--line);border-radius:13px;overflow:hidden}.result-title{background:#f4f0fb;padding:13px 16px;font-weight:800;display:flex;justify-content:space-between;gap:10px}.result-list{padding:0 14px}.result-player{display:grid;grid-template-columns:36px minmax(0,1fr) 74px 65px;align-items:center;gap:8px;border-bottom:1px solid #eef0f5;padding:9px 0}.result-player:last-child{border:0}.mini{width:36px;height:36px;border-radius:50%;object-fit:cover;background:#edf0f5}.role{font-size:10px;color:#626b7d;background:#f0f2f6;border-radius:6px;padding:3px 6px;display:inline-block}.cvc{font-size:10px;font-weight:900;color:#fff;background:#cf9b22;border-radius:5px;padding:3px 6px;margin-left:5px}.vc{background:#5872bd}.footer{text-align:center;color:#8992a3;font-size:11px;padding:20px}
+@media(max-width:760px){.topbar{align-items:flex-start;flex-direction:column}.auth{width:100%}.auth input{flex:1}.stepper{grid-template-columns:repeat(2,1fr)}.step:last-child{grid-column:span 2}.match-grid{grid-template-columns:repeat(2,1fr)}.fixtures,.team-columns,.suggestions{grid-template-columns:1fr}.choice-grid{grid-template-columns:1fr}.panelbody{padding:15px}.panelhead{padding:15px}.intro{align-items:flex-start;flex-direction:column}.urlbox{flex-direction:column}.urlbox input{min-width:0}.controls{align-items:stretch}.controls .row{justify-content:flex-end}.result-player{grid-template-columns:34px 1fr 55px 55px}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div><div class="brand">PREET <span>FANTASY AI</span></div><div class="subbrand">CRICKET INTELLIGENCE • STEP-BY-STEP TEAM BUILDER</div></div>
+  <div class="auth"><input id="adminToken" type="password" autocomplete="off" placeholder="Admin token (session only)"><span style="font-size:11px;color:#ddd">Secure admin session</span></div>
+</header>
+<main class="wrap">
+  <div class="intro"><div><h1>Fantasy Team Workspace</h1><div class="muted">Import the match, confirm availability and build teams with venue context.</div></div><span class="pill" id="workspaceStatus">No match loaded</span></div>
+  <nav class="stepper" id="stepper">
+    <div class="step active" data-step="1"><span class="num">1</span><span><strong>Match Import</strong><small>Fetch squads & credits</small></span></div>
+    <div class="step" data-step="2"><span class="num">2</span><span><strong>Playing XI</strong><small>Confirm both teams</small></span></div>
+    <div class="step" data-step="3"><span class="num">3</span><span><strong>Pitch & Toss</strong><small>Match conditions</small></span></div>
+    <div class="step" data-step="4"><span class="num">4</span><span><strong>Fixed Players</strong><small>Venue suggestions</small></span></div>
+    <div class="step" data-step="5"><span class="num">5</span><span><strong>Generate Teams</strong><small>Review final combinations</small></span></div>
+  </nav>
+  <section class="panel">
+    <div class="panelhead"><h2 id="panelTitle">Step 1 — Fetch match and import players</h2><span class="pill" id="stepBadge">STEP 01 / 05</span></div>
+    <div class="panelbody">
+      <section class="step-view active" id="view1">
+        <p class="muted" style="margin-top:0">Paste the match page URL from Team Generation. We will fetch the fixture, both squads, player photos, roles, credits and selection/C/VC percentages.</p>
+        <div class="urlbox"><input class="field" id="matchUrl" type="url" placeholder="https://teamgeneration.in/match/113941"><button class="btn" id="fetchMatch">Fetch & Import Match</button></div>
+        <div class="row" style="margin-top:12px"><button class="btn secondary" id="loadFixtures">Browse upcoming matches</button><span class="helper">You can paste a match URL or enter its match ID.</span></div>
+        <div id="fixtures" class="fixtures"></div>
+        <div id="importNotice" class="notice" style="display:none"></div>
+        <div id="matchSummary" style="display:none">
+          <div class="match-grid" id="matchStats"></div>
+          <div class="notice good" id="creditReady" style="display:none"></div>
+        </div>
+      </section>
+      <section class="step-view" id="view2">
+        <div class="row" style="justify-content:space-between;margin-bottom:12px"><div><b>Playing XI — both teams</b><div class="helper">Only use confirmed source playing flags as the official XI. Before announcement, selections remain provisional.</div></div><button class="btn secondary" id="refreshSource">Refresh source / toss update</button></div>
+        <div id="lineupNotice" class="notice warn">Load a match first.</div>
+        <div class="row" style="margin-bottom:14px"><button class="btn outline" id="autoSelect">Auto-select provider Playing XI</button><span class="pill" id="selectedCount">0 selected</span></div>
+        <div class="team-columns" id="lineupTeams"></div>
+        <div class="controls"><button class="btn secondary" data-back>Back</button><div class="row"><button class="btn secondary" id="saveProvisionalXI">Save provisional picks</button><button class="btn green" id="confirmXI">Confirm official XI</button></div></div>
+      </section>
+      <section class="step-view" id="view3">
+        <div class="section-label">Pitch Details</div>
+        <div class="choice-grid" id="pitchChoices">
+          <button class="choice" data-pitch="batting"><strong>🏏 Batting Pitch</strong><small>More favourable for batters</small></button>
+          <button class="choice" data-pitch="bowling"><strong>🎯 Bowling Pitch</strong><small>More favourable for bowlers</small></button>
+          <button class="choice" data-pitch="balanced"><strong>⚖️ Balanced</strong><small>No strong pitch preference</small></button>
+        </div>
+        <div class="section-label" style="margin-top:26px">Strong Team?</div>
+        <div class="inline-options" id="strongChoices"></div>
+        <div class="section-label" style="margin-top:26px">Toss Completed?</div>
+        <div class="inline-options" id="tossChoices"><button class="option" data-toss="true">Yes</button><button class="option" data-toss="false">No</button></div>
+        <div id="tossExtra" style="display:none;margin-top:16px">
+          <div class="section-label">Toss Winner</div><select id="tossWinner" class="field"></select>
+          <div class="section-label">Decision</div><div class="inline-options" id="tossDecision"><button class="option" data-decision="bat">Bat</button><button class="option" data-decision="bowl">Bowl</button></div>
+        </div>
+        <div class="notice">The pitch choice guides the batting/bowling scenario. A selected strong team will receive the larger team split when teams are generated. These are selection preferences, not guaranteed match outcomes.</div>
+        <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn green" id="saveConditions">Save conditions & continue</button></div>
+      </section>
+      <section class="step-view" id="view4">
+        <div class="row" style="justify-content:space-between;align-items:flex-end;margin-bottom:12px"><div><b>Fixed players — include in every team</b><div class="helper">Recommended: 4–5 fixed players. You can select up to 8; every selection is validated against Dream11 constraints.</div></div><span class="pill" id="fixedCount">0 / 8 fixed</span></div>
+        <div id="venueNotice" class="notice">Checking historical records for this stadium…</div>
+        <div class="section-label">Venue-based player suggestions</div>
+        <div id="venueSuggestions" class="suggestions"></div>
+        <div class="section-label" style="margin-top:20px">Full squad — choose fixed players</div>
+        <div class="team-columns" id="fixedTeams"></div>
+        <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn green" id="saveFixed">Save fixed players & continue</button></div>
+      </section>
+      <section class="step-view" id="view5">
+        <div class="match-grid" id="finalSummary"></div>
+        <div class="section-label">Team generation settings</div>
+        <div class="row">
+          <label style="flex:1;min-width:150px">Teams per strategy<select class="field" id="teamCount"><option>1</option><option>2</option><option>3</option><option>5</option></select></label>
+          <label style="flex:1;min-width:150px">Strategy<select class="field" id="strategy"><option value="safe">Safe</option><option value="balanced">Balanced</option><option value="grand_league">Grand League</option><option value="all">All strategies</option></select></label>
+          <label style="flex:1;min-width:150px">Team split<select class="field" id="teamSplit"><option value="auto">Auto / flexible</option><option value="6-5">6 : 5</option><option value="7-4">7 : 4</option><option value="5-6">5 : 6</option><option value="4-7">4 : 7</option></select></label>
+        </div>
+        <div class="notice warn" id="generationModeNotice">Historical fantasy point coverage will be checked at generation time. If history is missing, only provisional selection-score teams can be created.</div>
+        <div class="row" style="margin-top:18px"><button class="btn" id="generateTeams">Generate Teams</button><span class="helper">Fixed players are locked into every generated team.</span></div>
+        <div id="generationError" class="notice error" style="display:none"></div>
+        <div id="teamResults" class="results" style="margin-top:18px"></div>
+        <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn outline" id="restart">Start another match</button></div>
+      </section>
+    </div>
+  </section>
+  <div class="footer">PREET FANTASY AI • Source-backed cricket data • No guaranteed fantasy points or outcomes</div>
+</main>
+<script>
+const state={matchId:null,match:null,players:[],intelligence:{},step:1,lineupSelected:new Set(),lineupConfirmed:false,fixed:new Set(),pitch:'balanced',strongTeam:'equal',tossCompleted:false,tossWinner:'',tossDecision:'',venueSuggestions:[]};
+const $=id=>document.getElementById(id);
+const token=()=> $('adminToken').value.trim();
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function headers(){if(!token())throw new Error('Enter your admin token first.');return {'Content-Type':'application/json','X-Admin-Token':token()};}
+async function api(url,options={}){const r=await fetch(url,{...options,headers:{...headers(),...(options.headers||{})}});const raw=await r.text();let data;try{data=JSON.parse(raw)}catch{data={detail:raw.slice(0,1000)}}if(!r.ok){if(r.status===401)$('adminToken').value='';throw new Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail||data));}return data;}
+function idFromUrl(v){const s=v.trim();if(/^\d{4,}$/.test(s))return s;const m=s.match(/\/match\/([A-Za-z0-9_-]+)/i)||s.match(/\/matches\/([A-Za-z0-9_-]+)/i);if(!m)throw new Error('Paste a Team Generation match URL such as https://teamgeneration.in/match/113941');return m[1];}
+function setStep(n){if(!state.matchId&&n!==1)return;state.step=n;document.querySelectorAll('.step').forEach(e=>{const x=Number(e.dataset.step);e.classList.toggle('active',x===n);e.classList.toggle('done',x<n)});document.querySelectorAll('.step-view').forEach(e=>e.classList.toggle('active',e.id==='view'+n));$('stepBadge').textContent='STEP 0'+n+' / 05';const titles=['Fetch match and import players','Confirm Playing XI for both teams','Set pitch, strong team and toss','Choose fixed players and venue options','Generate and review fantasy teams'];$('panelTitle').textContent='Step '+n+' — '+titles[n-1];}
+function notice(id,msg,kind=''){const el=$(id);el.className='notice '+kind;el.textContent=msg;el.style.display='block';}
+function playerProfile(p){return p.profile||{};}
+async function loadWizard(){
+ const d=await api('/api/v1/admin/matches/'+encodeURIComponent(state.matchId)+'/wizard');
+ state.match=d.match;state.players=d.players||[];state.intelligence=d.intelligence||{};state.lineupConfirmed=!!d.lineup_confirmed;
+ state.lineupSelected=new Set(d.selected_player_ids||state.players.filter(p=>p.status==='playing').map(p=>p.player_id));
+ state.fixed=new Set(state.intelligence.fixed_player_ids||[]);
+ state.pitch=state.intelligence.pitch_type||'balanced';state.strongTeam=state.intelligence.strong_team||'equal';state.tossCompleted=!!state.intelligence.toss_completed;state.tossWinner=state.intelligence.toss_winner||'';state.tossDecision=state.intelligence.toss_decision||'';
+ $('workspaceStatus').textContent=state.match.team_a+' vs '+state.match.team_b;
+ $('matchSummary').style.display='block';
+ $('matchStats').innerHTML=[['PLAYERS',state.players.length],['FORMAT',state.match.format||'—'],['VENUE',state.match.venue||'Not provided'],['LINEUP',state.lineupConfirmed?'Confirmed':'Not confirmed']].map(x=>'<div class="stat"><small>'+esc(x[0])+'</small><b style="font-size:'+(x[0]==='VENUE'?'14':'19')+'px">'+esc(x[1])+'</b></div>').join('');
+ const withCredits=state.players.filter(p=>p.credits!=null).length;
+ $('creditReady').textContent=withCredits+' / '+state.players.length+' player credits verified. '+(withCredits===state.players.length?'Ready for team generation.':'Some credits are missing; correct them before generating teams.');
+ $('creditReady').style.display='block';$('creditReady').className='notice '+(withCredits===state.players.length?'good':'warn');
+ renderLineup();renderConditions();renderFixed();await loadVenueSuggestions();
+}
+async function importMatch(){
+ try{const id=idFromUrl($('matchUrl').value);state.matchId=id;$('fetchMatch').disabled=true;$('fetchMatch').textContent='Fetching…';notice('importNotice','Fetching match and player data…');const result=await api('/api/v1/admin/import/teamgeneration/'+encodeURIComponent(id),{method:'POST',body:'{}'});await loadWizard();notice('importNotice',result.players_imported+' players imported for '+(result.match?.name||id)+'. Check player credits and continue to Playing XI.','good');setStep(1);}
+ catch(e){notice('importNotice',e.message,'error');}finally{$('fetchMatch').disabled=false;$('fetchMatch').textContent='Fetch & Import Match';}
+}
+$('fetchMatch').onclick=importMatch;
+$('loadFixtures').onclick=async()=>{try{$('fixtures').innerHTML='<div class="helper">Loading upcoming fixtures…</div>';const d=await api('/api/v1/admin/teamgeneration/fixtures');$('fixtures').innerHTML='';(d.matches||[]).slice(0,30).forEach(m=>{const card=document.createElement('div');card.className='fixture';const left=document.createElement('div');const title=document.createElement('strong');title.textContent=(m.left?.code||m.left?.name||'Team A')+' vs '+(m.right?.code||m.right?.name||'Team B');const meta=document.createElement('small');meta.textContent=(m.series||'Cricket')+' • '+(m.lineupStatus||'line-up unknown')+' • ID '+m.id;left.append(title,meta);const btn=document.createElement('button');btn.className='btn outline';btn.textContent='Import';btn.onclick=()=>{$('matchUrl').value='https://teamgeneration.in/match/'+m.id;importMatch()};card.append(left,btn);$('fixtures').append(card);});}catch(e){$('fixtures').textContent=e.message;}};
+function grouped(){return [state.match?.team_a,state.match?.team_b].map(t=>({team:t,players:state.players.filter(p=>p.team===t)}));}
+function playerRow(p,mode){
+ const checked=mode==='lineup'?state.lineupSelected.has(p.player_id):state.fixed.has(p.player_id);
+ const img=p.image||'';
+ const wrap=document.createElement('label');wrap.className='player';
+ const pic=document.createElement('img');pic.className='avatar';pic.src=img||'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50"%3E%3Crect width="50" height="50" rx="25" fill="%23e9edf4"/%3E%3C/svg%3E';pic.onerror=()=>{pic.src='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50"%3E%3Crect width="50" height="50" rx="25" fill="%23e9edf4"/%3E%3C/svg%3E'};
+ const info=document.createElement('div');const name=document.createElement('div');name.className='pname';name.textContent=p.player_name;const meta=document.createElement('div');meta.className='pmeta';meta.textContent=[p.role,p.credits==null?'Credit missing':p.credits+' cr',p.selection_pct==null?'':p.selection_pct.toFixed(1)+'% selected'].filter(Boolean).join(' • ');const status=document.createElement('span');status.className='status '+(p.status||'');status.textContent=(p.status||'unknown').replaceAll('_',' ');info.append(name,meta,status);
+ const cb=document.createElement('input');cb.type='checkbox';cb.className='checkbox';cb.checked=checked;
+ cb.onchange=()=>{const set=mode==='lineup'?state.lineupSelected:state.fixed;if(cb.checked){if(mode==='fixed'&&set.size>=8){cb.checked=false;alert('Maximum 8 fixed players. Recommended 4–5.');return;}set.add(p.player_id);}else set.delete(p.player_id);if(mode==='lineup'){$('selectedCount').textContent=set.size+' selected';}else{$('fixedCount').textContent=set.size+' / 8 fixed';}};
+ wrap.append(pic,info,cb);return wrap;
+}
+function renderLineup(){const root=$('lineupTeams');root.innerHTML='';for(const g of grouped()){const box=document.createElement('div');box.className='team-box';const title=document.createElement('div');title.className='team-title';title.textContent=g.team+' • '+g.players.filter(p=>state.lineupSelected.has(p.player_id)).length+' selected';const list=document.createElement('div');list.className='player-list';g.players.forEach(p=>list.append(playerRow(p,'lineup')));box.append(title,list);root.append(box);} $('selectedCount').textContent=state.lineupSelected.size+' selected';notice('lineupNotice',state.lineupConfirmed?'Provider line-up is confirmed. Review the selected XI and save any corrections.':'Line-up is not yet confirmed by the source. Selected players remain provisional until confirmed.','warn');}
+$('autoSelect').onclick=()=>{state.lineupSelected=new Set(state.players.filter(p=>p.status==='playing').map(p=>p.player_id));renderLineup();};
+async function saveLineup(confirmed){try{const r=await api('/api/v1/admin/matches/'+encodeURIComponent(state.matchId)+'/lineup',{method:'POST',body:JSON.stringify({selected_player_ids:[...state.lineupSelected],confirmed})});state.lineupConfirmed=confirmed;await loadWizard();notice('lineupNotice',confirmed?'Official XI saved for both teams.':'Provisional selection saved. Not-selected players have not been marked unavailable.','good');if(confirmed)setStep(3);}catch(e){notice('lineupNotice',e.message,'error');}}
+$('saveProvisionalXI').onclick=()=>saveLineup(false);$('confirmXI').onclick=()=>{if(!confirm('Confirm these selections as the official Playing XI for both teams? Each team must have exactly 11 selected players.'))return;saveLineup(true);};
+$('refreshSource').onclick=async()=>{try{const r=await api('/api/v1/admin/import/teamgeneration/'+encodeURIComponent(state.matchId),{method:'POST',body:'{}'});await loadWizard();notice('lineupNotice','Source refreshed. '+r.players_imported+' player records checked. Re-select the Playing XI if the toss or team announcement changed.','good');}catch(e){notice('lineupNotice',e.message,'error');}};
+document.querySelectorAll('[data-back]').forEach(b=>b.onclick=()=>setStep(Math.max(1,state.step-1)));
+document.querySelectorAll('.step').forEach(b=>b.onclick=()=>{const n=Number(b.dataset.step);if(n<=state.step||n===1)setStep(n);});
+function renderConditions(){
+ document.querySelectorAll('[data-pitch]').forEach(b=>b.classList.toggle('selected',b.dataset.pitch===state.pitch));
+ document.querySelectorAll('[data-toss]').forEach(b=>b.classList.toggle('selected',String(state.tossCompleted)===b.dataset.toss));
+ document.querySelectorAll('[data-decision]').forEach(b=>b.classList.toggle('selected',b.dataset.decision===state.tossDecision));
+ const teams=[state.match.team_a,state.match.team_b,'equal'];$('strongChoices').innerHTML='';teams.forEach(t=>{const b=document.createElement('button');b.className='option'+(t===state.strongTeam?' selected':'');b.textContent=t==='equal'?'Equal':t;b.onclick=()=>{state.strongTeam=t;renderConditions()};$('strongChoices').append(b);});
+ $('tossExtra').style.display=state.tossCompleted?'block':'none';$('tossWinner').innerHTML='<option value="">Select toss winner</option>'+[state.match.team_a,state.match.team_b].map(t=>'<option>'+esc(t)+'</option>').join('');$('tossWinner').value=state.tossWinner;
+}
+document.querySelectorAll('[data-pitch]').forEach(b=>b.onclick=()=>{state.pitch=b.dataset.pitch;renderConditions()});
+document.querySelectorAll('[data-toss]').forEach(b=>b.onclick=()=>{state.tossCompleted=b.dataset.toss==='true';renderConditions()});
+document.querySelectorAll('[data-decision]').forEach(b=>b.onclick=()=>{state.tossDecision=b.dataset.decision;renderConditions()});
+$('tossWinner').onchange=e=>state.tossWinner=e.target.value;
+async function saveContext(extra={}){const old=state.intelligence||{};const batting=state.pitch==='batting'?0.85:state.pitch==='bowling'?0.25:0.5;const body={...old,pitch_type:state.pitch,batting_friendly:batting,strong_team:state.strongTeam,toss_completed:state.tossCompleted,toss_winner:state.tossWinner||null,toss_decision:state.tossDecision||null,fixed_player_ids:[...state.fixed],lineup_confirmed:state.lineupConfirmed,...extra};const d=await api('/api/v1/matches/'+encodeURIComponent(state.matchId)+'/intelligence',{method:'PUT',body:JSON.stringify(body)});state.intelligence={...old,...body};return d;}
+$('saveConditions').onclick=async()=>{try{if(state.tossCompleted&&(!state.tossWinner||!state.tossDecision)){notice('venueNotice','Select the toss winner and decision, or mark Toss Completed as No.','warn');return;}await saveContext();setStep(4);}catch(e){alert(e.message)}};
+function renderFixed(){const root=$('fixedTeams');root.innerHTML='';for(const g of grouped()){const box=document.createElement('div');box.className='team-box';const title=document.createElement('div');title.className='team-title';title.textContent=g.team;const list=document.createElement('div');list.className='player-list';g.players.forEach(p=>list.append(playerRow(p,'fixed')));box.append(title,list);root.append(box);} $('fixedCount').textContent=state.fixed.size+' / 8 fixed';}
+async function loadVenueSuggestions(){try{const d=await api('/api/v1/admin/matches/'+encodeURIComponent(state.matchId)+'/venue-suggestions');state.venueSuggestions=d.suggestions||[];if(!d.available){notice('venueNotice',d.reason||'No venue history is available yet. Import historical match records with stadium names to enable stadium-based recommendations.','warn');}else{notice('venueNotice','Venue: '+d.venue+' • '+d.suggestions.length+' player records found. Suggestions are ranked using historical fantasy points at this venue.','good');}renderVenueSuggestions();}catch(e){notice('venueNotice',e.message,'error');}}
+function renderVenueSuggestions(){const root=$('venueSuggestions');root.innerHTML='';if(!state.venueSuggestions.length){root.innerHTML='<div class="muted">No verified venue-history suggestions available yet. The full squad remains available below.</div>';return;}state.venueSuggestions.forEach(p=>{const card=document.createElement('div');card.className='suggestion';const img=document.createElement('img');img.className='avatar';img.src=p.image||'';const info=document.createElement('div');const title=document.createElement('b');title.textContent=p.player_name;const met=document.createElement('div');met.className='metrics';met.textContent=p.venue_matches+' venue matches • '+(p.avg_fantasy_points==null?'No points data':p.avg_fantasy_points+' avg fantasy pts')+' • '+p.role;info.append(title,met);const btn=document.createElement('button');btn.className='btn '+(state.fixed.has(p.player_id)?'secondary':'outline');btn.textContent=state.fixed.has(p.player_id)?'Added':'Add';btn.onclick=()=>{if(state.fixed.has(p.player_id))state.fixed.delete(p.player_id);else if(state.fixed.size<8)state.fixed.add(p.player_id);else{alert('Maximum 8 fixed players.');return;}renderFixed();renderVenueSuggestions();};card.append(img,info,btn);root.append(card);});}
+$('saveFixed').onclick=async()=>{try{if(state.fixed.size>8)throw new Error('Maximum 8 fixed players.');await saveContext();renderFinalSummary();setStep(5);}catch(e){alert(e.message)}};
+function renderFinalSummary(){const s=[['MATCH',state.match.name],['PITCH',state.pitch],['STRONG TEAM',state.strongTeam],['FIXED PLAYERS',state.fixed.size],['PLAYING XI',state.lineupConfirmed?'Confirmed':'Provisional']];$('finalSummary').innerHTML=s.map(x=>'<div class="stat"><small>'+esc(x[0])+'</small><b style="font-size:14px">'+esc(x[1])+'</b></div>').join('');}
+$('generateTeams').onclick=async()=>{const out=$('teamResults'),err=$('generationError');err.style.display='none';out.innerHTML='';$('generateTeams').disabled=true;$('generateTeams').textContent='Generating…';try{
+ const strategy=$('strategy').value;const strategies=strategy==='all'?['safe','balanced','grand_league']:[strategy];const split=$('teamSplit').value;let team_a_count=null;if(split!=='auto'){const [a,b]=split.split('-').map(Number);team_a_count=a;}else if(state.strongTeam===state.match.team_a)team_a_count=6;else if(state.strongTeam===state.match.team_b)team_a_count=5;
+ const req={strategies,teams_per_strategy:Number($('teamCount').value),rules:{team_size:11,max_from_one_team:7,max_credits:100,min_role:{WK:1,BAT:3,AR:1,BOWL:3},max_role:{WK:4,BAT:6,AR:4,BOWL:6},playing_xi_only:state.lineupConfirmed,team_a_count},scenario:state.pitch==='batting'?'batting_friendly':state.pitch==='bowling'?'bowling_friendly':'neutral',locked_player_ids:[...state.fixed],excluded_player_ids:[],captain_pool:[],vice_captain_pool:[],team_mode:'automatic',generation_mode:'both'};
+ const d=await api('/api/v1/matches/'+encodeURIComponent(state.matchId)+'/teams',{method:'POST',body:JSON.stringify(req)});$('generationModeNotice').textContent='History status: '+d.history_status+'. Available modes: '+(d.available_modes||[]).join(', ')+'. '+(d.warnings||[]).join(' ');renderTeams(d);
+ }catch(e){err.textContent=e.message;err.style.display='block';}finally{$('generateTeams').disabled=false;$('generateTeams').textContent='Generate Teams';}};
+function renderTeams(data){const root=$('teamResults');root.innerHTML='';const teams=data.teams||{};for(const [mode,strategies] of Object.entries(teams)){for(const [strategy,list] of Object.entries(strategies)){(list||[]).forEach((t,index)=>{const box=document.createElement('div');box.className='result-team';const title=document.createElement('div');title.className='result-title';title.textContent=strategy.toUpperCase().replace('_',' ')+' • '+mode.toUpperCase()+' • Team '+(index+1)+' • '+t.total_credits+' credits';const listEl=document.createElement('div');listEl.className='result-list';(t.players||[]).forEach(p=>{const row=document.createElement('div');row.className='result-player';const img=document.createElement('img');img.className='mini';img.src=p.team_generation_image||'';const name=document.createElement('div');const b=document.createElement('b');b.textContent=p.player_name;const role=document.createElement('span');role.className='role';role.textContent=p.role+' • '+p.team;const pid=p.player_id===t.captain_id?'<span class="cvc">C</span>':p.player_id===t.vice_captain_id?'<span class="cvc vc">VC</span>':'';name.innerHTML='';name.append(b,role);if(pid)name.insertAdjacentHTML('beforeend',pid);const cr=document.createElement('div');cr.textContent=p.credits+' cr';cr.style.textAlign='right';const pct=document.createElement('div');pct.textContent=p.selection_pct==null?'—':p.selection_pct.toFixed(1)+'%';pct.style.textAlign='right';row.append(img,name,cr,pct);listEl.append(row);});const footer=document.createElement('div');footer.style='padding:12px 14px;background:#fafbfe;font-size:12px;color:#596276';footer.textContent='Captain: '+((t.players||[]).find(p=>p.player_id===t.captain_id)?.player_name||'—')+' • Vice-captain: '+((t.players||[]).find(p=>p.player_id===t.vice_captain_id)?.player_name||'—')+' • '+(t.points_available?'Projected points available':'Provisional selection score only; not fantasy points');box.append(title,listEl,footer);root.append(box);});}}if(!root.children.length)root.textContent='No teams returned.';}
+$('restart').onclick=()=>{location.reload()};
+</script>
+</body>
+</html>
