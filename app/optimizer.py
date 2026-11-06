@@ -86,8 +86,6 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
     pool = [p for p in players if p["player_id"] not in excluded_ids]
     if any(by_id[x].get("credits") is None for x in locked_ids):
         raise ValueError("A locked player has unknown credits.")
-    if provisional and any(by_id[x].get("expected_points") is None for x in locked_ids):
-        pass
     if len(locked_ids) > rules.team_size: raise ValueError("More locked players than team size.")
     if rules.team_a_count is not None and not team_a: raise ValueError("team_a is required when team_a_count is set.")
     for pid in locked_ids:
