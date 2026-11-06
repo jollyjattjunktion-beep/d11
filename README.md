@@ -243,11 +243,11 @@ Open `/admin` on your deployed service and enter the `ADMIN_TOKEN`. The token re
 
 The Team Generation workflow is separated into five steps:
 
-1. **Match import:** paste `https://teamgeneration.in/match/{match_id}` or browse upcoming fixtures. The server fetches and imports both teams, roles, player images, credits and provider selection/C/VC trends.
-2. **Playing XI:** provider-confirmed Playing XI flags are auto-selected. The provider's 11-per-team flags can also confirm the XI when the lineup label is delayed. Before confirmation, the admin can save provisional picks without marking other squad members unavailable. Manual official confirmation requires exactly 11 players per side.
-3. **Pitch and toss:** save batting/bowling/balanced pitch preference, strong team, toss status, winner and decision. These choices are saved as match intelligence; pitch/strong-team preferences guide the team-generation scenario and team split.
-4. **Fixed players:** choose up to eight locked players (4–5 recommended). Venue suggestions are shown only when match-by-match historical records for the same venue and players exist. The workspace does not fabricate a stadium record when the data is missing.
-5. **Generate teams:** creates Safe, Balanced, Grand League or combined strategies using the previous selections. If format-matched fantasy points are missing, the API returns provisional selection-score teams rather than claiming projected fantasy points.
+1. **Match import:** paste `https://teamgeneration.in/match/{match_id}` or browse upcoming fixtures. The server fetches both teams, roles, player images, credits and provider selection/C/VC trends.
+2. **Playing XI:** provider-confirmed Playing XI flags are auto-selected. Before confirmation, provisional picks do not mark other squad members unavailable. Manual official confirmation requires exactly 11 players per side.
+3. **Venue analysis:** import a Cricbuzz venue page. The system uses format-specific ODI/T20/Test records to assess ground conditions and toss tendencies; the stronger-team comparison is separate and needs sufficient player history.
+4. **Fixed players:** choose up to five eligible locked players with provider selection percentage of at least 80%. Four or five are recommended, but fewer can be selected when fewer players qualify.
+5. **Generate teams:** choose Team A:Team B splits of 6:5, 5:6, 7:4 or 4:7, then create Safe, Balanced, Grand League or combined strategies. Results render as cricket-ground preview cards with C/VC labels and Print / Save PDF.
 
 Use **Refresh source / toss update** after the toss or official lineup announcement. The importer refreshes provider data; an admin-confirmed XI remains preserved while the provider still reports that lineups are unannounced. Once provider-confirmed Playing XI flags are available, they become the source of truth.
 
