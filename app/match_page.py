@@ -17,6 +17,30 @@ def _logo(value: str | None, fallback: str) -> str:
     return f'<span class="logo-fallback" aria-label="{html.escape(fallback)}">{initials}</span>'
 
 
+def _recommended_pitch_key(analysis: dict, recommendation_ready: bool) -> str:
+    """Normalize the venue's analysed surface behaviour for the match-page selector."""
+    if not recommendation_ready:
+        return "balanced"
+    candidates = (
+        analysis.get("pitch_type"),
+        analysis.get("surface"),
+        analysis.get("pitch_recommendation"),
+    )
+    for value in candidates:
+        text = str(value or "").strip().casefold().replace("_", "-")
+        if not text:
+            continue
+        if "batting" in text or text in {"bat", "batting-friendly"}:
+            return "batting"
+        if "spin" in text:
+            return "spin"
+        if "bowling" in text or "pace-friendly" in text or text in {"bowling-friendly", "bowler"}:
+            return "bowling"
+        if text in {"balanced", "neutral", "even"}:
+            return "balanced"
+    return "balanced"
+
+
 def _player_row(player: dict) -> str:
     name = str(player.get("player_name") or "Unknown player")
     image = _safe_image_url(player.get("image"))
@@ -222,7 +246,7 @@ def render_match_detail(
     venue_recommendation_ready = bool(
         analysis.get("available") and int(analysis.get("total_matches") or 0) >= 15
     )
-    recommended_pitch = analysis.get("pitch_type") if venue_recommendation_ready else "balanced"
+    recommended_pitch = _recommended_pitch_key(analysis, venue_recommendation_ready)
     recommended_score_mode = analysis.get("recommended_innings_mode") if venue_recommendation_ready else "manual"
     recommended_score_value = analysis.get("first_innings_average") if venue_recommendation_ready else None
     toss_completed = bool(intelligence.get("toss_completed"))
