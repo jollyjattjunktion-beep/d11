@@ -149,6 +149,53 @@ def _vice_score(p, strategy, scenario, innings_mode, score_team, scenario_score,
     return 0.58 * signal + 0.27 * ceiling_component + 0.15 * floor_component
 
 
+def _portfolio_exposure_score(raw_score, player_id, exposure, strategy, kind="captain"):
+    """Reduce repeat C/VC exposure across one generated portfolio, without forcing weak picks."""
+    weights = {
+        "safe": 0.055,
+        "balanced": 0.12,
+        "scenario": 0.14,
+        "grand_league": 0.18,
+    }
+    weight = weights.get(strategy, 0.12)
+    if kind == "vice":
+        weight *= 0.90
+    repeat_count = exposure.get(player_id, 0)
+    penalty = min(0.36, weight * repeat_count)
+    return raw_score * (1.0 - penalty)
+
+
+def _captaincy_reason(player, strategy, role_label):
+    """Build an evidence-aware explanation; provisional scores are never called fantasy points."""
+    name = player.get("player_name") or "This player"
+    expected = player.get("expected_points")
+    floor = player.get("floor_points")
+    ceiling = player.get("ceiling_points") or player.get("upside")
+    details = []
+    if expected is not None:
+        details.append(f"modelled expected contribution {float(expected):.1f}")
+        if floor is not None:
+            details.append(f"floor {float(floor):.1f}")
+        if ceiling is not None:
+            details.append(f"ceiling {float(ceiling):.1f}")
+    else:
+        details.append("provisional role/opportunity score; historical fantasy-point estimates are unavailable")
+    if player.get("batting_position") is not None:
+        details.append(f"expected batting position {player['batting_position']}")
+    if player.get("expected_overs") is not None:
+        details.append(f"expected bowling workload {float(player['expected_overs']):g} overs")
+    if player.get("involvement_score") is not None:
+        details.append("imported involvement score available")
+    status = str(player.get("status") or "unknown").lower()
+    if status in {"playing", "confirmed"}:
+        details.append("Playing XI confirmed")
+    elif status in {"probable", "likely", "available"}:
+        details.append("availability is probable, not confirmed")
+    if player.get("selection_pct") is not None and strategy == "grand_league":
+        details.append(f"provider selection {float(player['selection_pct']):.1f}% considered only as a differential signal")
+    return f"{name} selected as {role_label} for {strategy.replace('_', ' ')}: " + "; ".join(details) + "."
+
+
 def _score_context_multiplier(p, innings_mode, score_team, scenario_score, match_format):
     """Small preference adjustment for a user-entered innings scenario, not points."""
     if innings_mode not in {"first_innings", "chasing"} or not score_team or scenario_score is None:
@@ -223,6 +270,9 @@ def _score(p, strategy, scenario, innings_mode="none", score_team=None,
     return value
 
 def _valid(p, chosen, rules, team_a, team_a_count, allow_missing_expected=False):
+    status = str(p.get("status") or "unknown").strip().lower()
+    if status in {"out", "injured", "unavailable", "not_playing"}:
+        return False
     if p.get("credits") is None or (not allow_missing_expected and p.get("expected_points") is None):
         return False
     if rules.playing_xi_only and (p.get("status") or "").lower() not in {"playing","confirmed"}:
@@ -285,7 +335,7 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
         a_count=sum(p["team"] == team_a for p in locked)
         if a_count > rules.team_a_count or len(locked)-a_count > rules.team_size-rules.team_a_count:
             raise ValueError("Locked players conflict with the required team split.")
-    made, usage = [], Counter()
+    made, usage, captain_usage, vice_usage, pair_usage = [], Counter(), Counter(), Counter(), Counter()
     states = [(locked, 0.0)]
     score_args = (innings_mode, score_team, scenario_score, match_format)
     for _ in range(rules.team_size-len(locked)):
@@ -335,59 +385,234 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
     if not valid:
         raise ValueError("No legal team found. Check credits, roles, confirmed XI, locked players and team split.")
     valid.sort(key=lambda x:x[1],reverse=True)
-    # Select different lineups by player identity, not merely the next sorted result.
+    # Build a portfolio of strong but meaningfully different lineups. Diversity is
+    # preferred only within a strategy-specific quality band; weak differentials are not forced.
+    valid.sort(key=lambda x: x[1], reverse=True)
     selected_lineups = []
     remaining_valid = list(valid)
+    min_unique_players = {
+        "safe": 1,
+        "balanced": 2,
+        "scenario": 3,
+        "grand_league": 3,
+    }.get(strategy, 2)
+    quality_floor = {
+        "safe": 0.90,
+        "balanced": 0.84,
+        "scenario": 0.82,
+        "grand_league": 0.76,
+    }.get(strategy, 0.84)
+    overlap_weight = {
+        "safe": 0.12,
+        "balanced": 0.22,
+        "scenario": 0.25,
+        "grand_league": 0.30,
+    }.get(strategy, 0.22)
+    captain_pair_weight = {
+        "safe": 0.035,
+        "balanced": 0.075,
+        "scenario": 0.09,
+        "grand_league": 0.12,
+    }.get(strategy, 0.075)
+
     for index in range(min(count_teams, len(remaining_valid))):
+        if not remaining_valid:
+            break
+        best_base = max(score for _, score in remaining_valid)
+        quality_candidates = [
+            entry for entry in remaining_valid
+            if entry[1] >= best_base * quality_floor
+        ] or remaining_valid
+
+        # Try to keep at least the requested number of players different from each
+        # already-built team. Relax only when the candidate pool cannot support it.
+        diversity_candidates = []
+        for candidate, candidate_score in quality_candidates:
+            candidate_ids = {p["player_id"] for p in candidate}
+            if all(
+                len(candidate_ids & prior_ids) <= rules.team_size - min_unique_players
+                for prior_ids in selected_lineups
+            ):
+                diversity_candidates.append((candidate, candidate_score))
+        candidate_pool = diversity_candidates or quality_candidates
+
         best_entry = None
         best_adjusted = None
-        for chosen_candidate, base_score in remaining_valid:
+        for chosen_candidate, base_score in candidate_pool:
             candidate_ids = {p["player_id"] for p in chosen_candidate}
             overlap_penalty = 0.0
+            repeat_penalty = 0.0
             for prior_ids in selected_lineups:
                 overlap = len(candidate_ids & prior_ids)
                 similarity = overlap / max(1, rules.team_size)
-                # Push later teams toward genuinely different constructions.
-                overlap_penalty += (similarity ** 2) * (0.10 if strategy != "grand_league" else 0.15) * max(base_score, 1.0)
-            adjusted = base_score - overlap_penalty
+                overlap_penalty += (similarity ** 2) * overlap_weight * max(base_score, 1.0)
+            # A small portfolio exposure penalty avoids repeatedly using the same
+            # core players when two legal teams are otherwise similarly strong.
+            for player in chosen_candidate:
+                prior_uses = usage.get(player["player_id"], 0)
+                if prior_uses:
+                    player_signal = _player_signal(
+                        player, strategy, scenario, *score_args,
+                        provisional=provisional
+                    )
+                    repeat_penalty += min(0.045 * prior_uses, 0.18) * player_signal
+            adjusted = base_score - overlap_penalty - repeat_penalty
             if best_entry is None or adjusted > best_adjusted:
                 best_entry, best_adjusted = (chosen_candidate, base_score), adjusted
+
         if best_entry is None:
             break
         chosen, score = best_entry
         chosen_ids = {p["player_id"] for p in chosen}
         selected_lineups.append(chosen_ids)
-        remaining_valid = [(c, s) for c, s in remaining_valid if {p["player_id"] for p in c} != chosen_ids]
-        ids = chosen_ids
+        remaining_valid = [
+            (candidate, value) for candidate, value in remaining_valid
+            if {p["player_id"] for p in candidate} != chosen_ids
+        ]
+
         cands = [p for p in chosen if not captain_pool or p["player_id"] in captain_pool]
         vcands = [p for p in chosen if not vice_captain_pool or p["player_id"] in vice_captain_pool]
         captain_key = lambda p: _captain_score(p, strategy, scenario, *score_args)
-        captain = next((p for p in cands if p["player_id"] == manual_captain_id), None) or (sorted(cands, key=captain_key, reverse=True)[0] if cands else None)
         vice_key = lambda p: _vice_score(p, strategy, scenario, *score_args)
-        vice = next((p for p in vcands if p["player_id"] == manual_vice_captain_id), None) or (sorted([p for p in vcands if not captain or p["player_id"] != captain["player_id"]], key=vice_key, reverse=True)[0] if vcands else None)
+
+        captain_rank = lambda p: _portfolio_exposure_score(
+            captain_key(p), p["player_id"], captain_usage, strategy, "captain"
+        )
+        captain = (
+            next((p for p in cands if p["player_id"] == manual_captain_id), None)
+            or (max(cands, key=captain_rank) if cands else None)
+        )
+
+        def vice_rank(p):
+            base = _portfolio_exposure_score(
+                vice_key(p), p["player_id"], vice_usage, strategy, "vice"
+            )
+            if captain is not None:
+                pair_count = pair_usage.get((captain["player_id"], p["player_id"]), 0)
+                base *= 1.0 - min(0.24, captain_pair_weight * pair_count)
+            return base
+
+        vice_options = [
+            p for p in vcands
+            if not captain or p["player_id"] != captain["player_id"]
+        ]
+        vice = (
+            next((p for p in vice_options if p["player_id"] == manual_vice_captain_id), None)
+            or (max(vice_options, key=vice_rank) if vice_options else None)
+        )
         if not captain or not vice:
             raise ValueError("Captain and vice-captain pools must contain two different selected players.")
-        if captain["player_id"] not in ids or vice["player_id"] not in ids:
+        if captain["player_id"] not in chosen_ids or vice["player_id"] not in chosen_ids:
             raise ValueError("Captain and vice-captain must be selected in the team.")
-        for p in chosen:
-            usage[p["player_id"]] += 1
+
+        captain_alternatives = sorted(
+            [p for p in chosen if p["player_id"] != captain["player_id"]],
+            key=captain_rank,
+            reverse=True
+        )[:2]
+        vice_alternatives = sorted(
+            [p for p in chosen if p["player_id"] != vice["player_id"]],
+            key=vice_rank,
+            reverse=True
+        )[:2]
+
         total = sum(float(p["credits"]) for p in chosen)
-        projected = None if provisional else round(sum(float(p["expected_points"]) for p in chosen) + float(captain["expected_points"]) + 0.5 * float(vice["expected_points"]), 2)
-        captain_alternatives = sorted([p for p in chosen if p["player_id"] != captain["player_id"]], key=captain_key, reverse=True)[:2]
-        vice_alternatives = sorted([p for p in chosen if p["player_id"] != vice["player_id"]], key=vice_key, reverse=True)[:2]
-        made.append({"generation_mode":mode,"strategy":strategy,"scenario":scenario,
-            "score_scenario":{"mode":innings_mode,"team":score_team,"scenario_score":scenario_score,"format":match_format} if innings_mode != "none" else None,
-            "players":chosen,
-            "captain_id":captain["player_id"],"vice_captain_id":vice["player_id"],
-            "captain_alternatives":[{"player_id":p["player_id"],"player_name":p.get("player_name"),"score":round(captain_key(p),2)} for p in captain_alternatives],
-            "vice_captain_alternatives":[{"player_id":p["player_id"],"player_name":p.get("player_name"),"score":round(vice_key(p),2)} for p in vice_alternatives],
-            "captain_reason":"Strategy-weighted ranking of expected contribution, ceiling, floor and role opportunity; popularity is not the deciding factor.",
-            "vice_captain_reason":"Independently ranked for vice-captain balance of expected contribution, floor and ceiling.",
-            "team_strength_score":round(score,2),
-            "risk_profile":"high-upside" if strategy=="grand_league" else "lower-variance" if strategy=="safe" else "balanced-risk",
-            "total_credits":round(total,1),"projected_points":projected,
-            "selection_score":round(score,2),"role_counts":dict(Counter(p["role"] for p in chosen)),
-            "team_split":dict(Counter(p["team"] for p in chosen)),
-            "points_available":not provisional,
-            "score_meaning":"model projected fantasy points including C/VC" if not provisional else "selection-priority score only; not fantasy points"})
+        projected = (
+            None if provisional else
+            round(sum(float(p["expected_points"]) for p in chosen)
+                  + float(captain["expected_points"])
+                  + 0.5 * float(vice["expected_points"]), 2)
+        )
+
+        # Update exposure only after the current XI and its C/VC have been selected.
+        for player in chosen:
+            usage[player["player_id"]] += 1
+        captain_usage[captain["player_id"]] += 1
+        vice_usage[vice["player_id"]] += 1
+        pair_usage[(captain["player_id"], vice["player_id"])] += 1
+
+        made.append({
+            "generation_mode": mode,
+            "strategy": strategy,
+            "scenario": scenario,
+            "score_scenario": {
+                "mode": innings_mode, "team": score_team,
+                "scenario_score": scenario_score, "format": match_format
+            } if innings_mode != "none" else None,
+            "players": chosen,
+            "captain_id": captain["player_id"],
+            "vice_captain_id": vice["player_id"],
+            "captain_alternatives": [
+                {"player_id": p["player_id"], "player_name": p.get("player_name"),
+                 "score": round(captain_rank(p), 2)}
+                for p in captain_alternatives
+            ],
+            "vice_captain_alternatives": [
+                {"player_id": p["player_id"], "player_name": p.get("player_name"),
+                 "score": round(vice_rank(p), 2)}
+                for p in vice_alternatives
+            ],
+            "captain_reason": _captaincy_reason(captain, strategy, "captain"),
+            "vice_captain_reason": _captaincy_reason(vice, strategy, "vice-captain"),
+            "team_strength_score": round(score, 2),
+            "risk_profile": "high-upside" if strategy == "grand_league" else "lower-variance" if strategy == "safe" else "balanced-risk",
+            "total_credits": round(total, 1),
+            "projected_points": projected,
+            "selection_score": round(score, 2),
+            "role_counts": dict(Counter(p["role"] for p in chosen)),
+            "team_split": dict(Counter(p["team"] for p in chosen)),
+            "points_available": not provisional,
+            "score_meaning": "model projected fantasy points including C/VC" if not provisional else "selection-priority score only; not fantasy points",
+        })
+
+    # Publish portfolio-level exposure and overlap metrics for the UI and audit.
+    portfolio_size = max(1, len(made))
+    lineup_exposure = Counter(
+        player["player_id"] for team in made for player in team["players"]
+    )
+    captain_exposure = Counter(team["captain_id"] for team in made)
+    vice_exposure = Counter(team["vice_captain_id"] for team in made)
+    for team_index, team in enumerate(made):
+        team_ids = {player["player_id"] for player in team["players"]}
+        previous_overlaps = [
+            len(team_ids & {player["player_id"] for player in previous["players"]})
+            for previous in made[:team_index]
+        ]
+        team["lineup_overlap_pct"] = round(
+            (max(previous_overlaps) / max(1, rules.team_size)) * 100, 1
+        ) if previous_overlaps else 0.0
+        team["captain_exposure_pct"] = round(
+            captain_exposure[team["captain_id"]] / portfolio_size * 100, 1
+        )
+        team["vice_captain_exposure_pct"] = round(
+            vice_exposure[team["vice_captain_id"]] / portfolio_size * 100, 1
+        )
+        for player in team["players"]:
+            player["portfolio_exposure_pct"] = round(
+                lineup_exposure[player["player_id"]] / portfolio_size * 100, 1
+            )
+        team["portfolio_exposure"] = [
+            {
+                "player_id": player_id,
+                "player_name": next(
+                    (p.get("player_name") for p in team["players"]
+                     if p["player_id"] == player_id), player_id
+                ),
+                "teams_selected": count,
+                "exposure_pct": round(count / portfolio_size * 100, 1),
+            }
+            for player_id, count in sorted(
+                lineup_exposure.items(), key=lambda item: (-item[1], str(item[0]))
+            )
+        ]
+        team["portfolio_captain_usage"] = [
+            {"player_id": player_id, "teams_as_captain": count,
+             "exposure_pct": round(count / portfolio_size * 100, 1)}
+            for player_id, count in captain_exposure.items()
+        ]
+        team["portfolio_vice_usage"] = [
+            {"player_id": player_id, "teams_as_vice_captain": count,
+             "exposure_pct": round(count / portfolio_size * 100, 1)}
+            for player_id, count in vice_exposure.items()
+        ]
     return made
