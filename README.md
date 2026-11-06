@@ -11,6 +11,7 @@ FastAPI service for format-aware cricket fantasy estimates and constrained team 
 - Match intelligence storage: pitch suitability, venue average, weather, rain, humidity, wind, dew, head-to-head and recent team form
 - Player estimates include expected points, estimated floor/median/ceiling, confidence score, risk, sample size, reasons and warnings
 - Safe, Balanced, Grand League and scenario team construction
+- Step-by-step admin workspace at `/admin`: Team Generation URL import, Playing XI confirmation, pitch/strong-team/toss setup, venue-history suggestions, fixed players and team generation
 - 100-credit default, 11-player default, max seven from one side, configurable role limits and exact team-A split (e.g. 6-5, 7-4, 5-6, 4-7)
 - Manual controls: lock players, exclude players, captain/vice-captain pools and manually fixed captain/vice-captain
 
@@ -69,8 +70,13 @@ PATCH /api/v1/matches/ind-nz-odi-2026-2/players/player-a
 ```
 
 ### 4. Save sourced match intelligence
-```json
+Use the `X-Admin-Token` header for this protected write endpoint.
+```http
 PUT /api/v1/matches/ind-nz-odi-2026-2/intelligence
+X-Admin-Token: YOUR_SECRET
+Content-Type: application/json
+```
+```json
 {
   "pitch_type":"balanced",
   "batting_friendly":0.55,
@@ -135,7 +141,7 @@ The team-A count is measured against the match's `team_a` value. Omit it for any
 3. Venue, matchup, batting-position and expected-overs features from historical scorecards.
 4. Format-specific ML training (ODI, T20, Test separately) with chronological backtests.
 5. Calibrated uncertainty and model monitoring before presenting ML confidence.
-6. Authenticated admin UI and a manual visual team editor.
+6. Manual visual team review/editor and additional provider adapters.
 
 Respect each data provider's terms and access controls. This project does not guarantee fantasy contest results.
 
@@ -211,6 +217,20 @@ The AI11 importer caches successful page responses in the running application pr
 When AI11 responds with HTTP 429, the importer makes up to three bounded attempts, respects the provider's `Retry-After` header when present (with a 15-second per-wait cap), and then returns HTTP 429 with a `Retry-After` response header and a clear retry message. Other upstream fetch failures are returned as HTTP 502; invalid URLs remain HTTP 422. Avoid repeated manual retries while the provider is rate-limiting requests.
 
 
-### Simple one-URL admin page
+### Step-by-step admin workspace
 
-Open `/admin` on your deployed service. Enter the AI11 analysis URL and press **Fetch match data**. The page asks for the admin token once per page session; it is held only in page memory and is not saved to the repository or browser storage. The API derives the matching fantasy-page URL from the analysis URL slug and attempts both imports. The JSON API endpoint also accepts only `analysis_url`; `fantasy_url` is optional.
+Open `/admin` on your deployed service and enter the `ADMIN_TOKEN`. The token remains in page memory only; it is not written to local storage.
+
+The Team Generation workflow is separated into five steps:
+
+1. **Match import:** paste `https://teamgeneration.in/match/{match_id}` or browse upcoming fixtures. The server fetches and imports both teams, roles, player images, credits and provider selection/C/VC trends.
+2. **Playing XI:** provider-confirmed Playing XI flags are auto-selected. The provider's 11-per-team flags can also confirm the XI when the lineup label is delayed. Before confirmation, the admin can save provisional picks without marking other squad members unavailable. Manual official confirmation requires exactly 11 players per side.
+3. **Pitch and toss:** save batting/bowling/balanced pitch preference, strong team, toss status, winner and decision. These choices are saved as match intelligence; pitch/strong-team preferences guide the team-generation scenario and team split.
+4. **Fixed players:** choose up to eight locked players (4–5 recommended). Venue suggestions are shown only when match-by-match historical records for the same venue and players exist. The workspace does not fabricate a stadium record when the data is missing.
+5. **Generate teams:** creates Safe, Balanced, Grand League or combined strategies using the previous selections. If format-matched fantasy points are missing, the API returns provisional selection-score teams rather than claiming projected fantasy points.
+
+Use **Refresh source / toss update** after the toss or official lineup announcement. The importer refreshes provider data; an admin-confirmed XI remains preserved while the provider still reports that lineups are unannounced. Once provider-confirmed Playing XI flags are available, they become the source of truth.
+
+AI11 remains a separate provider import under **Other provider — AI11 import**. The two providers do not overwrite one another's source profiles. Missing player credits can be corrected in the Match Import step, with optional source URL evidence.
+
+Venue recommendations require historical match rows with the same normalized venue name and non-null, verified fantasy points. Import accurate match-level scorecards and venue metadata before expecting stadium-specific suggestions.
