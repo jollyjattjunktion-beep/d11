@@ -213,7 +213,7 @@ def parse_analysis(html: str):
     weather_match = re.search(r"Weather:.*?(?:Dew is likely[^.]*\.)?", text, re.I)
     if weather_match:
         intelligence["weather_summary"] = weather_match.group(0)[:500]
-    return {"title": match_name, "format": fmt, "team_a": team_a, "team_b": team_b,
+    return {"match_id": match_id, "title": match_name, "format": fmt, "team_a": team_a, "team_b": team_b,
             "venue": venue, "players": players, "profiles": profiles,
             "intelligence": intelligence, "player_count": len(players)}
 
