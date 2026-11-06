@@ -96,7 +96,10 @@ def _schema_json(base_url: str, matches: list[dict]) -> str:
             {"@type": "ItemList", "name": "Live and upcoming cricket fixtures", "itemListElement": events},
         ],
     }
-    return json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    return (json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+            .replace("&", "\\u0026")
+            .replace("<", "\\u003c")
+            .replace(">", "\\u003e"))
 
 
 def render_home(template: str, matches: list[dict], base_url: str, last_sync: str | None) -> str:
