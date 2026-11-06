@@ -116,6 +116,13 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
 .generated-analysis-grid>div{padding:8px;border-radius:8px;background:#f0eef7}
 .generated-analysis-grid small{display:block;color:var(--muted);font-size:8px;font-weight:800;text-transform:uppercase}
 .generated-analysis-grid b{font-size:10px}
+.generated-exposure{padding:10px 14px 13px;background:#fbfbfe;border-top:1px solid #eef0f4}
+.generated-exposure summary{cursor:pointer;color:var(--purple);font-size:10px;font-weight:850}
+.generated-exposure-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:8px}
+.generated-exposure-item{display:flex;justify-content:space-between;align-items:center;gap:7px;padding:7px 8px;border-radius:7px;background:#f0eef7;font-size:9px;min-width:0}
+.generated-exposure-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.generated-exposure-item b{white-space:nowrap;font-size:9px;color:#4e397d}
+@media(max-width:650px){.generated-exposure-list{grid-template-columns:1fr}}
 @media(max-width:899px){.generated-results{grid-template-columns:repeat(2,minmax(0,1fr))}.generated-field{min-height:560px}}
 @media(max-width:600px){.generated-results{grid-template-columns:1fr}.generated-field{min-height:610px}.field-photo,.field-avatar{width:68px;height:68px}.field-name,.field-credit{font-size:11px}}
 @media print{.generated-results{grid-template-columns:repeat(2,minmax(0,1fr))}.generated-card{break-inside:avoid}.generated-field{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
@@ -419,6 +426,16 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
   analysis.append(element('p','', 'Risk profile: '+(team.risk_profile||strategy)+'. '+(team.points_available?'Format-matched statistical estimates available.':'Provisional selection-priority index only; historical fantasy points unavailable.')));
   analysis.append(element('p','', 'Portfolio variation: captain used in '+(team.captain_exposure_pct??0)+'% of teams • vice-captain used in '+(team.vice_captain_exposure_pct??0)+'% • closest XI overlap '+(team.lineup_overlap_pct??0)+'%.'));
   card.append(analysis);
+  const exposureDetails=element('details','generated-exposure');
+  exposureDetails.append(element('summary','','Player exposure across this generated portfolio'));
+  const exposureList=element('div','generated-exposure-list');
+  (team.portfolio_exposure||[]).forEach(row=>{
+   const exposureItem=element('div','generated-exposure-item');
+   exposureItem.append(element('span','',row.player_name||row.player_id||'Player'));
+   exposureItem.append(element('b','',(row.exposure_pct??0)+'% • '+(row.teams_selected??0)+'/'+(team.portfolio_exposure.length?Math.max(...team.portfolio_exposure.map(x=>x.teams_selected||0)):0)));
+   exposureList.append(exposureItem);
+  });
+  exposureDetails.append(exposureList);card.append(exposureDetails);
   const foot=element('div','generated-footer');
   foot.append(element('span','', 'Captain: '+((team.players||[]).find(p=>p.player_id===team.captain_id)?.player_name||'—')+' • Vice-captain: '+((team.players||[]).find(p=>p.player_id===team.vice_captain_id)?.player_name||'—')));
   foot.append(element('span','',team.score_scenario?'Score scenario: '+team.score_scenario.mode.replace('_',' ')+' • '+team.score_scenario.scenario_score:'Selection score: '+team.selection_score));
