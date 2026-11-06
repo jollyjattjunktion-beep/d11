@@ -88,20 +88,24 @@ def parse_crex_venue_report(html: str, source_url: str | None = None) -> dict:
     if not venue:
         raise ValueError("Could not identify a stadium name in this CREX page. Open the match Info/Venue section and copy that page URL.")
 
-    matches = _number(r"(\d+)\s+Matches", text)
-    win_bat = _number(r"Win Bat first\s+(\d+(?:\.\d+)?)\s*%", text)
-    win_bowl = _number(r"Win Bowl first\s+(\d+(?:\.\d+)?)\s*%", text)
-    avg_first = _number(r"Avg\s*1st\s*Inns\s+(\d+(?:\.\d+)?)", text)
-    avg_second = _number(r"Avg\s*2(?:nd|st)\s*Inns\s+(\d+(?:\.\d+)?)", text)
-    highest_total = _score(r"Highest Total\s+by\s+.+?\s+(\d+\s*[-/]\s*\d+)", text)
-    lowest_total = _score(r"Lowest Total\s+by\s+.+?\s+(\d+\s*[-/]\s*\d+)", text)
-    highest_chased = _score(r"Highest Chased\s+by\s+.+?\s+(\d+\s*[-/]\s*\d+)", text)
-    lowest_defended = _score(r"Lowest Defended\s+by\s+.+?\s+(\d+\s*[-/]\s*\d+)", text)
+    stats_match = re.search(r"Venue Stats(.{0,1200}?)(?:Pace vs Spin on|Recent Matches on)", text, re.I)
+    stats_text = stats_match.group(1) if stats_match else text
+    matches = _number(r"(\d+)\s+Matches", stats_text)
+    win_bat = _number(r"Win Bat first\s+(\d+(?:\.\d+)?)\s*%", stats_text)
+    win_bowl = _number(r"Win Bowl first\s+(\d+(?:\.\d+)?)\s*%", stats_text)
+    avg_first = _number(r"Avg\s*1st\s*Inns\s+(\d+(?:\.\d+)?)", stats_text)
+    avg_second = _number(r"Avg\s*2(?:nd|st)\s*Inns\s+(\d+(?:\.\d+)?)", stats_text)
+    highest_total = _score(r"Highest Total\s+by\s+.+?\s+(\d+\s*[-/]\s*\d+)", stats_text)
+    lowest_total = _score(r"Lowest Total\s+by\s+.+?\s+(\d+\s*[-/]\s*\d+)", stats_text)
+    highest_chased = _score(r"Highest Chased\s+by\s+.+?\s+(\d+\s*[-/]\s*\d+)", stats_text)
+    lowest_defended = _score(r"Lowest Defended\s+by\s+.+?\s+(\d+\s*[-/]\s*\d+)", stats_text)
 
-    pace_wickets = _number(r"Pace\s+(\d+)\s+Wkt", text)
-    pace_pct = _number(r"Pace\s+\d+\s+Wkt\s+(\d+(?:\.\d+)?)\s*%", text)
-    spin_wickets = _number(r"Spin\s+(\d+)\s+Wkt", text)
-    spin_pct = _number(r"Spin\s+\d+\s+Wkt\s+(\d+(?:\.\d+)?)\s*%", text)
+    pace_section_match = re.search(r"Pace vs Spin on(.{0,300}?)(?:Recent Matches on|Squad|$)", text, re.I)
+    pace_text = pace_section_match.group(1) if pace_section_match else text
+    pace_wickets = _number(r"Pace\s+(\d+)\s+Wkt", pace_text)
+    pace_pct = _number(r"Pace\s+\d+\s+Wkt\s+(\d+(?:\.\d+)?)\s*%", pace_text)
+    spin_wickets = _number(r"Spin\s+(\d+)\s+Wkt", pace_text)
+    spin_pct = _number(r"Pace\s+\d+\s+Wkt\s+\d+(?:\.\d+)?\s*%\s+(\d+(?:\.\d+)?)\s*%\s+Spin", pace_text)
 
     temperature = _number(r"(\d+(?:\.\d+)?)\s*[˚°]\s*C", text)
     humidity = _number(r"(\d+(?:\.\d+)?)\s*%\s*\(Humidity\)", text)
