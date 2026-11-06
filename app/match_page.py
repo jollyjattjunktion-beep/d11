@@ -219,9 +219,12 @@ def render_match_detail(
     analysis = venue_analysis or intelligence.get("auto_venue_analysis") or {}
     venue_report = venue_report or intelligence.get("cricbuzz_venue_report") or {}
     pitch = intelligence.get("pitch_type") or analysis.get("pitch_type") or analysis.get("surface") or "Venue analysis not available"
-    recommended_pitch = analysis.get("pitch_type") if analysis.get("available") else "balanced"
-    recommended_score_mode = analysis.get("recommended_innings_mode") if analysis.get("available") else "manual"
-    recommended_score_value = analysis.get("first_innings_average")
+    venue_recommendation_ready = bool(
+        analysis.get("available") and int(analysis.get("total_matches") or 0) >= 15
+    )
+    recommended_pitch = analysis.get("pitch_type") if venue_recommendation_ready else "balanced"
+    recommended_score_mode = analysis.get("recommended_innings_mode") if venue_recommendation_ready else "manual"
+    recommended_score_value = analysis.get("first_innings_average") if venue_recommendation_ready else None
     toss_completed = bool(intelligence.get("toss_completed"))
     toss_winner = intelligence.get("toss_winner") or ""
     toss_decision = intelligence.get("toss_decision") or ""
@@ -264,6 +267,7 @@ def render_match_detail(
         "{{RECOMMENDED_SCORE_TEAM}}": html.escape(str(recommended_score_team)),
         "{{RECOMMENDED_SCORE_VALUE}}": html.escape(str(int(round(float(recommended_score_value)))) if recommended_score_value is not None else ""),
         "{{VENUE_HAS_DATA}}": "true" if analysis.get("available") else "false",
+        "{{VENUE_RECOMMENDATION_READY}}": "true" if venue_recommendation_ready else "false",
         "{{TEAM_A}}": html.escape(str(match.get("team_a") or "")),
         "{{TEAM_B}}": html.escape(str(match.get("team_b") or "")),
         "{{TEAM_A_FULL}}": html.escape(str(match.get("team_a_name") or match.get("team_a") or "")),
