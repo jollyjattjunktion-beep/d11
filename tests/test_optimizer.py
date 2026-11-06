@@ -79,3 +79,24 @@ def test_manual_captain_must_belong_to_selected_captain_pool():
         build_teams(sample_players(),"balanced",TeamRules(),1,
                     captain_pool=["p1"],manual_captain_id="p2")
 
+
+def test_provisional_vice_captain_uses_team_generation_vc_percentage():
+    players = sample_players()
+    for p in players:
+        p["expected_points"] = None
+        p["vice_captain_pct"] = 1
+        p["selection_pct"] = 40
+    by_id = {p["player_id"]: p for p in players}
+    by_id["p0"]["captain_pct"] = 80
+    by_id["p1"]["selection_pct"] = 25
+    by_id["p1"]["vice_captain_pct"] = 75
+    by_id["p2"]["selection_pct"] = 95
+    by_id["p2"]["vice_captain_pct"] = 2
+    team = build_teams(
+        players, "safe", TeamRules(), 1,
+        locked_ids=["p0", "p1", "p2"],
+        manual_captain_id="p0",
+        mode="provisional",
+    )[0]
+    assert team["captain_id"] == "p0"
+    assert team["vice_captain_id"] == "p1"
