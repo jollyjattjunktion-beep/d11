@@ -113,6 +113,7 @@ class TeamRequest(BaseModel):
     manual_captain_id: str | None = None
     manual_vice_captain_id: str | None = None
     team_mode: Literal["manual", "automatic"] = "automatic"
+    generation_mode: Literal["both", "ai_prediction", "provisional"] = "both"
 
 class AI11ImportRequest(BaseModel):
     analysis_url: str
