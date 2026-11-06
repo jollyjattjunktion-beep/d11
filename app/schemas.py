@@ -146,3 +146,11 @@ class PlayingXIUpdate(BaseModel):
 
 class VenueUrlImportRequest(BaseModel):
     url: str = Field(min_length=12, max_length=1000)
+
+
+class CricbuzzVenueImportRequest(BaseModel):
+    url: str = Field(min_length=20, max_length=1200)
+
+
+class CricbuzzSeriesImportRequest(BaseModel):
+    url: str = Field(min_length=20, max_length=1200)
