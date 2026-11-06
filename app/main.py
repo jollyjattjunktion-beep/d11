@@ -284,12 +284,18 @@ def _load_public_match_detail(match_id: str, db: Session) -> dict:
         select(MatchSquad).where(MatchSquad.match_id == match_id)
     ).all()
     last_detail_sync = parse_source_datetime(intel.get("public_detail_imported_at"))
+    last_detail_attempt = parse_source_datetime(intel.get("public_detail_attempt_at"))
     now = datetime.now(timezone.utc)
     detail_stale = last_detail_sync is None or (now - last_detail_sync) >= timedelta(minutes=15)
+    retry_allowed = last_detail_attempt is None or (now - last_detail_attempt) >= timedelta(minutes=5)
+    should_import_detail = bool(
+        (not existing_squads and retry_allowed)
+        or (existing_squads and detail_stale)
+    )
     import_note = "Squad data is loaded from the connected Team Generation match source."
     import_ok = True
 
-    if match.source == "Team Generation" and (not existing_squads or detail_stale):
+    if match.source == "Team Generation" and should_import_detail:
         try:
             # Reuse the already-tested importer so the detail page stores the
             # same player IDs, roles, photos, credits, XI flags and trends
@@ -303,6 +309,7 @@ def _load_public_match_detail(match_id: str, db: Session) -> dict:
             fresh_intel_row = db.get(MatchIntelligence, match_id)
             fresh_intel = dict(fresh_intel_row.data or {}) if fresh_intel_row and isinstance(fresh_intel_row.data, dict) else {}
             fresh_intel["public_detail_imported_at"] = now.isoformat()
+            fresh_intel["public_detail_attempt_at"] = now.isoformat()
             fresh_intel["public_detail_import_status"] = "success"
             fresh_intel["public_detail_imported_players"] = import_result.get("players_imported", 0)
             if fresh_intel_row is None:
@@ -324,10 +331,28 @@ def _load_public_match_detail(match_id: str, db: Session) -> dict:
                 str(detail) if isinstance(detail, str)
                 else "The fixture is saved, but the source could not provide its full player data right now."
             )
+            failed_intel_row = db.get(MatchIntelligence, match_id)
+            failed_intel = dict(failed_intel_row.data or {}) if failed_intel_row and isinstance(failed_intel_row.data, dict) else {}
+            failed_intel["public_detail_attempt_at"] = now.isoformat()
+            failed_intel["public_detail_import_status"] = "failed"
+            if failed_intel_row is None:
+                db.add(MatchIntelligence(match_id=match_id, data=failed_intel))
+            else:
+                failed_intel_row.data = failed_intel
+            db.commit()
         except Exception as exc:
             db.rollback()
             import_ok = False
             import_note = "The fixture is saved, but player details could not be refreshed (" + type(exc).__name__ + ")."
+            failed_intel_row = db.get(MatchIntelligence, match_id)
+            failed_intel = dict(failed_intel_row.data or {}) if failed_intel_row and isinstance(failed_intel_row.data, dict) else {}
+            failed_intel["public_detail_attempt_at"] = now.isoformat()
+            failed_intel["public_detail_import_status"] = "failed"
+            if failed_intel_row is None:
+                db.add(MatchIntelligence(match_id=match_id, data=failed_intel))
+            else:
+                failed_intel_row.data = failed_intel
+            db.commit()
 
     # Refresh ORM state after the importer may have updated the fixture and squads.
     match = db.get(Match, match_id)
