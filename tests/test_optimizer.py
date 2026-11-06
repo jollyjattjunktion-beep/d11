@@ -100,3 +100,21 @@ def test_provisional_vice_captain_uses_team_generation_vc_percentage():
     )[0]
     assert team["captain_id"] == "p0"
     assert team["vice_captain_id"] == "p1"
+
+
+@pytest.mark.parametrize(
+    ("team_a_count", "team_b_count"),
+    [(6, 5), (5, 6), (7, 4), (4, 7)],
+)
+def test_all_supported_team_a_team_b_splits(team_a_count, team_b_count):
+    team = build_teams(
+        sample_players(),
+        "balanced",
+        TeamRules(team_a_count=team_a_count),
+        1,
+        team_a="A",
+    )[0]
+    assert team["team_split"]["A"] == team_a_count
+    assert team["team_split"]["B"] == team_b_count
+    assert sum(team["team_split"].values()) == 11
+    assert max(team["team_split"].values()) <= 7
