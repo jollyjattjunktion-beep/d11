@@ -895,7 +895,11 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
         combined.append({**prediction,"credits":s.credits,"selection_pct":s.selection_pct,"status":s.status,
                          "captain_pct":captain_pct,"vice_captain_pct":vice_pct,
                          "team_generation_image":tg_data.get("image"),
-                         "team_generation_fantasy_ids":tg_data.get("fantasy_ids")})
+                         "team_generation_fantasy_ids":tg_data.get("fantasy_ids"),
+                         "batting_position":tg_data.get("batting_position",prediction.get("batting_position")),
+                         "expected_overs":tg_data.get("expected_overs",prediction.get("expected_overs")),
+                         "involvement_score":tg_data.get("involvement_score",prediction.get("involvement_score")),
+                         "matchup_score":tg_data.get("matchup_score",prediction.get("matchup_score"))})
     history_ready=bool(combined) and all(p.get("expected_points") is not None for p in combined)
     if payload.score_mode != "none":
         if payload.score_team not in {match.team_a, match.team_b}:
