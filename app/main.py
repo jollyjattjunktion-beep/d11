@@ -569,6 +569,10 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
         any(marker in lineup_status for marker in ("announc", "confirmed", "complete", "final"))
         and not lineup_not_announced
     )
+    previous_intel = db.get(MatchIntelligence, match_id)
+    previous_intel_data = dict(previous_intel.data or {}) if previous_intel and isinstance(previous_intel.data, dict) else {}
+    admin_selected_ids = set(previous_intel_data.get("lineup_selected_player_ids") or [])
+    preserve_admin_lineup = previous_intel_data.get("lineup_admin_source") == "admin_confirmed" and not lineup_confirmed
     imported_playing_ids = []
     saved = 0
     credits_saved = 0
@@ -615,7 +619,11 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
             playing_flag = int(item.get("playing") or 0)
         except (TypeError, ValueError):
             playing_flag = 0
-        if playing_flag == 1 and lineup_confirmed:
+        if preserve_admin_lineup:
+            player_status = "playing" if player_id in admin_selected_ids else "not_playing"
+            if player_status == "playing":
+                imported_playing_ids.append(player_id)
+        elif playing_flag == 1 and lineup_confirmed:
             player_status = "playing"
             imported_playing_ids.append(player_id)
         elif not lineup_confirmed:
