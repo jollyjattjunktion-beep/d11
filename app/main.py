@@ -117,10 +117,15 @@ def save_match_intelligence(match_id: str, payload: MatchIntelligenceIn,
                              _admin: bool = Depends(require_admin),
                              db: Session = Depends(get_db)):
     if not db.get(Match,match_id): raise HTTPException(404,"Match not found")
+    match = db.get(Match, match_id)
     row=db.get(MatchIntelligence,match_id)
-    data=payload.model_dump()
-    if row is None: db.add(MatchIntelligence(match_id=match_id,data=data))
-    else: row.data=data
+    data=payload.model_dump(exclude_unset=True)
+    if data.get("venue"):
+        match.venue = data["venue"].strip()
+    merged = dict(row.data or {}) if row and isinstance(row.data, dict) else {}
+    merged.update(data)
+    if row is None: db.add(MatchIntelligence(match_id=match_id,data=merged))
+    else: row.data=merged
     db.commit()
     return {"saved":True,"match_id":match_id,"fields_received":list(data.keys()),
             "note":"Only supplied source-backed values should be entered; missing values are not inferred."}
@@ -559,6 +564,8 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
         match = Match(id=match_id, **match_values)
         db.add(match)
     else:
+        if not match_values.get("venue") and match.venue:
+            match_values["venue"] = match.venue
         for key, value in match_values.items():
             setattr(match, key, value)
 
