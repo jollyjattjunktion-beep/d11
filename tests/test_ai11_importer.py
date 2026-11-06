@@ -130,20 +130,20 @@ def test_ai11_grouped_batting_bowling_stats_are_saved_as_aggregates_not_fantasy_
         <tr>
           <th rowspan="2">Name</th><th rowspan="2">T</th><th rowspan="2">R</th>
           <th rowspan="2">S</th><th colspan="10">Batting</th><th colspan="8">Bowling</th>
-          <th colspan="2">Series</th>
+          <th colspan="5">Series</th>
         </tr>
         <tr>
           <th>M#</th><th>Bat</th><th>Inn</th><th>NO</th><th>Runs</th><th>HS</th>
           <th>Avg</th><th>SR</th><th>50+</th><th>4/6</th>
           <th>Inn</th><th>Wk</th><th>Ov</th><th>Avg</th><th>Eco</th><th>SR</th>
-          <th>4w</th><th>Best</th><th>C/St</th><th>Pts</th>
+          <th>4w</th><th>Best</th><th>C/St</th><th>Pts</th><th>S%</th><th>C</th><th>VC</th>
         </tr>
         <tr>
           <td>Example Batter</td><td>IND</td><td>BAT</td><td>✓</td>
           <td>12</td><td>RHB</td><td>10</td><td>2</td><td>450</td><td>91</td>
           <td>56.25</td><td>88.2</td><td>4</td><td>45/12</td>
           <td>3</td><td>2</td><td>8.0</td><td>24.5</td><td>6.1</td><td>24</td>
-          <td>0</td><td>2/18</td><td>5/1</td><td>320</td>
+          <td>0</td><td>2/18</td><td>5/1</td><td>320</td><td>65.2</td><td>12.5</td><td>8.1</td>
         </tr>
       </table>
     </body></html>
