@@ -11,11 +11,12 @@ from pathlib import Path
 from app.database import Base, engine, get_db
 from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
-                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate)
+                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, VenueUrlImportRequest)
 from app.predictor import predict_match
 from app.optimizer import build_teams
 from app.config import MODEL_VERSION, ADMIN_TOKEN, TG_API_TOKEN
 from app.importers.ai11 import (fetch_page, parse_analysis, parse_fantasy, AI11RateLimitError)
+from app.importers.crex import fetch_crex_page, parse_crex_venue_report
 
 Base.metadata.create_all(bind=engine)
 app = FastAPI(
@@ -923,15 +924,74 @@ def save_playing_xi(match_id: str, payload: PlayingXIUpdate,
     }
 
 
+
+@app.post("/api/v1/admin/matches/{match_id}/venue/import")
+def import_crex_venue_report(match_id: str, payload: VenueUrlImportRequest,
+                             _admin: bool = Depends(require_admin),
+                             db: Session = Depends(get_db)):
+    match = db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "Match not found")
+    try:
+        html = fetch_crex_page(payload.url)
+        report = parse_crex_venue_report(html, payload.url)
+    except ValueError as exc:
+        raise HTTPException(422, "CREX import rejected: " + str(exc)[:400])
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(502, detail={
+            "message": "CREX refused the page request.",
+            "upstream_status": exc.response.status_code,
+            "action": "Open the match Info/Venue page in a browser and retry its HTTPS CREX URL."
+        })
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Could not fetch CREX venue page: " + type(exc).__name__)
+
+    match.venue = report["venue"]
+    row = db.get(MatchIntelligence, match_id)
+    data = dict(row.data or {}) if row and isinstance(row.data, dict) else {}
+    data["crex_venue_report"] = report
+    data["venue_report_source_url"] = payload.url
+    data["venue"] = report["venue"]
+    if report.get("average_first_innings") is not None:
+        data["average_first_innings"] = report["average_first_innings"]
+    if report.get("venue_matches") is not None:
+        data["venue_matches"] = report["venue_matches"]
+    weather = report.get("weather") or {}
+    if weather.get("humidity_pct") is not None:
+        data["humidity"] = weather["humidity_pct"]
+    if weather.get("rain_probability_pct") is not None:
+        data["rain_probability"] = weather["rain_probability_pct"]
+    weather_bits = [
+        str(weather.get("condition")) if weather.get("condition") else None,
+        (str(weather["temperature_c"]) + "°C") if weather.get("temperature_c") is not None else None,
+        ("Humidity " + str(weather["humidity_pct"]) + "%") if weather.get("humidity_pct") is not None else None,
+        ("Rain chance " + str(weather["rain_probability_pct"]) + "%") if weather.get("rain_probability_pct") is not None else None,
+    ]
+    if any(weather_bits):
+        data["weather_summary"] = " • ".join(x for x in weather_bits if x)
+    if report.get("pitch_report") and not data.get("pitch_notes"):
+        data["pitch_notes"] = report["pitch_report"]
+    if row is None:
+        db.add(MatchIntelligence(match_id=match_id, data=data))
+    else:
+        row.data = data
+    db.commit()
+    return {
+        "imported": True,
+        "match_id": match_id,
+        "venue": report["venue"],
+        "source": "CREX",
+        "report": report,
+        "note": "CREX venue statistics and available weather/pitch text were saved. A missing field remains null and is not guessed."
+    }
+
+
 @app.get("/api/v1/admin/matches/{match_id}/venue-suggestions")
 def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
                           db: Session = Depends(get_db)):
     match = db.get(Match, match_id)
     if not match:
         raise HTTPException(404, "Match not found")
-    if not match.venue:
-        return {"available": False, "venue": None, "suggestions": [],
-                "reason": "The match source did not provide a stadium/venue. Add a verified venue and import historical match records with venue names."}
     normalize = lambda value: "".join(ch for ch in str(value or "").casefold() if ch.isalnum())
     target = normalize(match.venue)
     squads = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match_id)).all()
@@ -941,12 +1001,29 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
         current_player = db.get(Player, squad.player_id)
         if current_player:
             squad_player_ids_by_name.setdefault(normalize(current_player.name), squad.player_id)
-    history_rows = db.execute(
-        select(PlayerMatchStats, Match)
-        .join(Match, PlayerMatchStats.match_id == Match.id)
-        .where(Match.venue.is_not(None), PlayerMatchStats.match_id != match_id)
-    ).all()
-    aggregates = {}
+
+    profiles = db.scalars(select(PlayerSourceProfile).where(
+        PlayerSourceProfile.match_id == match_id
+    )).all()
+    profile_map = {}
+    for profile in profiles:
+        profile_map.setdefault(profile.player_id, {})
+        profile_map[profile.player_id].update(profile.data or {})
+
+    # Match-level historical rows are mapped by player identity/name to the current fixture.
+    player_history = {}
+    team_history = {
+        match.team_a: {"players": set(), "matches": set(), "points": [], "runs": [], "wickets": []},
+        match.team_b: {"players": set(), "matches": set(), "points": [], "runs": [], "wickets": []},
+    }
+    history_rows = []
+    if target:
+        history_rows = db.execute(
+            select(PlayerMatchStats, Match)
+            .join(Match, PlayerMatchStats.match_id == Match.id)
+            .where(Match.venue.is_not(None), PlayerMatchStats.match_id != match_id)
+        ).all()
+
     for stats, historical_match in history_rows:
         if normalize(historical_match.venue) != target:
             continue
@@ -956,46 +1033,107 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
             player_id = squad_player_ids_by_name.get(normalize(historical_player.name)) if historical_player else None
         if player_id not in squad_by_id:
             continue
-        entry = aggregates.setdefault(player_id, {
-            "matches": 0, "points": [], "runs": [], "wickets": []
-        })
-        entry["matches"] += 1
+        squad = squad_by_id[player_id]
+        entry = player_history.setdefault(player_id, {"matches": set(), "points": [], "runs": [], "wickets": []})
+        entry["matches"].add(stats.match_id)
         if stats.fantasy_points is not None:
             entry["points"].append(float(stats.fantasy_points))
         entry["runs"].append(int(stats.runs or 0))
         entry["wickets"].append(int(stats.wickets or 0))
-    profiles = db.scalars(select(PlayerSourceProfile).where(
-        PlayerSourceProfile.match_id == match_id,
-        PlayerSourceProfile.source == "TEAM_GENERATION"
-    )).all()
-    profile_map = {p.player_id: (p.data or {}) for p in profiles}
-    suggestions = []
-    for player_id, entry in aggregates.items():
-        if not entry["points"]:
+        team_entry = team_history.get(squad.team)
+        if team_entry is not None:
+            team_entry["players"].add(player_id)
+            team_entry["matches"].add(stats.match_id)
+            if stats.fantasy_points is not None:
+                team_entry["points"].append(float(stats.fantasy_points))
+            team_entry["runs"].append(int(stats.runs or 0))
+            team_entry["wickets"].append(int(stats.wickets or 0))
+
+    candidates = []
+    for squad in squads:
+        player = db.get(Player, squad.player_id)
+        profile = profile_map.get(squad.player_id, {})
+        selection_pct = squad.selection_pct
+        try:
+            selection_pct = float(selection_pct) if selection_pct is not None else None
+        except (TypeError, ValueError):
+            selection_pct = None
+        if selection_pct is None or selection_pct < 80:
             continue
-        squad = squad_by_id[player_id]
-        player = db.get(Player, player_id)
-        points = entry["points"]
-        suggestions.append({
-            "player_id": player_id,
-            "player_name": player.name if player else player_id,
-            "team": squad.team, "role": squad.role, "credits": squad.credits,
-            "image": profile_map.get(player_id, {}).get("image"),
-            "selection_pct": squad.selection_pct,
-            "captain_pct": profile_map.get(player_id, {}).get("captain_pct"),
-            "vice_captain_pct": profile_map.get(player_id, {}).get("vice_captain_pct"),
-            "venue_matches": entry["matches"],
+        history = player_history.get(squad.player_id, {})
+        points = history.get("points", [])
+        candidates.append({
+            "player_id": squad.player_id,
+            "player_name": player.name if player else squad.player_id,
+            "team": squad.team, "role": squad.role,
+            "credits": squad.credits,
+            "image": profile.get("image"),
+            "selection_pct": selection_pct,
+            "captain_pct": profile.get("captain_pct"),
+            "vice_captain_pct": profile.get("vice_captain_pct"),
+            "venue_matches": len(history.get("matches", set())),
             "scored_venue_matches": len(points),
-            "avg_fantasy_points": round(sum(points) / len(points), 2),
-            "avg_runs": round(sum(entry["runs"]) / len(entry["runs"]), 1) if entry["runs"] else 0,
-            "total_venue_wickets": sum(entry["wickets"]),
-            "evidence": "Match-by-match imported records at this venue",
+            "avg_fantasy_points": round(sum(points) / len(points), 2) if points else None,
+            "avg_runs": round(sum(history.get("runs", [])) / len(history.get("runs", [])), 1) if history.get("runs") else None,
+            "total_venue_wickets": sum(history.get("wickets", [])),
+            "selection_eligible": True,
+            "evidence": "Provider selection percentage >= 80%; venue form shown only where imported records exist."
         })
-    suggestions.sort(key=lambda p: (p["avg_fantasy_points"], p["scored_venue_matches"]), reverse=True)
+    candidates.sort(
+        key=lambda p: (p["selection_pct"], p["avg_fantasy_points"] if p["avg_fantasy_points"] is not None else -1),
+        reverse=True
+    )
+    high_selection = candidates[:5]
+
+    team_analysis = []
+    for team_name in (match.team_a, match.team_b):
+        item = team_history[team_name]
+        team_players = []
+        for player_id in item["players"]:
+            player = db.get(Player, player_id)
+            history = player_history[player_id]
+            points = history["points"]
+            team_players.append({
+                "player_id": player_id,
+                "player_name": player.name if player else player_id,
+                "venue_matches": len(history["matches"]),
+                "scored_venue_matches": len(points),
+                "avg_fantasy_points": round(sum(points) / len(points), 2) if points else None,
+                "avg_runs": round(sum(history["runs"]) / len(history["runs"]), 1) if history["runs"] else None,
+                "wickets": sum(history["wickets"]),
+            })
+        team_players.sort(
+            key=lambda p: (p["avg_fantasy_points"] if p["avg_fantasy_points"] is not None else -1, p["venue_matches"]),
+            reverse=True
+        )
+        pts = item["points"]
+        team_analysis.append({
+            "team": team_name,
+            "squad_players_with_venue_records": len(item["players"]),
+            "venue_matches_in_sample": len(item["matches"]),
+            "player_match_records": len(item["runs"]),
+            "average_fantasy_points_per_player_match": round(sum(pts) / len(pts), 2) if pts else None,
+            "average_runs_per_player_match": round(sum(item["runs"]) / len(item["runs"]), 1) if item["runs"] else None,
+            "total_wickets_in_sample": sum(item["wickets"]),
+            "top_players": team_players[:5],
+            "sample_note": "Only imported match-by-match records for current squad members at this venue; this is not the team's win rate."
+        })
+
+    intel_row = db.get(MatchIntelligence, match_id)
+    intel = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+    venue_report = intel.get("crex_venue_report")
+    venue_available = bool(venue_report or player_history)
     return {
-        "available": bool(suggestions), "venue": match.venue,
-        "suggestions": suggestions,
-        "reason": None if suggestions else "No scored historical records at this venue are available for players in this match squad."
+        "available": venue_available,
+        "venue": match.venue,
+        "venue_report": venue_report,
+        "team_analysis": team_analysis,
+        "suggestions": high_selection,
+        "high_selection_recommendations": high_selection,
+        "eligible_over_80_count": len(candidates),
+        "recommended_fixed_count": min(5, len(candidates)),
+        "fixed_selection_threshold_pct": 80,
+        "reason": None if venue_available else "No CREX venue report or imported historical player records are available yet. Paste a CREX match URL above to fetch the stadium report."
     }
 
 
