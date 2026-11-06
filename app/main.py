@@ -572,9 +572,22 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
     role_map = {0: "WK", 1: "BAT", 2: "AR", 3: "BOWL"}
     lineup_status = str(detail.get("lineupStatus") or match_data.get("lineupStatus") or "unknown").lower()
     lineup_not_announced = any(marker in lineup_status for marker in ("not_announced", "not announced", "unannounced", "pending"))
+    provider_playing_counts = {0: 0, 1: 0}
+    for candidate in detail["players"]:
+        if not isinstance(candidate, dict):
+            continue
+        try:
+            is_playing = int(candidate.get("playing") or 0) == 1
+            team_code = int(candidate.get("team"))
+        except (TypeError, ValueError):
+            continue
+        if is_playing and team_code in provider_playing_counts:
+            provider_playing_counts[team_code] += 1
+    provider_xi_complete = provider_playing_counts[0] == 11 and provider_playing_counts[1] == 11
     lineup_confirmed = (
-        any(marker in lineup_status for marker in ("announc", "confirmed", "complete", "final"))
-        and not lineup_not_announced
+        (any(marker in lineup_status for marker in ("announc", "confirmed", "complete", "final"))
+         and not lineup_not_announced)
+        or provider_xi_complete
     )
     previous_intel = db.get(MatchIntelligence, match_id)
     previous_intel_data = dict(previous_intel.data or {}) if previous_intel and isinstance(previous_intel.data, dict) else {}
