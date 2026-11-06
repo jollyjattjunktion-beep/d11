@@ -125,7 +125,7 @@ def _squad_markup(team_a: str, team_b: str, players: list[dict]) -> str:
         )
     if not players:
         return (
-            '<div class="empty">The match record exists, but no player squad data has been saved yet. '
+            '<div class="empty">Squad has not been imported yet. The match record exists, but no player squad data has been saved. '
             'Open this page again after the fixture provider makes the squad available.</div>'
         )
     return '<div class="squad-grid">' + "".join(groups) + "</div>"
@@ -196,7 +196,10 @@ def _venue_guidance_markup(analysis: dict | None, report: dict | None) -> str:
     total = analysis.get("total_matches")
     confidence = html.escape(str(analysis.get("confidence") or "low").title())
     def value(v, suffix=""):
-        return html.escape((f"{float(v):g}{suffix}" if v is not None else "—"))
+        if v is None:
+            return "—"
+        formatted = f"{float(v):.1f}" if suffix == "%" else f"{float(v):g}"
+        return html.escape(formatted + suffix)
     return (
         '<div class="venue-guidance">'
         '<div class="venue-guidance-title"><span>Automatic venue analysis</span>'
