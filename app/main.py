@@ -1,14 +1,17 @@
-from fastapi import FastAPI, Depends, HTTPException, Header
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Depends, HTTPException, Header, Request
+from fastapi.responses import HTMLResponse, Response
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 import secrets
 import httpx
+import os
+import time
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from app.database import Base, engine, get_db
+from app.database import Base, engine, get_db, SessionLocal
 from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
                          TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, VenueEnrichRequest)
@@ -21,6 +24,8 @@ from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_se
     fetch_cricbuzz_series_index, parse_cricbuzz_venue, parse_cricbuzz_series_venues,
     parse_cricbuzz_series_index)
 from app.venue_analysis import analyse_venue, compare_squad_strength, analysis_context_fields
+from app.public_feed import normalize_fixture, sort_fixture_key
+from app.public_page import render_home, render_sitemap
 
 Base.metadata.create_all(bind=engine)
 app = FastAPI(
@@ -29,9 +34,246 @@ app = FastAPI(
     version="0.2.0",
 )
 
-@app.get("/")
-def root():
-    return {"name":"Preet Fantasy AI","version":"0.2.0","docs":"/docs","health":"/health"}
+_PUBLIC_SYNC_LOCK = threading.Lock()
+_PUBLIC_SYNC_INTERVAL_SECONDS = 300
+_last_public_sync_monotonic = 0.0
+_last_public_sync_at: str | None = None
+_last_public_sync_summary: dict = {"ok": False, "message": "First sync has not run yet."}
+_public_sync_thread: threading.Thread | None = None
+
+
+def _sync_public_match_feed(db: Session, force: bool = False) -> dict:
+    global _last_public_sync_monotonic, _last_public_sync_at, _last_public_sync_summary
+    now_mono = time.monotonic()
+    if not force and now_mono - _last_public_sync_monotonic < _PUBLIC_SYNC_INTERVAL_SECONDS:
+        return dict(_last_public_sync_summary)
+    if not _PUBLIC_SYNC_LOCK.acquire(blocking=False):
+        return dict(_last_public_sync_summary)
+    try:
+        now_mono = time.monotonic()
+        if not force and now_mono - _last_public_sync_monotonic < _PUBLIC_SYNC_INTERVAL_SECONDS:
+            return dict(_last_public_sync_summary)
+        # Prevent every visitor from retrying the upstream request during an outage.
+        _last_public_sync_monotonic = now_mono
+        payload = _teamgeneration_request("https://v2.tgsoftware-api.online/matches?sport=cricket")
+        if not isinstance(payload, list):
+            raise ValueError("Team Generation fixture feed did not return a list.")
+
+        synced_at = datetime.now(timezone.utc).isoformat()
+        seen_ids: set[str] = set()
+        created = updated = hidden = skipped = 0
+        for item in payload:
+            if not isinstance(item, dict):
+                skipped += 1
+                continue
+            record = normalize_fixture(item)
+            if not record:
+                skipped += 1
+                continue
+            match_id = record["id"]
+            seen_ids.add(match_id)
+            match = db.get(Match, match_id)
+            values = {
+                "name": record["name"],
+                "format": record["format"],
+                "start_time": record["start_time"],
+                "venue": record["venue"],
+                "team_a": record["team_a"],
+                "team_b": record["team_b"],
+                "status": record["status"],
+                "source": "Team Generation",
+            }
+            if match is None:
+                match = Match(id=match_id, **values)
+                db.add(match)
+                created += 1
+            else:
+                for key, value in values.items():
+                    if key == "venue" and value is None and match.venue:
+                        continue
+                    setattr(match, key, value)
+                updated += 1
+
+            db.flush()
+            intel = db.get(MatchIntelligence, match_id)
+            intel_data = dict(intel.data or {}) if intel and isinstance(intel.data, dict) else {}
+            intel_data["public_feed"] = {
+                "source": "Team Generation",
+                "series": record["series"],
+                "team_a_name": record["team_a_name"],
+                "team_b_name": record["team_b_name"],
+                "team_a_image": record["team_a_image"],
+                "team_b_image": record["team_b_image"],
+                "source_status": record["source_status"],
+                "lineup_status": record["lineup_status"],
+                "public_listed": bool(record["visible"]),
+                "last_seen_at": synced_at,
+                "synced_at": synced_at,
+            }
+            if intel is None:
+                db.add(MatchIntelligence(match_id=match_id, data=intel_data))
+            else:
+                intel.data = intel_data
+            if not record["visible"]:
+                hidden += 1
+
+        # Hide provider-omitted fixtures from the public list but keep their
+        # Match, squad, scorecards and player-history rows in SQL.
+        existing_rows = db.scalars(
+            select(Match).where(Match.source == "Team Generation")
+        ).all()
+        for match in existing_rows:
+            if match.id in seen_ids:
+                continue
+            intel = db.get(MatchIntelligence, match.id)
+            intel_data = dict(intel.data or {}) if intel and isinstance(intel.data, dict) else {}
+            public_feed = dict(intel_data.get("public_feed") or {})
+            if public_feed.get("public_listed") is not False:
+                public_feed["public_listed"] = False
+                public_feed["removed_from_public_list_at"] = synced_at
+                intel_data["public_feed"] = public_feed
+                if intel is None:
+                    db.add(MatchIntelligence(match_id=match.id, data=intel_data))
+                else:
+                    intel.data = intel_data
+                hidden += 1
+
+        db.commit()
+        summary = {
+            "ok": True,
+            "source": "Team Generation",
+            "received": len(payload),
+            "created": created,
+            "updated": updated,
+            "hidden": hidden,
+            "skipped": skipped,
+            "synced_at": synced_at,
+        }
+        _last_public_sync_at = synced_at
+        _last_public_sync_summary = summary
+        return dict(summary)
+    except HTTPException as exc:
+        db.rollback()
+        summary = {"ok": False, "message": str(exc.detail)[:300], "synced_at": _last_public_sync_at}
+        _last_public_sync_summary = summary
+        return dict(summary)
+    except Exception as exc:
+        db.rollback()
+        summary = {"ok": False, "message": "Fixture sync failed: " + type(exc).__name__, "synced_at": _last_public_sync_at}
+        _last_public_sync_summary = summary
+        return dict(summary)
+    finally:
+        _PUBLIC_SYNC_LOCK.release()
+
+
+def _public_match_records(db: Session) -> list[dict]:
+    rows = db.scalars(select(Match).where(Match.source == "Team Generation")).all()
+    if not rows:
+        return []
+    ids = [row.id for row in rows]
+    intelligence_rows = db.scalars(
+        select(MatchIntelligence).where(MatchIntelligence.match_id.in_(ids))
+    ).all()
+    intelligence = {row.match_id: (row.data or {}) for row in intelligence_rows}
+    records = []
+    for match in rows:
+        data = intelligence.get(match.id) or {}
+        feed = data.get("public_feed") or {}
+        if feed.get("public_listed") is False:
+            continue
+        if match.status not in {"upcoming", "live", "postponed"}:
+            continue
+        records.append({
+            "id": match.id,
+            "name": match.name,
+            "format": match.format,
+            "start_time": match.start_time,
+            "venue": match.venue,
+            "team_a": match.team_a,
+            "team_b": match.team_b,
+            "team_a_name": feed.get("team_a_name") or match.team_a,
+            "team_b_name": feed.get("team_b_name") or match.team_b,
+            "team_a_image": feed.get("team_a_image"),
+            "team_b_image": feed.get("team_b_image"),
+            "series": feed.get("series") or match.name,
+            "status": match.status,
+            "source_status": feed.get("source_status"),
+        })
+    return sorted(records, key=sort_fixture_key)
+
+
+def _public_site_base(request: Request) -> str:
+    configured = os.getenv("PUBLIC_SITE_URL", "").strip()
+    return (configured or str(request.base_url)).rstrip("/")
+
+
+def _public_sync_worker() -> None:
+    while True:
+        try:
+            with SessionLocal() as db:
+                _sync_public_match_feed(db, force=True)
+        except Exception:
+            pass
+        time.sleep(_PUBLIC_SYNC_INTERVAL_SECONDS)
+
+
+@app.on_event("startup")
+def start_public_fixture_sync():
+    global _public_sync_thread
+    if _public_sync_thread and _public_sync_thread.is_alive():
+        return
+    _public_sync_thread = threading.Thread(
+        target=_public_sync_worker,
+        name="preet-public-fixture-sync",
+        daemon=True,
+    )
+    _public_sync_thread.start()
+
+
+@app.get("/", response_class=HTMLResponse)
+def root(request: Request, db: Session = Depends(get_db)):
+    _sync_public_match_feed(db, force=False)
+    matches = _public_match_records(db)
+    template_path = Path(__file__).with_name("home.html")
+    if not template_path.is_file():
+        raise HTTPException(500, "Public homepage template is missing.")
+    base_url = _public_site_base(request)
+    return HTMLResponse(
+        render_home(template_path.read_text(encoding="utf-8"), matches, base_url, _last_public_sync_at),
+        headers={"Cache-Control": "public, max-age=60"},
+    )
+
+
+@app.get("/api/v1/public/matches")
+def public_matches_api(db: Session = Depends(get_db)):
+    sync = _sync_public_match_feed(db, force=False)
+    matches = _public_match_records(db)
+    return {
+        "count": len(matches),
+        "matches": matches,
+        "last_sync": _last_public_sync_at,
+        "sync": sync,
+        "note": "Completed, cancelled and no-longer-listed fixtures are hidden from the public feed; SQL match and player-history records are retained."
+    }
+
+
+@app.get("/robots.txt", response_class=Response)
+def robots_txt(request: Request):
+    base_url = _public_site_base(request)
+    return Response(
+        "User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/v1/admin/\nDisallow: /docs\nDisallow: /redoc\nSitemap: " + base_url + "/sitemap.xml\n",
+        media_type="text/plain",
+    )
+
+
+@app.get("/sitemap.xml", response_class=Response)
+def sitemap_xml(request: Request, db: Session = Depends(get_db)):
+    _sync_public_match_feed(db, force=False)
+    base_url = _public_site_base(request)
+    return Response(
+        render_sitemap(base_url, _public_match_records(db)),
+        media_type="application/xml",
+    )
 
 @app.get("/health")
 def health():
@@ -104,6 +346,16 @@ def require_admin(x_admin_token: str | None = Header(default=None)):
     if not x_admin_token or not secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
         raise HTTPException(401, "Valid X-Admin-Token header required.")
     return True
+
+
+@app.post("/api/v1/admin/public-matches/sync")
+def admin_sync_public_matches(_admin: bool = Depends(require_admin),
+                              db: Session = Depends(get_db)):
+    result = _sync_public_match_feed(db, force=True)
+    if not result.get("ok"):
+        raise HTTPException(502, result.get("message") or "Fixture sync failed.")
+    result["visible_matches"] = len(_public_match_records(db))
+    return result
 
 @app.patch("/api/v1/matches/{match_id}/players/{player_id}")
 def edit_match_player(match_id: str, player_id: str, payload: SquadPlayerEdit,
