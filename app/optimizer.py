@@ -324,23 +324,46 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
     if not valid:
         raise ValueError("No legal team found. Check credits, roles, confirmed XI, locked players and team split.")
     valid.sort(key=lambda x:x[1],reverse=True)
-    for index in range(min(count_teams,len(valid))):
-        chosen,score=valid[index]
-        ids={p["player_id"] for p in chosen}
-        cands=[p for p in chosen if not captain_pool or p["player_id"] in captain_pool]
-        vcands=[p for p in chosen if not vice_captain_pool or p["player_id"] in vice_captain_pool]
-        captain_key=lambda p:_captain_score(p,strategy,scenario,*score_args)
-        captain=next((p for p in cands if p["player_id"]==manual_captain_id),None) or (sorted(cands,key=captain_key,reverse=True)[0] if cands else None)
-        vice_key=lambda p:_vice_score(p,strategy,scenario,*score_args)
-        vice=next((p for p in vcands if p["player_id"]==manual_vice_captain_id),None) or (sorted([p for p in vcands if not captain or p["player_id"]!=captain["player_id"]],key=vice_key,reverse=True)[0] if vcands else None)
-        if not captain or not vice: raise ValueError("Captain and vice-captain pools must contain two different selected players.")
+    # Select different lineups by player identity, not merely the next sorted result.
+    selected_lineups = []
+    remaining_valid = list(valid)
+    for index in range(min(count_teams, len(remaining_valid))):
+        best_entry = None
+        best_adjusted = None
+        for chosen_candidate, base_score in remaining_valid:
+            candidate_ids = {p["player_id"] for p in chosen_candidate}
+            overlap_penalty = 0.0
+            for prior_ids in selected_lineups:
+                overlap = len(candidate_ids & prior_ids)
+                similarity = overlap / max(1, rules.team_size)
+                # Push later teams toward genuinely different constructions.
+                overlap_penalty += (similarity ** 2) * (0.10 if strategy != "grand_league" else 0.15) * max(base_score, 1.0)
+            adjusted = base_score - overlap_penalty
+            if best_entry is None or adjusted > best_adjusted:
+                best_entry, best_adjusted = (chosen_candidate, base_score), adjusted
+        if best_entry is None:
+            break
+        chosen, score = best_entry
+        chosen_ids = {p["player_id"] for p in chosen}
+        selected_lineups.append(chosen_ids)
+        remaining_valid = [(c, s) for c, s in remaining_valid if {p["player_id"] for p in c} != chosen_ids]
+        ids = chosen_ids
+        cands = [p for p in chosen if not captain_pool or p["player_id"] in captain_pool]
+        vcands = [p for p in chosen if not vice_captain_pool or p["player_id"] in vice_captain_pool]
+        captain_key = lambda p: _captain_score(p, strategy, scenario, *score_args)
+        captain = next((p for p in cands if p["player_id"] == manual_captain_id), None) or (sorted(cands, key=captain_key, reverse=True)[0] if cands else None)
+        vice_key = lambda p: _vice_score(p, strategy, scenario, *score_args)
+        vice = next((p for p in vcands if p["player_id"] == manual_vice_captain_id), None) or (sorted([p for p in vcands if not captain or p["player_id"] != captain["player_id"]], key=vice_key, reverse=True)[0] if vcands else None)
+        if not captain or not vice:
+            raise ValueError("Captain and vice-captain pools must contain two different selected players.")
         if captain["player_id"] not in ids or vice["player_id"] not in ids:
             raise ValueError("Captain and vice-captain must be selected in the team.")
-        for p in chosen: usage[p["player_id"]]+=1
-        total=sum(float(p["credits"]) for p in chosen)
-        projected=None if provisional else round(sum(float(p["expected_points"]) for p in chosen)+float(captain["expected_points"])+0.5*float(vice["expected_points"]),2)
-        captain_alternatives=sorted([p for p in chosen if p["player_id"]!=captain["player_id"]],key=captain_key,reverse=True)[:2]
-        vice_alternatives=sorted([p for p in chosen if p["player_id"]!=vice["player_id"]],key=vice_key,reverse=True)[:2]
+        for p in chosen:
+            usage[p["player_id"]] += 1
+        total = sum(float(p["credits"]) for p in chosen)
+        projected = None if provisional else round(sum(float(p["expected_points"]) for p in chosen) + float(captain["expected_points"]) + 0.5 * float(vice["expected_points"]), 2)
+        captain_alternatives = sorted([p for p in chosen if p["player_id"] != captain["player_id"]], key=captain_key, reverse=True)[:2]
+        vice_alternatives = sorted([p for p in chosen if p["player_id"] != vice["player_id"]], key=vice_key, reverse=True)[:2]
         made.append({"generation_mode":mode,"strategy":strategy,"scenario":scenario,
             "score_scenario":{"mode":innings_mode,"team":score_team,"scenario_score":scenario_score,"format":match_format} if innings_mode != "none" else None,
             "players":chosen,
