@@ -361,6 +361,38 @@ def _load_public_match_detail(match_id: str, db: Session) -> dict:
     match = db.get(Match, match_id)
     intel_row = db.get(MatchIntelligence, match_id)
     intel = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+
+    # Attach saved stadium data automatically when the match has a venue name
+    # that matches a stadium/alias in the SQL catalogue. Never infer a ground
+    # when the fixture has no venue or the catalogue has no defensible match.
+    report = intel.get("cricbuzz_venue_report")
+    linked_venue_id = intel.get("venue_id")
+    linked_venue = db.get(Venue, linked_venue_id) if linked_venue_id else None
+    if not report and linked_venue is None and match.venue:
+        linked_venue, _ = _venue_report_for_match(db, match)
+    if not report and linked_venue is not None:
+        report = _venue_report_payload_from_row(linked_venue)
+        intel["venue_id"] = linked_venue.provider_key
+        intel["venue_provider"] = linked_venue.provider
+        intel["venue_report_source_url"] = (linked_venue.source_urls or [None])[0]
+        intel["cricbuzz_venue_report"] = report
+    venue_analysis = intel.get("auto_venue_analysis")
+    if report and (not venue_analysis or venue_analysis.get("format") != match.format.upper()):
+        venue_analysis = analyse_venue(report, match.format)
+        intel["auto_venue_analysis"] = venue_analysis
+        intel.update(analysis_context_fields(venue_analysis))
+    if report and (
+        intel.get("venue_id") != linked_venue.provider_key if linked_venue else False
+    ):
+        intel["venue_id"] = linked_venue.provider_key
+    if report:
+        if intel_row is None:
+            intel_row = MatchIntelligence(match_id=match_id, data=intel)
+            db.add(intel_row)
+        else:
+            intel_row.data = intel
+        db.commit()
+
     squad_rows = db.scalars(
         select(MatchSquad).where(MatchSquad.match_id == match_id)
     ).all()
@@ -426,6 +458,8 @@ def _load_public_match_detail(match_id: str, db: Session) -> dict:
     return {
         "match": match_data,
         "intelligence": intel,
+        "venue_report": report,
+        "venue_analysis": venue_analysis if report else None,
         "players": players,
         "scorecards": scorecards,
         "import_ok": import_ok,
