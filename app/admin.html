@@ -135,6 +135,10 @@
         <div class="match-edit-field"><label for="editMatchVenue">Venue name</label><input id="editMatchVenue" placeholder="Ground, city"></div>
         <div class="match-edit-field"><label for="editVenueCatalogue">Link to saved stadium</label><select id="editVenueCatalogue"><option value="__auto__">Auto-match by venue name</option></select></div>
       </div>
+      <div class="match-edit-grid" style="margin-top:11px">
+        <div class="match-edit-field" style="grid-column:span 2"><label for="editVenueUrl">Cricbuzz venue page URL — import or refresh ground stats</label><input id="editVenueUrl" placeholder="https://www.cricbuzz.com/cricket-series/.../venues/42/ground"></div>
+        <div class="match-edit-field" style="align-self:end"><label>&nbsp;</label><button class="btn outline" id="importVenueForMatch" type="button" style="width:100%">Import & link venue</button></div>
+      </div>
       <div class="match-edit-actions"><button class="btn green" id="saveAdminMatch" type="button">Save match changes</button><button class="btn secondary" id="openAdminMatch" type="button">Open in team workspace</button><span class="helper">When you link a stadium, pitch and first-innings/chase recommendations are recalculated from that format's saved records.</span></div>
       <div id="adminMatchEditNotice" class="notice" style="display:none"></div>
     </div>
@@ -335,6 +339,7 @@ function openAdminMatchEditor(m){
  $('editMatchStatus').value=m.status||'upcoming';
  $('editMatchStart').value=m.start_time||'';$('editMatchVenue').value=m.venue||'';
  $('editVenueCatalogue').value=m.venue_id||'__auto__';
+ $('editVenueUrl').value='';
  $('adminMatchEditNotice').style.display='none';
  $('adminMatchEditor').scrollIntoView({behavior:'smooth',block:'center'});
 }
@@ -372,6 +377,19 @@ $('refreshAdminMatches').onclick=loadAdminMatches;
 $('adminMatchSearch').addEventListener('keydown',e=>{if(e.key==='Enter')loadAdminMatches();});
 $('closeAdminMatchEditor').onclick=()=>{$('adminMatchEditor').hidden=true;};
 $('saveAdminMatch').onclick=saveAdminMatch;
+$('importVenueForMatch').onclick=async()=>{
+ const id=$('editMatchId').value,url=$('editVenueUrl').value.trim(),button=$('importVenueForMatch');
+ if(!url){adminLibraryNotice('adminMatchEditNotice','Paste the Cricbuzz venue profile URL first.','warn');return;}
+ button.disabled=true;button.textContent='Importing…';
+ try{
+  const result=await api('/api/v1/admin/matches/'+encodeURIComponent(id)+'/venue/import',{method:'POST',body:JSON.stringify({url})});
+  adminLibraryNotice('adminMatchEditNotice','Venue linked: '+result.venue+'. '+(result.venue_analysis?.pitch_recommendation||'Format-specific pitch data not available.')+' '+(result.venue_analysis?.recommended_innings_label||''),'good');
+  await loadAdminVenueOptions();await loadAdminMatches();
+  const row=adminMatches.find(x=>x.id===id);if(row)openAdminMatchEditor(row);
+  $('editVenueUrl').value=url;
+ }catch(e){adminLibraryNotice('adminMatchEditNotice',e.message,'error');}
+ finally{button.disabled=false;button.textContent='Import & link venue';}
+};
 $('openAdminMatch').onclick=()=>openMatchWorkspace($('editMatchId').value);
 $('syncPublicFeed').onclick=async()=>{const b=$('syncPublicFeed');b.disabled=true;b.textContent='Syncing…';try{const d=await api('/api/v1/admin/public-matches/sync',{method:'POST'});b.textContent='Synced '+d.visible_matches+' matches';setTimeout(()=>b.textContent='Sync Fixtures',2500);}catch(e){alert(e.message);b.textContent='Sync Fixtures';}finally{b.disabled=false;}};
 function idFromUrl(v){const s=v.trim();if(/^\d{4,}$/.test(s))return s;const m=s.match(/\/match\/([A-Za-z0-9_-]+)/i)||s.match(/\/matches\/([A-Za-z0-9_-]+)/i);if(!m)throw new Error('Paste a Team Generation match URL such as https://teamgeneration.in/match/113941');return m[1];}
