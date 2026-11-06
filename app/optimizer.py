@@ -153,7 +153,7 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
         vcands=[p for p in chosen if not vice_captain_pool or p["player_id"] in vice_captain_pool]
         captain_key=(lambda p:_provisional_score(p,strategy,scenario)) if provisional else (lambda p:_score(p,strategy,scenario))
         captain=next((p for p in cands if p["player_id"]==manual_captain_id),None) or (sorted(cands,key=captain_key,reverse=True)[0] if cands else None)
-        vice_key=(lambda p:float(p.get("ai11_vice_captain_pct") or p.get("selection_pct") or 0)) if provisional else captain_key
+        vice_key=(lambda p:float(p.get("vice_captain_pct") or p.get("ai11_vice_captain_pct") or p.get("selection_pct") or 0)) if provisional else captain_key
         vice=next((p for p in vcands if p["player_id"]==manual_vice_captain_id),None) or (sorted([p for p in vcands if not captain or p["player_id"]!=captain["player_id"]],key=vice_key,reverse=True)[0] if vcands else None)
         if not captain or not vice: raise ValueError("Captain and vice-captain pools must contain two different selected players.")
         if captain["player_id"] not in ids or vice["player_id"] not in ids:
