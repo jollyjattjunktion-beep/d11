@@ -76,7 +76,7 @@ class MatchIntelligenceIn(BaseModel):
     toss_completed: bool | None = None
     toss_winner: str | None = None
     toss_decision: Literal["bat", "bowl"] | None = None
-    fixed_player_ids: list[str] = Field(default_factory=list, max_length=8)
+    fixed_player_ids: list[str] = Field(default_factory=list, max_length=5)
     lineup_confirmed: bool | None = None
     lineup_selected_player_ids: list[str] = Field(default_factory=list, max_length=30)
 
@@ -142,3 +142,7 @@ class ManualCreditUpdate(BaseModel):
 class PlayingXIUpdate(BaseModel):
     selected_player_ids: list[str] = Field(default_factory=list, max_length=30)
     confirmed: bool = True
+
+
+class VenueUrlImportRequest(BaseModel):
+    url: str = Field(min_length=12, max_length=1000)
