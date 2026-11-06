@@ -202,3 +202,10 @@ Check dataset coverage with `GET /api/v1/admin/history/coverage` and source play
 - Match intelligence: pitch, venue, weather, H2H and recent form.
 
 Only the second category trains historical fantasy-point prediction. The first and third enrich pre-match features. Do not train on future match information or post-match facts when simulating a pre-match prediction.
+
+
+### AI11 rate-limit protection
+
+The AI11 importer caches successful page responses in the running application process for 10 minutes. A repeated import of the same URL during that window reuses the cached HTML rather than requesting AI11 again. Cache entries expire automatically; a Render restart clears this in-memory cache.
+
+When AI11 responds with HTTP 429, the importer makes up to three bounded attempts, respects the provider's `Retry-After` header when present (with a 15-second per-wait cap), and then returns HTTP 429 with a `Retry-After` response header and a clear retry message. Other upstream fetch failures are returned as HTTP 502; invalid URLs remain HTTP 422. Avoid repeated manual retries while the provider is rate-limiting requests.
