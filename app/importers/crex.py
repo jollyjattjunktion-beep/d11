@@ -67,48 +67,48 @@ def _score(pattern: str, text: str):
 def parse_crex_venue_report(html: str, source_url: str | None = None) -> dict:
     soup = BeautifulSoup(html, "html.parser")
     title = soup.title.get_text(" ", strip=True) if soup.title else "CREX match report"
-    text = re.sub(r"\\s+", " ", soup.get_text(" ", strip=True))
+    text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
     if not text or len(text) < 100:
         raise ValueError("The CREX page did not contain enough readable match information.")
 
     venue_match = re.search(
-        r"(?:Pace vs Spin on|Recent Matches on)\\s+(.+?)\\s+\\(Last\\s+\\d+\\s+matches\\)",
+        r"(?:Pace vs Spin on|Recent Matches on)\s+(.+?)\s+\(Last\s+\d+\s+matches\)",
         text,
         re.I,
     )
-    venue = re.sub(r"\\s+", " ", venue_match.group(1)).strip(" ,") if venue_match else None
+    venue = re.sub(r"\s+", " ", venue_match.group(1)).strip(" ,") if venue_match else None
     if not venue:
         # The venue is also commonly printed directly before the weather values.
         venue_match = re.search(
-            r"Weather in .+? at (.+?)(?:\\s+for the |\\s+\\d{1,2}\\.\\d+\\s*°?C)",
+            r"Weather in .+? at (.+?)(?:\s+for the |\s+\d{1,2}\.\d+\s*°?C)",
             text,
             re.I,
         )
-        venue = re.sub(r"\\s+", " ", venue_match.group(1)).strip(" ,") if venue_match else None
+        venue = re.sub(r"\s+", " ", venue_match.group(1)).strip(" ,") if venue_match else None
     if not venue:
         raise ValueError("Could not identify a stadium name in this CREX page. Open the match Info/Venue section and copy that page URL.")
 
-    matches = _number(r"(\\d+)\\s+Matches", text)
-    win_bat = _number(r"Win Bat first\\s+(\\d+(?:\\.\\d+)?)\\s*%", text)
-    win_bowl = _number(r"Win Bowl first\\s+(\\d+(?:\\.\\d+)?)\\s*%", text)
-    avg_first = _number(r"Avg\\s*1st\\s*Inns\\s+(\\d+(?:\\.\\d+)?)", text)
-    avg_second = _number(r"Avg\\s*2(?:nd|st)\\s*Inns\\s+(\\d+(?:\\.\\d+)?)", text)
-    highest_total = _score(r"Highest Total\\s+by\\s+.+?\\s+(\\d+\\s*[-/]\\s*\\d+)", text)
-    lowest_total = _score(r"Lowest Total\\s+by\\s+.+?\\s+(\\d+\\s*[-/]\\s*\\d+)", text)
-    highest_chased = _score(r"Highest Chased\\s+by\\s+.+?\\s+(\\d+\\s*[-/]\\s*\\d+)", text)
-    lowest_defended = _score(r"Lowest Defended\\s+by\\s+.+?\\s+(\\d+\\s*[-/]\\s*\\d+)", text)
+    matches = _number(r"(\d+)\s+Matches", text)
+    win_bat = _number(r"Win Bat first\s+(\d+(?:\.\d+)?)\s*%", text)
+    win_bowl = _number(r"Win Bowl first\s+(\d+(?:\.\d+)?)\s*%", text)
+    avg_first = _number(r"Avg\s*1st\s*Inns\s+(\d+(?:\.\d+)?)", text)
+    avg_second = _number(r"Avg\s*2(?:nd|st)\s*Inns\s+(\d+(?:\.\d+)?)", text)
+    highest_total = _score(r"Highest Total\s+by\s+.+?\s+(\d+\s*[-/]\s*\d+)", text)
+    lowest_total = _score(r"Lowest Total\s+by\s+.+?\s+(\d+\s*[-/]\s*\d+)", text)
+    highest_chased = _score(r"Highest Chased\s+by\s+.+?\s+(\d+\s*[-/]\s*\d+)", text)
+    lowest_defended = _score(r"Lowest Defended\s+by\s+.+?\s+(\d+\s*[-/]\s*\d+)", text)
 
-    pace_wickets = _number(r"Pace\\s+(\\d+)\\s+Wkt", text)
-    pace_pct = _number(r"Pace\\s+\\d+\\s+Wkt\\s+(\\d+(?:\\.\\d+)?)\\s*%", text)
-    spin_wickets = _number(r"Spin\\s+(\\d+)\\s+Wkt", text)
-    spin_pct = _number(r"Spin\\s+\\d+\\s+Wkt\\s+(\\d+(?:\\.\\d+)?)\\s*%", text)
+    pace_wickets = _number(r"Pace\s+(\d+)\s+Wkt", text)
+    pace_pct = _number(r"Pace\s+\d+\s+Wkt\s+(\d+(?:\.\d+)?)\s*%", text)
+    spin_wickets = _number(r"Spin\s+(\d+)\s+Wkt", text)
+    spin_pct = _number(r"Spin\s+\d+\s+Wkt\s+(\d+(?:\.\d+)?)\s*%", text)
 
-    temperature = _number(r"(\\d+(?:\\.\\d+)?)\\s*[˚°]\\s*C", text)
-    humidity = _number(r"(\\d+(?:\\.\\d+)?)\\s*%\\s*\\(Humidity\\)", text)
-    rain = _number(r"(\\d+(?:\\.\\d+)?)\\s*%\\s*Chance", text)
+    temperature = _number(r"(\d+(?:\.\d+)?)\s*[˚°]\s*C", text)
+    humidity = _number(r"(\d+(?:\.\d+)?)\s*%\s*\(Humidity\)", text)
+    rain = _number(r"(\d+(?:\.\d+)?)\s*%\s*Chance", text)
     weather_condition = None
     weather_match = re.search(
-        r"(?:Weather in .+? is expected to remain|Weather Update)\\s+(.+?)(?:\\s+with\\s+\\d+%|\\s+\\d+(?:\\.\\d+)?\\s*[˚°]\\s*C)",
+        r"(?:Weather in .+? is expected to remain|Weather Update)\s+(.+?)(?:\s+with\s+\d+%|\s+\d+(?:\.\d+)?\s*[˚°]\s*C)",
         text,
         re.I,
     )
@@ -117,7 +117,7 @@ def parse_crex_venue_report(html: str, source_url: str | None = None) -> dict:
 
     pitch_report = None
     pitch_match = re.search(
-        r"Pitch Report\\s+(.{10,450}?)(?:\\s+Weather(?: Report| Update)?|\\s+Toss Advice|\\s+Venue Stats)",
+        r"Pitch Report\s+(.{10,450}?)(?:\s+Weather(?: Report| Update)?|\s+Toss Advice|\s+Venue Stats)",
         text,
         re.I,
     )
@@ -126,12 +126,12 @@ def parse_crex_venue_report(html: str, source_url: str | None = None) -> dict:
 
     recent = []
     recent_match = re.search(
-        r"Recent Matches on .+?\\(.*?\\)\\s+(.{0,900}?)(?:\\s+Squad\\b|\\s+Playing XI\\b)",
+        r"Recent Matches on .+?\(.*?\)\s+(.{0,900}?)(?:\s+Squad\b|\s+Playing XI\b)",
         text,
         re.I,
     )
     if recent_match:
-        recent = [part.strip() for part in re.split(r"\\s+(?=[A-Z0-9]{2,}(?:[-/][A-Z0-9]+)?\\s+\\d{1,3}/\\d{1,2})", recent_match.group(1)) if part.strip()][:8]
+        recent = [part.strip() for part in re.split(r"\s+(?=[A-Z0-9]{2,}(?:[-/][A-Z0-9]+)?\s+\d{1,3}/\d{1,2})", recent_match.group(1)) if part.strip()][:8]
 
     report = {
         "source": "CREX",
