@@ -38,6 +38,7 @@ def test_homepage_replaces_all_seo_and_match_placeholders():
     assert "India" in rendered
     assert "SportsEvent" in rendered
     assert "Hnry Stadium" in rendered
+    assert 'href="/match/fixture-1"' in rendered
 
 
 def test_homepage_handles_empty_feed():
