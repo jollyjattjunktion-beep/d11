@@ -152,8 +152,23 @@ def get_predictions(match_id: str, db: Session = Depends(get_db)):
 def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(get_db)):
     match=db.get(Match,match_id)
     if not match: raise HTTPException(404,"Match not found")
-    predictions=predict_match(db,match_id)
     squads=db.scalars(select(MatchSquad).where(MatchSquad.match_id==match_id)).all()
+    missing_credit_players=[]
+    for squad in squads:
+        if squad.credits is None:
+            player=db.get(Player,squad.player_id)
+            missing_credit_players.append(player.name if player else squad.player_id)
+    if missing_credit_players:
+        raise HTTPException(
+            422,
+            detail={
+                "message":"Dream11 team generation is paused because valid player credits are missing.",
+                "credits_missing_count":len(missing_credit_players),
+                "credits_missing_players":missing_credit_players,
+                "action":"Import verified credits from an official/source-backed player list or enter them manually. No credit values are guessed."
+            },
+        )
+    predictions=predict_match(db,match_id)
     squad_by_id={s.player_id:s for s in squads}
     combined=[]
     for prediction in predictions:
@@ -284,6 +299,9 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
     return {"imported":True,"match_id":match_id,"match":match_values,
             "players_imported":saved,"credits_imported":credits_saved,
             "credits_missing_count":len(missing),"credits_missing_players":missing,
+            "credits_status":fantasy_data.get("credits_status","not_present_in_fetched_html"),
+            "credit_evidence":fantasy_data.get("credit_evidence",[]),
+            "credits_ready_for_team_builder":len(missing)==0,
             "fantasy_page_requires_browser":fantasy_data["dynamic_content_may_require_browser"],
             "profiles_saved":saved,
             "warning":"AI11 career/series aggregates and selection trends are source profiles, not per-match historical fantasy points. Import independent historical scorecards before training the prediction model."}
