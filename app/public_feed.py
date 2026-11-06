@@ -80,7 +80,11 @@ def classify_fixture_status(
 
 def normalize_fixture(item: dict, now: datetime | None = None) -> dict | None:
     match_id = str(item.get("id") or item.get("matchId") or "").strip()
-    if not match_id or len(match_id) > 100:
+    if (
+        not match_id
+        or len(match_id) > 100
+        or not all(ch.isalnum() or ch in "_-" for ch in match_id)
+    ):
         return None
     left = item.get("left") if isinstance(item.get("left"), dict) else {}
     right = item.get("right") if isinstance(item.get("right"), dict) else {}
