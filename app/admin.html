@@ -121,7 +121,7 @@
         <div class="section-label" style="margin-top:20px">Full squad — select eligible fixed players</div>
         <div class="inline-options" id="fixedFilters" style="margin:10px 0"></div>
         <div class="team-columns" id="fixedTeams"></div>
-        <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn green" id="saveFixed">Save 4–5 fixed players & continue</button></div>
+        <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn green" id="saveFixed">Save eligible fixed players & continue</button></div>
       </section>
       <section class="step-view" id="view5">
         <div class="match-grid" id="finalSummary"></div>
@@ -129,10 +129,10 @@
         <div class="row">
           <label style="flex:1;min-width:150px">Teams per strategy<select class="field" id="teamCount"><option>1</option><option>2</option><option>3</option><option>5</option></select></label>
           <label style="flex:1;min-width:150px">Strategy<select class="field" id="strategy"><option value="safe">Safe</option><option value="balanced">Balanced</option><option value="grand_league">Grand League</option><option value="all">All strategies</option></select></label>
-          <label style="flex:1;min-width:150px">Team split<select class="field" id="teamSplit"><option value="auto">Auto / flexible</option><option value="6-5">6 : 5</option><option value="7-4">7 : 4</option><option value="5-6">5 : 6</option><option value="4-7">4 : 7</option></select></label>
+          <label style="flex:1;min-width:190px">Team A : Team B split<select class="field" id="teamSplit"><option value="auto">Automatic / flexible</option><option value="6-5">Team A 6 — Team B 5</option><option value="5-6">Team A 5 — Team B 6</option><option value="7-4">Team A 7 — Team B 4</option><option value="4-7">Team A 4 — Team B 7</option></select></label>
         </div>
         <div class="notice warn" id="generationModeNotice">Historical fantasy point coverage will be checked at generation time. If history is missing, only provisional selection-score teams can be created.</div>
-        <div class="row" style="margin-top:18px"><button class="btn" id="generateTeams">Generate Teams</button><span class="helper">Fixed players are locked into every generated team.</span></div>
+        <div class="row" style="margin-top:18px"><button class="btn green" id="generateTeams">Generate fantasy teams</button><button class="btn secondary" id="printTeams" disabled>Print / Save PDF</button><span class="helper">Fixed players are locked into every generated team. Each team is previewed as a Dream11-style ground card.</span></div>
         <div id="generationError" class="notice error" style="display:none"></div>
         <div id="teamResults" class="results" style="margin-top:18px"></div>
         <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn outline" id="restart">Start another match</button></div>
@@ -367,14 +367,18 @@ $('openSuggestions').onclick=openSuggestedModal;$('closeSuggest').onclick=closeS
 $('applySuggest').onclick=()=>{state.fixed=new Set(state.suggestedFixed);renderFixed();renderVenueSuggestions();closeSuggestedModal();};
 $('autoPickHighSelection').onclick=()=>{
  const list=state.venueSuggestions.filter(p=>Number(p.selection_pct)>=80&&(!state.lineupConfirmed||state.players.some(x=>x.player_id===p.player_id&&x.status==='playing'))).slice(0,5);
- if(list.length<4){alert('Only '+list.length+' eligible player(s) meet the 80%+ selection threshold. Need at least 4; no lower-selection player has been added.');return;}
  state.fixed=new Set(list.map(p=>p.player_id));renderFixed();renderVenueSuggestions();
+ if(list.length<4)notice('venueNotice','Auto-selected all '+list.length+' eligible player(s) at 80%+. No lower-selection player was added. You can continue.','warn');
+ else notice('venueNotice','Auto-selected the top '+list.length+' players with 80%+ selection.','good');
 };
 $('saveFixed').onclick=async()=>{
  try{
-  if(state.fixed.size<4||state.fixed.size>5)throw new Error('Select exactly 4 or 5 fixed players. Only players with selection percentage of at least 80% can be fixed.');
+  if(state.fixed.size>5)throw new Error('A maximum of five fixed players is allowed.');
   const invalid=[...state.fixed].filter(pid=>{const p=state.players.find(x=>x.player_id===pid);return !p||Number(p.selection_pct)<80||(state.lineupConfirmed&&p.status!=='playing');});
-  if(invalid.length)throw new Error('Every fixed player must have selection of 80% or higher and must be in the confirmed XI when the XI is confirmed.');
+  if(invalid.length)throw new Error('Only players with 80%+ selection are eligible, and confirmed-XI mode excludes players outside the XI.');
+  const eligible=state.players.filter(p=>Number(p.selection_pct)>=80&&(!state.lineupConfirmed||p.status==='playing')).length;
+  const recommendedMinimum=Math.min(4,eligible);
+  if(state.fixed.size<recommendedMinimum)notice('venueNotice','You selected '+state.fixed.size+' fixed player(s). '+recommendedMinimum+' are recommended from the '+eligible+' eligible 80%+ players, but you can continue without forcing lower-selection players.','warn');
   await saveContext();renderFinalSummary();setStep(5);
  }catch(e){alert(e.message)}
 };
