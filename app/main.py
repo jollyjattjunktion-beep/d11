@@ -1,13 +1,15 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+import secrets
 from app.database import Base, engine, get_db
-from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence
+from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
-                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit)
+                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport)
 from app.predictor import predict_match
 from app.optimizer import build_teams
-from app.config import MODEL_VERSION
+from app.config import MODEL_VERSION, ADMIN_TOKEN
+from app.importers.ai11 import fetch_page, parse_analysis, parse_fantasy
 
 Base.metadata.create_all(bind=engine)
 app = FastAPI(
@@ -176,3 +178,117 @@ def model_status(db: Session = Depends(get_db)):
     return {"model_version":MODEL_VERSION,"type":"hybrid_context_adjusted_statistical_baseline",
             "trained_machine_learning_model":False,"historical_records_by_format":counts,
             "note":"Current production path is an explainable statistical baseline with match-context adjustments. A trained ML model must be added only after sufficient clean historical records and chronological backtesting."}
+
+
+def require_admin(x_admin_token: str | None = Header(default=None)):
+    if not ADMIN_TOKEN:
+        raise HTTPException(503, "Admin importer is disabled. Configure ADMIN_TOKEN in Render environment.")
+    if not x_admin_token or not secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
+        raise HTTPException(401, "Valid X-Admin-Token header required.")
+    return True
+
+@app.post("/api/v1/admin/import/ai11")
+def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin),
+                db: Session = Depends(get_db)):
+    try:
+        analysis_html=fetch_page(payload.analysis_url)
+        parsed=parse_analysis(analysis_html)
+        fantasy_data={"credits":{},"credits_found":0,"dynamic_content_may_require_browser":True}
+        if payload.fantasy_url:
+            fantasy_data=parse_fantasy(fetch_page(payload.fantasy_url))
+    except Exception as exc:
+        raise HTTPException(422, f"AI11 import failed: {str(exc)[:300]}")
+    if not parsed["players"]:
+        raise HTTPException(422, "No player rows were extracted from the AI11 analysis page. Page markup may have changed or content may require browser rendering.")
+    match_id=parsed["match_id"]
+    match=db.get(Match,match_id)
+    match_values={"name":parsed["title"],"format":parsed["format"],
+                  "venue":parsed.get("venue"),"team_a":parsed["team_a"],
+                  "team_b":parsed["team_b"],"status":"upcoming",
+                  "source":"AI11"}
+    if match is None:
+        match=Match(id=match_id,**match_values); db.add(match)
+    else:
+        for key,value in match_values.items(): setattr(match,key,value)
+    saved,credits_saved=0,0
+    for item in parsed["players"]:
+        pid=item["id"]
+        player=db.get(Player,pid)
+        if player is None: db.add(Player(id=pid,name=item["name"]))
+        else: player.name=item["name"]
+        squad=db.get(MatchSquad,(match_id,pid))
+        credit=fantasy_data["credits"].get(pid)
+        values={"team":item["team"],"role":item["role"],
+                "credits":credit if credit is not None else (squad.credits if squad else None),
+                "selection_pct":item.get("selection_pct"),
+                "status":item.get("status","unknown"),"source":"AI11"}
+        if squad is None: db.add(MatchSquad(match_id=match_id,player_id=pid,**values))
+        else:
+            for key,value in values.items():
+                if value is not None: setattr(squad,key,value)
+        if credit is not None: credits_saved+=1
+        profile=db.get(PlayerSourceProfile,(match_id,pid,"AI11"))
+        profile_data=next((p for p in parsed["profiles"] if p["player_id"]==pid),{})
+        if profile is None:
+            db.add(PlayerSourceProfile(match_id=match_id,player_id=pid,source="AI11",data=profile_data))
+        else: profile.data=profile_data
+        saved+=1
+    intel=db.get(MatchIntelligence,match_id)
+    intel_data={**parsed.get("intelligence",{}),
+                "source_urls":[payload.analysis_url]+([payload.fantasy_url] if payload.fantasy_url else []),
+                "source":"AI11","imported_player_count":saved}
+    if intel is None: db.add(MatchIntelligence(match_id=match_id,data=intel_data))
+    else: intel.data={**(intel.data or {}),**intel_data}
+    db.commit()
+    missing=[p["name"] for p in parsed["players"] if p["id"] not in fantasy_data["credits"]]
+    return {"imported":True,"match_id":match_id,"match":match_values,
+            "players_imported":saved,"credits_imported":credits_saved,
+            "credits_missing_count":len(missing),"credits_missing_players":missing,
+            "fantasy_page_requires_browser":fantasy_data["dynamic_content_may_require_browser"],
+            "profiles_saved":saved,
+            "warning":"AI11 career/series aggregates and selection trends are source profiles, not per-match historical fantasy points. Import independent historical scorecards before training the prediction model."}
+
+@app.get("/api/v1/admin/matches/{match_id}/source-profiles")
+def get_source_profiles(match_id: str, _admin: bool = Depends(require_admin),
+                        db: Session = Depends(get_db)):
+    if not db.get(Match,match_id): raise HTTPException(404,"Match not found")
+    rows=db.scalars(select(PlayerSourceProfile).where(PlayerSourceProfile.match_id==match_id)).all()
+    return [{"player_id":r.player_id,"source":r.source,"data":r.data} for r in rows]
+
+@app.post("/api/v1/admin/history/import")
+def import_external_history(payload: HistoricalBatchImport,
+                            _admin: bool = Depends(require_admin),
+                            db: Session = Depends(get_db)):
+    saved,skipped=0,0
+    for item in payload.records:
+        data=item.model_dump()
+        data["source"]=payload.source
+        if not db.get(Player,data["player_id"]):
+            skipped+=1
+            continue
+        existing=db.scalar(select(PlayerMatchStats).where(
+            PlayerMatchStats.match_id==data["match_id"],
+            PlayerMatchStats.player_id==data["player_id"]))
+        if existing is None: db.add(PlayerMatchStats(**data))
+        else:
+            for key,value in data.items(): setattr(existing,key,value)
+        saved+=1
+    db.commit()
+    return {"saved":saved,"skipped_unknown_players":skipped,"source":payload.source,
+            "note":"Use match-level records with format-correct fantasy_points calculated under the target contest's verified scoring rules."}
+
+@app.get("/api/v1/admin/history/coverage")
+def history_coverage(_admin: bool = Depends(require_admin), db: Session = Depends(get_db)):
+    rows=db.scalars(select(PlayerMatchStats)).all()
+    by_format={}
+    for row in rows:
+        entry=by_format.setdefault(row.format,{"records":0,"players":set(),"matches":set(),"scored_records":0})
+        entry["records"]+=1
+        entry["players"].add(row.player_id)
+        entry["matches"].add(row.match_id)
+        if row.fantasy_points is not None: entry["scored_records"]+=1
+    return {"formats":{fmt:{"records":v["records"],"unique_players":len(v["players"]),
+                            "matches":len(v["matches"]),"scored_records":v["scored_records"]}
+                       for fmt,v in by_format.items()},
+            "training_ready":False,
+            "note":"Training readiness requires enough clean, chronological records and verified scoring rules; record count alone is not a quality guarantee."}
