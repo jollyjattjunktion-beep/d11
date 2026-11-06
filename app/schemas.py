@@ -121,3 +121,10 @@ class AI11ImportRequest(BaseModel):
 class HistoricalBatchImport(BaseModel):
     records: list[StatsIn] = Field(min_length=1, max_length=10000)
     source: str = "external_scorecards"
+
+
+class ManualCreditUpdate(BaseModel):
+    player_id: str = Field(min_length=1, max_length=120)
+    credits: float = Field(gt=0, le=20)
+    source_label: str = Field(min_length=2, max_length=120)
+    source_url: str = Field(min_length=12, max_length=1000)
