@@ -362,29 +362,46 @@ def _load_public_match_detail(match_id: str, db: Session) -> dict:
     intel_row = db.get(MatchIntelligence, match_id)
     intel = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
 
-    # Attach saved stadium data automatically when the match has a venue name
-    # that matches a stadium/alias in the SQL catalogue. Never infer a ground
-    # when the fixture has no venue or the catalogue has no defensible match.
+    # Resolve the fixture's current ground against the catalogue even when an
+    # older report is already stored. The admin Match Library can calculate
+    # "stadium data ready" from the catalogue without persisting that link;
+    # the public workspace must persist the same unambiguous link itself.
     report = intel.get("cricbuzz_venue_report")
     linked_venue_id = intel.get("venue_id")
     linked_venue = db.get(Venue, linked_venue_id) if linked_venue_id else None
-    if not report and linked_venue is None and match.venue:
-        linked_venue, _ = _venue_report_for_match(db, match)
-    if not report and linked_venue is not None:
+
+    matched_venue = None
+    if match.venue:
+        matched_venue, _ = _venue_report_for_match(db, match)
+
+    # Prefer a defensible catalogue match for the fixture's actual venue over
+    # a stale cached report. If matching is ambiguous, do not guess a stadium.
+    if matched_venue is not None and (
+        linked_venue is None or linked_venue.provider_key != matched_venue.provider_key
+    ):
+        linked_venue = matched_venue
         report = _venue_report_payload_from_row(linked_venue)
         intel["venue_id"] = linked_venue.provider_key
         intel["venue_provider"] = linked_venue.provider
         intel["venue_report_source_url"] = (linked_venue.source_urls or [None])[0]
         intel["cricbuzz_venue_report"] = report
+    elif not report and linked_venue is not None:
+        report = _venue_report_payload_from_row(linked_venue)
+        intel["venue_id"] = linked_venue.provider_key
+        intel["venue_provider"] = linked_venue.provider
+        intel["venue_report_source_url"] = (linked_venue.source_urls or [None])[0]
+        intel["cricbuzz_venue_report"] = report
+
     venue_analysis = intel.get("auto_venue_analysis")
-    if report and (not venue_analysis or venue_analysis.get("format") != match.format.upper()):
+    # Always rebuild from the selected report and this match's actual format.
+    # This prevents stale analysis from another ground or format surviving.
+    if report:
         venue_analysis = analyse_venue(report, match.format)
         intel["auto_venue_analysis"] = venue_analysis
         intel.update(analysis_context_fields(venue_analysis))
-    if report and (
-        intel.get("venue_id") != linked_venue.provider_key if linked_venue else False
-    ):
-        intel["venue_id"] = linked_venue.provider_key
+        if linked_venue is not None:
+            intel["venue_id"] = linked_venue.provider_key
+            intel["venue_provider"] = linked_venue.provider
     if report:
         if intel_row is None:
             intel_row = MatchIntelligence(match_id=match_id, data=intel)
