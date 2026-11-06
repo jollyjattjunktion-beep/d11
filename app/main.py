@@ -208,6 +208,9 @@ def _public_site_base(request: Request) -> str:
 
 
 def _public_sync_worker() -> None:
+    # Give the ASGI server a moment to accept the first homepage request;
+    # the request path can perform the initial sync itself.
+    time.sleep(2)
     while True:
         try:
             with SessionLocal() as db:
