@@ -112,3 +112,11 @@ class TeamRequest(BaseModel):
     manual_captain_id: str | None = None
     manual_vice_captain_id: str | None = None
     team_mode: Literal["manual", "automatic"] = "automatic"
+
+class AI11ImportRequest(BaseModel):
+    analysis_url: str
+    fantasy_url: str | None = None
+
+class HistoricalBatchImport(BaseModel):
+    records: list[StatsIn] = Field(min_length=1, max_length=10000)
+    source: str = "external_scorecards"
