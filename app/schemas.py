@@ -71,6 +71,13 @@ class MatchIntelligenceIn(BaseModel):
     team_a_recent_form: str | None = None
     team_b_recent_form: str | None = None
     source_urls: list[str] = Field(default_factory=list)
+    strong_team: str | None = None
+    toss_completed: bool | None = None
+    toss_winner: str | None = None
+    toss_decision: Literal["bat", "bowl"] | None = None
+    fixed_player_ids: list[str] = Field(default_factory=list, max_length=8)
+    lineup_confirmed: bool | None = None
+    lineup_selected_player_ids: list[str] = Field(default_factory=list, max_length=30)
 
 class SquadPlayerEdit(BaseModel):
     credits: float | None = Field(default=None, ge=0, le=20)
