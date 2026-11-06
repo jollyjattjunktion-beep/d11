@@ -157,7 +157,7 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
 
  <section class="section" id="fantasy-builder">
   <div class="section-head"><h2>Create your fantasy team</h2><small>Four strategy paths • Rule-checked combinations</small></div>
-  <div class="builder-section" id="teamBuilder" data-match-id="{{MATCH_ID}}" data-team-a="{{TEAM_A}}" data-team-b="{{TEAM_B}}" data-format="{{FORMAT}}" data-lineup-confirmed="{{LINEUP_CONFIRMED}}" data-recommended-pitch="{{RECOMMENDED_PITCH}}" data-recommended-score-mode="{{RECOMMENDED_SCORE_MODE}}" data-recommended-score-team="{{RECOMMENDED_SCORE_TEAM}}" data-recommended-score-value="{{RECOMMENDED_SCORE_VALUE}}" data-venue-has-data="{{VENUE_HAS_DATA}}">
+  <div class="builder-section" id="teamBuilder" data-match-id="{{MATCH_ID}}" data-team-a="{{TEAM_A}}" data-team-b="{{TEAM_B}}" data-format="{{FORMAT}}" data-lineup-confirmed="{{LINEUP_CONFIRMED}}" data-recommended-pitch="{{RECOMMENDED_PITCH}}" data-recommended-score-mode="{{RECOMMENDED_SCORE_MODE}}" data-recommended-score-team="{{RECOMMENDED_SCORE_TEAM}}" data-recommended-score-value="{{RECOMMENDED_SCORE_VALUE}}" data-venue-has-data="{{VENUE_HAS_DATA}}" data-venue-recommendation-ready="{{VENUE_RECOMMENDATION_READY}}">
    <p class="builder-intro">Build teams using match conditions, an innings score scenario, multiple strategies or high-selection fixed players. The score scenario and pitch choices influence player-selection preferences; they are not guaranteed score or fantasy-point predictions.</p>
    <div id="venueAutoGuidance">{{VENUE_GUIDANCE}}</div>
    <div class="mode-tabs" role="tablist" aria-label="Team generation method">
@@ -251,6 +251,7 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
  const lineupConfirmed=root.dataset.lineupConfirmed==='true';
  const $=id=>document.getElementById(id);
  const venueHasData=root.dataset.venueHasData==='true';
+ const venueRecommendationReady=root.dataset.venueRecommendationReady==='true';
  const recommendedPitch=root.dataset.recommendedPitch||'balanced';
  const recommendedScoreMode=root.dataset.recommendedScoreMode||'manual';
  const recommendedScoreTeam=root.dataset.recommendedScoreTeam||'';
@@ -263,21 +264,25 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
    const selected=b.dataset.scenario===pitchScenario;b.classList.toggle('selected',selected);
    const title=b.querySelector('strong');if(!title)return;
    const old=title.querySelector('.recommend-tag');if(old)old.remove();
-   if(selected&&venueHasData){const tag=document.createElement('span');tag.className='recommend-tag';tag.textContent='VENUE PICK';title.append(tag);}
+   if(selected&&venueRecommendationReady){const tag=document.createElement('span');tag.className='recommend-tag';tag.textContent='VENUE PICK';title.append(tag);}
   });
-  $('pitchRecommendation').textContent=venueHasData
-   ? 'Venue-data recommendation: '+(recommendedPitch==='batting'?'Batting-friendly surface':recommendedPitch==='bowling'?'Bowling-friendly surface':'Balanced surface')+'. Selected automatically from '+format+' ground records.'
-   : 'No linked venue records for this ground and format. Balanced is only a neutral starting point; choose a pitch condition manually.';
+  $('pitchRecommendation').textContent=venueRecommendationReady
+   ? 'Venue-data recommendation: '+(recommendedPitch==='batting'?'Batting-friendly surface':recommendedPitch==='bowling'?'Bowling-friendly surface':'Balanced surface')+'. Selected automatically from '+format+' ground records (15+ match sample).'
+   : venueHasData
+    ? 'Venue stats are available, but the sample is below 15 matches. No pitch preference is auto-selected; Balanced is a neutral starting point.'
+    : 'No linked venue records for this ground and format. Balanced is only a neutral starting point; choose a pitch condition manually.';
  }
  function paintScoreRecommendation(){
   document.querySelectorAll('[data-score-mode]').forEach(b=>{
    const selected=b.dataset.scoreMode===scoreMode;b.classList.toggle('selected',selected);
    const title=b.querySelector('strong');if(!title)return;
    const old=title.querySelector('.recommend-tag');if(old)old.remove();
-   if(selected&&venueHasData&&recommendedScoreMode===scoreMode){const tag=document.createElement('span');tag.className='recommend-tag';tag.textContent='VENUE PICK';title.append(tag);}
+   if(selected&&venueRecommendationReady&&recommendedScoreMode===scoreMode){const tag=document.createElement('span');tag.className='recommend-tag';tag.textContent='VENUE PICK';title.append(tag);}
   });
-  if(!venueHasData){
-   $('scoreRecommendation').textContent='No matching-format venue score history is linked. First innings / chase choice is manual.';
+  if(!venueRecommendationReady){
+   $('scoreRecommendation').textContent=venueHasData
+    ? 'Venue stats are available, but fewer than 15 format-matched matches are recorded. First innings / chase choice remains manual.'
+    : 'No matching-format venue score history is linked. First innings / chase choice is manual.';
    return;
   }
   $('scoreRecommendation').textContent=recommendedScoreMode==='first_innings'
