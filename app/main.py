@@ -1061,10 +1061,22 @@ def import_cricbuzz_series_venues(payload: CricbuzzSeriesImportRequest,
             page = fetch_cricbuzz_venue_page(item["source_url"])
             report = parse_cricbuzz_venue(page, item["source_url"])
             _save_cricbuzz_venue(db, report)
-            imported.append({"venue_id": "CRICBUZZ:" + str(report["provider_venue_id"]), "name": report["name"], "city_country": report.get("city_country")})
+            imported.append({"venue_id": "CRICBUZZ:" + str(report["provider_venue_id"]), "name": report["name"], "city_country": report.get("city_country"), "formats_available": sorted((report.get("formats") or {}).keys())})
         except Exception as exc:
-            skipped.append(item.get("name") or item["provider_venue_id"])
-            errors.append({"venue": item.get("name") or item["provider_venue_id"], "error": type(exc).__name__})
+            # Keep the stadium in the catalogue even when Cricbuzz has no
+            # international format stats for this domestic/associate ground.
+            basic_report = {
+                "provider_venue_id": str(item["provider_venue_id"]),
+                "name": item.get("name") or ("Venue " + str(item["provider_venue_id"])),
+                "city_country": None,
+                "aliases": [],
+                "facts": {},
+                "formats": {},
+                "source_url": item["source_url"],
+            }
+            _save_cricbuzz_venue(db, basic_report)
+            imported.append({"venue_id": "CRICBUZZ:" + str(item["provider_venue_id"]), "name": basic_report["name"], "city_country": None, "formats_available": [], "stats_pending": True})
+            errors.append({"venue": basic_report["name"], "error": type(exc).__name__})
     db.commit()
     return {
         "provider": "CRICBUZZ",
