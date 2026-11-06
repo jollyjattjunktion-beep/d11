@@ -1676,12 +1676,31 @@ def _venue_report_for_match(db: Session, match: Match):
     rows = db.scalars(select(Venue).where(Venue.provider == "CRICBUZZ")).all()
     normalize = lambda value: "".join(ch for ch in str(value or "").casefold() if ch.isalnum())
     wanted = normalize(match.venue)
+    if len(wanted) < 7:
+        return None, None
+    # Match only ground names and explicit aliases, not city/country strings.
+    # A city name alone can contain several stadiums and is not safe evidence.
+    ranked = []
     for venue in rows:
-        names = [venue.name, venue.city_country] + list(venue.aliases or [])
-        if any((normalize(name) == wanted or (wanted and (normalize(name) in wanted or wanted in normalize(name)))) for name in names if name):
-            fmt = "T20" if match.format.upper() in {"T20", "T20I", "WT20", "WT20I"} else "ODI" if match.format.upper() in {"ODI", "WODI"} else "TEST"
-            return venue, (venue.formats or {}).get(fmt)
-    return None, None
+        names = [venue.name] + list(venue.aliases or [])
+        normalized_names = [normalize(name) for name in names if name]
+        exact = [name for name in normalized_names if name == wanted]
+        embedded = [name for name in normalized_names if len(name) >= 7 and (name in wanted or wanted in name)]
+        if exact:
+            ranked.append((3, max(map(len, exact)), venue))
+        elif embedded:
+            ranked.append((2, max(map(len, embedded)), venue))
+    if not ranked:
+        return None, None
+    ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    # If two stadiums tie on the best match, do not silently attach one.
+    best = ranked[0]
+    ties = [item for item in ranked if item[:2] == best[:2]]
+    if len(ties) > 1:
+        return None, None
+    venue = best[2]
+    fmt = "T20" if match.format.upper() in {"T20", "T20I", "WT20", "WT20I"} else "ODI" if match.format.upper() in {"ODI", "WODI"} else "TEST"
+    return venue, (venue.formats or {}).get(fmt)
 
 
 @app.post("/api/v1/admin/matches/{match_id}/venue/import")
