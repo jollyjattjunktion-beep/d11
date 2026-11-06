@@ -126,5 +126,5 @@ class HistoricalBatchImport(BaseModel):
 class ManualCreditUpdate(BaseModel):
     player_id: str = Field(min_length=1, max_length=120)
     credits: float = Field(gt=0, le=20)
-    source_label: str = Field(min_length=2, max_length=120)
-    source_url: str = Field(min_length=12, max_length=1000)
+    source_label: str = Field(default="Admin verified manual entry", min_length=2, max_length=120)
+    source_url: str | None = Field(default=None, max_length=1000)
