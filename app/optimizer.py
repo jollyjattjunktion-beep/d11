@@ -125,10 +125,20 @@ def _captain_score(p, strategy, scenario, innings_mode, score_team, scenario_sco
         floor_component = float(p.get("floor_points") if p.get("floor_points") is not None else expected * 0.6)
         ceiling_component = float(ceiling if ceiling is not None else expected * 1.25)
     if strategy == "safe":
-        return 0.62 * signal + 0.30 * floor_component + 0.08 * ceiling_component
-    if strategy == "grand_league":
-        return 0.35 * signal + 0.55 * ceiling_component + 0.10 * _role_opportunity(p) * signal
-    return 0.52 * signal + 0.30 * ceiling_component + 0.18 * floor_component
+        score = 0.62 * signal + 0.30 * floor_component + 0.08 * ceiling_component
+    elif strategy == "grand_league":
+        score = 0.35 * signal + 0.55 * ceiling_component + 0.10 * _role_opportunity(p) * signal
+    else:
+        score = 0.52 * signal + 0.30 * ceiling_component + 0.18 * floor_component
+    # Imported provider C trends are a secondary signal in provisional mode,
+    # useful when this player has no historical fantasy-point estimate.
+    if expected is None:
+        try:
+            source_c = float(p.get("captain_pct") or p.get("ai11_captain_pct") or 0)
+            score += min(100.0, max(0.0, source_c)) * 0.12
+        except (TypeError, ValueError):
+            pass
+    return score
 
 
 def _vice_score(p, strategy, scenario, innings_mode, score_team, scenario_score, match_format):
@@ -143,10 +153,20 @@ def _vice_score(p, strategy, scenario, innings_mode, score_team, scenario_score,
         floor_component = float(floor if floor is not None else expected * 0.6)
         ceiling_component = float(ceiling if ceiling is not None else expected * 1.25)
     if strategy == "safe":
-        return 0.68 * signal + 0.25 * floor_component + 0.07 * ceiling_component
-    if strategy == "grand_league":
-        return 0.42 * signal + 0.48 * ceiling_component + 0.10 * _role_opportunity(p) * signal
-    return 0.58 * signal + 0.27 * ceiling_component + 0.15 * floor_component
+        score = 0.68 * signal + 0.25 * floor_component + 0.07 * ceiling_component
+    elif strategy == "grand_league":
+        score = 0.42 * signal + 0.48 * ceiling_component + 0.10 * _role_opportunity(p) * signal
+    else:
+        score = 0.58 * signal + 0.27 * ceiling_component + 0.15 * floor_component
+    # Provider VC trends support the provisional decision; they never replace
+    # the role, availability and involvement assessment.
+    if expected is None:
+        try:
+            source_vc = float(p.get("vice_captain_pct") or p.get("ai11_vice_captain_pct") or 0)
+            score += min(100.0, max(0.0, source_vc)) * 0.12
+        except (TypeError, ValueError):
+            pass
+    return score
 
 
 def _portfolio_exposure_score(raw_score, player_id, exposure, strategy, kind="captain"):
@@ -193,6 +213,12 @@ def _captaincy_reason(player, strategy, role_label):
         details.append("availability is probable, not confirmed")
     if player.get("selection_pct") is not None and strategy == "grand_league":
         details.append(f"provider selection {float(player['selection_pct']):.1f}% considered only as a differential signal")
+    trend_field = "captain_pct" if role_label == "captain" else "vice_captain_pct"
+    trend_value = player.get(trend_field) or player.get(
+        "ai11_captain_pct" if role_label == "captain" else "ai11_vice_captain_pct"
+    )
+    if trend_value is not None and expected is None:
+        details.append(f"provider {role_label} trend {float(trend_value):.1f}% used as a secondary provisional signal")
     return f"{name} selected as {role_label} for {strategy.replace('_', ' ')}: " + "; ".join(details) + "."
 
 
