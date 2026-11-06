@@ -260,6 +260,7 @@ def render_match_detail(
         "{{VENUE}}": html.escape(venue),
         "{{MATCH_ID}}": html.escape(str(match.get("id"))),
         "{{LINEUP_CONFIRMED}}": "true" if lineup_confirmed else "false",
+        "{{VENUE_GUIDANCE}}": _venue_guidance_markup(analysis, venue_report),
         "{{RECOMMENDED_PITCH}}": html.escape(str(recommended_pitch)),
         "{{RECOMMENDED_SCORE_MODE}}": html.escape(str(recommended_score_mode)),
         "{{RECOMMENDED_SCORE_TEAM}}": html.escape(str(recommended_score_team)),
