@@ -287,3 +287,13 @@ The root route `/` serves an SEO-friendly public cricket match centre. It uses t
 - `/robots.txt` and `/sitemap.xml` are served for search-engine discovery. Set `PUBLIC_SITE_URL` in Render when a custom canonical domain is configured; otherwise the request host is used.
 
 The homepage is server-rendered from SQL, with canonical/meta description, Open Graph/Twitter metadata, SportsEvent/ItemList JSON-LD, mobile-responsive fixture cards and FAQ content. Fixture coverage and status are limited to what the connected Team Generation provider exposes. The service must have a valid `TG_API_TOKEN` and persistent PostgreSQL `DATABASE_URL` for reliable scheduled updates and long-term SQL retention.
+
+
+### Public match detail pages
+
+Each homepage fixture card links to `/match/{match_id}`. The first visit fetches the full Team Generation match detail through the server-side `TG_API_TOKEN`, using the existing Team Generation importer. Player identities, roles, images, credits, selection/C/VC trends and provider Playing XI status are written into the existing `players`, `match_squads`, `player_source_profiles` and `match_intelligence` tables. A successful detail import is refreshed after 15 minutes; a failed attempt has a five-minute retry cooldown.
+
+The public detail page shows both squads, match metadata, venue/toss information where available, and match-specific scorecard records only when those records have been imported. It does not invent live scores, innings totals, fantasy points or scorecard values. Completed match pages remain accessible by their saved ID even after they leave the homepage feed.
+
+- `GET /match/{match_id}` — SEO-friendly public HTML match detail page.
+- `GET /api/v1/public/matches/{match_id}` — public match, squad, scorecard and limited lineup/venue data. Raw admin intelligence is not returned.
