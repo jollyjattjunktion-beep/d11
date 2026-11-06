@@ -697,6 +697,11 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
                          "team_generation_image":tg_data.get("image"),
                          "team_generation_fantasy_ids":tg_data.get("fantasy_ids")})
     history_ready=bool(combined) and all(p.get("expected_points") is not None for p in combined)
+    if payload.score_mode != "none":
+        if payload.score_team not in {match.team_a, match.team_b}:
+            raise HTTPException(422, "Choose a batting-first or chasing team from this match.")
+        if payload.scenario_score is None:
+            raise HTTPException(422, "Enter the scenario score for the selected innings mode.")
     requested=payload.generation_mode
     modes=(["ai_prediction","provisional"] if requested=="both" else [requested])
     if "ai_prediction" in modes and not history_ready:
@@ -720,12 +725,23 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
                     vice_captain_pool=payload.vice_captain_pool,
                     manual_captain_id=payload.manual_captain_id,
                     manual_vice_captain_id=payload.manual_vice_captain_id,
-                    mode=mode)
+                    mode=mode,
+                    innings_mode=payload.score_mode,
+                    score_team=payload.score_team,
+                    scenario_score=payload.scenario_score,
+                    match_format=match.format)
             except ValueError as exc:
                 raise HTTPException(422,str(exc))
     return {
         "match_id":match_id,"model_version":MODEL_VERSION,
         "generation_mode_requested":requested,
+        "score_scenario": {
+            "mode": payload.score_mode,
+            "team": payload.score_team,
+            "scenario_score": payload.scenario_score,
+            "format": match.format,
+            "note": "User-entered scenario assumption; used as a small player-selection preference, not a score or fantasy-points prediction."
+        } if payload.score_mode != "none" else None,
         "history_status":"ready" if history_ready else "insufficient_history",
         "available_modes":(["ai_prediction","provisional"] if history_ready else ["provisional"]),
         "teams":results,
