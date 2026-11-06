@@ -91,8 +91,16 @@ def import_squad(match_id: str, payload: SquadImport, db: Session = Depends(get_
     db.commit()
     return {"saved":saved,"match_id":match_id}
 
+def require_admin(x_admin_token: str | None = Header(default=None)):
+    if not ADMIN_TOKEN:
+        raise HTTPException(503, "Admin importer is disabled. Configure ADMIN_TOKEN in Render environment.")
+    if not x_admin_token or not secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
+        raise HTTPException(401, "Valid X-Admin-Token header required.")
+    return True
+
 @app.patch("/api/v1/matches/{match_id}/players/{player_id}")
 def edit_match_player(match_id: str, player_id: str, payload: SquadPlayerEdit,
+                      _admin: bool = Depends(require_admin),
                       db: Session = Depends(get_db)):
     squad=db.get(MatchSquad,(match_id,player_id))
     if squad is None: raise HTTPException(404,"Player is not in this match squad")
@@ -204,12 +212,6 @@ def model_status(db: Session = Depends(get_db)):
             "note":"Current production path is an explainable statistical baseline with match-context adjustments. A trained ML model must be added only after sufficient clean historical records and chronological backtesting."}
 
 
-def require_admin(x_admin_token: str | None = Header(default=None)):
-    if not ADMIN_TOKEN:
-        raise HTTPException(503, "Admin importer is disabled. Configure ADMIN_TOKEN in Render environment.")
-    if not x_admin_token or not secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
-        raise HTTPException(401, "Valid X-Admin-Token header required.")
-    return True
 
 @app.post("/api/v1/admin/import/ai11")
 def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin),
