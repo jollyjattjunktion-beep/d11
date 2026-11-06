@@ -1,4 +1,4 @@
-from app.match_page import render_match_detail
+from app.match_page import render_match_detail, _fixed_player_picker
 
 
 TEMPLATE = """
@@ -55,3 +55,30 @@ def test_match_page_handles_empty_squad_and_scorecard():
     assert "Squad has not been imported" in rendered
     assert "No match-specific scorecard records" in rendered
     assert "Squad not yet available." in rendered
+
+
+def test_smart_picker_only_shows_players_at_80_percent_or_more():
+    players = [
+        {"player_id": "p1", "player_name": "High Selection", "team": "A",
+         "role": "BAT", "selection_pct": 88, "credits": 9,
+         "status": "not_announced", "image": "https://example.com/p1.png"},
+        {"player_id": "p2", "player_name": "Low Selection", "team": "B",
+         "role": "BOWL", "selection_pct": 79.9, "credits": 8,
+         "status": "not_announced"},
+    ]
+    markup = _fixed_player_picker(players, lineup_confirmed=False)
+    assert "High Selection" in markup
+    assert "p1" in markup
+    assert "Low Selection" not in markup
+
+
+def test_smart_picker_respects_confirmed_playing_xi():
+    players = [
+        {"player_id": "playing", "player_name": "Confirmed Player", "team": "A",
+         "role": "AR", "selection_pct": 91, "credits": 9, "status": "playing"},
+        {"player_id": "not_playing", "player_name": "Outside XI", "team": "B",
+         "role": "BAT", "selection_pct": 98, "credits": 9, "status": "not_playing"},
+    ]
+    markup = _fixed_player_picker(players, lineup_confirmed=True)
+    assert "Confirmed Player" in markup
+    assert "Outside XI" not in markup
