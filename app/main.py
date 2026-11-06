@@ -646,6 +646,9 @@ def admin_list_matches(q: str | None = None, status: str | None = None,
                        limit: int = 250, _admin: bool = Depends(require_admin),
                        db: Session = Depends(get_db)):
     limit = max(1, min(limit, 500))
+    # Refresh the cached Team Generation schedule when the admin opens the
+    # library. Existing SQL rows remain available if the provider is offline.
+    fixture_sync = _sync_public_match_feed(db, force=False)
     rows = db.scalars(select(Match).order_by(Match.start_time.desc())).all()
     needle = "".join(ch for ch in str(q or "").casefold() if ch.isalnum())
     if needle:
@@ -685,7 +688,7 @@ def admin_list_matches(q: str | None = None, status: str | None = None,
             "venue_pitch_recommendation": analysis.get("pitch_recommendation") if analysis else None,
             "venue_innings_recommendation": analysis.get("recommended_innings_label") if analysis else None,
         })
-    return {"count": len(results), "total_matches": len(rows), "matches": results}
+    return {"count": len(results), "total_matches": len(rows), "matches": results, "fixture_sync": fixture_sync}
 
 
 @app.patch("/api/v1/admin/matches/{match_id}")
