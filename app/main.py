@@ -1002,5 +1002,5 @@ def admin_page():
     admin_file = Path(__file__).with_name("admin.html")
     if not admin_file.is_file():
         raise HTTPException(500, "Admin interface file is missing.")
-    return HTMLResponse(admin_file.read_text(encoding="utf-8"))
+    return HTMLResponse(admin_file.read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
 
