@@ -89,3 +89,34 @@ def test_rate_limit_retry_after_is_bounded(monkeypatch):
     assert waits == [ai11.MAX_RETRY_WAIT_SECONDS] * (ai11.MAX_RETRIES - 1)
     assert error.value.retry_after == 120
     ai11.clear_page_cache()
+
+
+def test_parse_fantasy_reads_only_explicit_embedded_player_credits():
+    html = """
+    <html><body><script type="application/json">
+    {"players":[{"name":"Example Player","credits":8.5},{"name":"Second Player","credit":9}]}
+    </script></body></html>
+    """
+    result = ai11.parse_fantasy(html)
+    assert result["credits"] == {"example-player": 8.5, "second-player": 9.0}
+    assert result["credits_found"] == 2
+    assert result["credits_status"] == "found"
+
+
+def test_analysis_title_and_venue_are_cleaned_from_explicit_headings():
+    html = """
+    <html><head><title>NZ vs IND 2nd ODI: Pitch Report, Player Stats &amp; Form | AI11</title></head>
+    <body>
+      <img alt="New Zealand"><img alt="India">
+      <h2>NZ vs IND 2nd ODI Dream Team Prediction, Pitch Report &amp; Fantasy Winning Team</h2>
+      <p>Fantasy Winning Team The Hnry Stadium</p>
+      <h2>Pitch Report: Hnry Stadium</h2>
+      <table>
+        <tr><th>Name</th><th>T</th><th>R</th><th>S</th><th>M#</th><th>Bat</th><th>P</th><th>S%</th><th>C</th><th>VC</th></tr>
+        <tr><td>Example Player</td><td>NZ</td><td>BAT</td><td>✓</td><td>10</td><td>RHB</td><td>50</td><td>44.5</td><td>5.2</td><td>3.1</td></tr>
+      </table>
+    </body></html>
+    """
+    data = ai11.parse_analysis(html)
+    assert data["title"] == "New Zealand vs India, 2nd ODI"
+    assert data["venue"] == "Hnry Stadium"
