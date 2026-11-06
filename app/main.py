@@ -8,7 +8,7 @@ import secrets
 from app.database import Base, engine, get_db
 from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
-                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport)
+                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate)
 from app.predictor import predict_match
 from app.optimizer import build_teams
 from app.config import MODEL_VERSION, ADMIN_TOKEN
@@ -295,16 +295,83 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
     if intel is None: db.add(MatchIntelligence(match_id=match_id,data=intel_data))
     else: intel.data={**(intel.data or {}),**intel_data}
     db.commit()
-    missing=[p["name"] for p in parsed["players"] if p["id"] not in fantasy_data["credits"]]
+    # Readiness includes saved manual corrections, not only values in this AI11 response.
+    squad_rows=db.scalars(select(MatchSquad).where(MatchSquad.match_id==match_id)).all()
+    player_names={p["id"]:p["name"] for p in parsed["players"]}
+    missing=[player_names.get(row.player_id,row.player_id) for row in squad_rows if row.credits is None]
     return {"imported":True,"match_id":match_id,"match":match_values,
             "players_imported":saved,"credits_imported":credits_saved,
+            "credits_verified_count":sum(1 for row in squad_rows if row.credits is not None),
             "credits_missing_count":len(missing),"credits_missing_players":missing,
             "credits_status":fantasy_data.get("credits_status","not_present_in_fetched_html"),
             "credit_evidence":fantasy_data.get("credit_evidence",[]),
-            "credits_ready_for_team_builder":len(missing)==0,
+            "credits_ready_for_team_builder":bool(squad_rows) and len(missing)==0,
             "fantasy_page_requires_browser":fantasy_data["dynamic_content_may_require_browser"],
             "profiles_saved":saved,
             "warning":"AI11 career/series aggregates and selection trends are source profiles, not per-match historical fantasy points. Import independent historical scorecards before training the prediction model."}
+
+@app.get("/api/v1/admin/matches/{match_id}/credits")
+def get_match_credit_status(match_id: str, _admin: bool = Depends(require_admin),
+                            db: Session = Depends(get_db)):
+    match=db.get(Match,match_id)
+    if not match:
+        raise HTTPException(404,"Match not found")
+    rows=db.scalars(select(MatchSquad).where(MatchSquad.match_id==match_id)).all()
+    players=[]
+    for row in rows:
+        player=db.get(Player,row.player_id)
+        players.append({"player_id":row.player_id,"player_name":player.name if player else row.player_id,
+                        "team":row.team,"role":row.role,"credits":row.credits,
+                        "credit_source":row.source})
+    missing=[p for p in players if p["credits"] is None]
+    return {"match_id":match_id,"match_name":match.name,"players":players,
+            "credits_verified_count":len(players)-len(missing),
+            "credits_missing_count":len(missing),"credits_missing_players":missing,
+            "credits_ready_for_team_builder":bool(players) and not missing}
+
+
+@app.post("/api/v1/admin/matches/{match_id}/credits")
+def save_manual_match_credit(match_id: str, payload: ManualCreditUpdate,
+                              _admin: bool = Depends(require_admin),
+                              db: Session = Depends(get_db)):
+    match=db.get(Match,match_id)
+    if not match:
+        raise HTTPException(404,"Match not found")
+    squad=db.get(MatchSquad,(match_id,payload.player_id))
+    if not squad:
+        raise HTTPException(404,"Player is not in this match squad")
+    source_url=payload.source_url.strip()
+    if not source_url.startswith("https://"):
+        raise HTTPException(422,"A verified HTTPS source URL is required.")
+    player=db.get(Player,payload.player_id)
+    old_credit=squad.credits
+    squad.credits=payload.credits
+    squad.source="manual_verified"
+    intel=db.get(MatchIntelligence,match_id)
+    data=dict(intel.data or {}) if intel else {}
+    audit=list(data.get("credit_audit",[]))
+    audit.append({"player_id":payload.player_id,"player_name":player.name if player else payload.player_id,
+                  "credits":payload.credits,"previous_credits":old_credit,
+                  "source_label":payload.source_label.strip(),"source_url":source_url,
+                  "verification":"admin_entered_source_backed","updated_at":datetime.now(timezone.utc).isoformat()})
+    data["credit_audit"]=audit
+    if intel:
+        intel.data=data
+    else:
+        db.add(MatchIntelligence(match_id=match_id,data=data))
+    db.commit()
+    rows=db.scalars(select(MatchSquad).where(MatchSquad.match_id==match_id)).all()
+    missing=[]
+    for row in rows:
+        if row.credits is None:
+            p=db.get(Player,row.player_id)
+            missing.append(p.name if p else row.player_id)
+    return {"saved":True,"match_id":match_id,"player_id":payload.player_id,
+            "credits":squad.credits,"credit_source":"manual_verified",
+            "credits_verified_count":len(rows)-len(missing),
+            "credits_missing_count":len(missing),"credits_missing_players":missing,
+            "credits_ready_for_team_builder":bool(rows) and not missing}
+
 
 @app.get("/api/v1/admin/matches/{match_id}/source-profiles")
 def get_source_profiles(match_id: str, _admin: bool = Depends(require_admin),
@@ -365,8 +432,45 @@ def admin_page():
     <p>Paste one AI11 match URL (Fantasy or Analysis). The matching page is detected automatically.</p>
     <input id="url" type="url" placeholder="Paste AI11 match URL">
     <button id="go">Fetch match data</button><pre id="out">Ready.</pre>
+    <section id="credits" hidden><h3>Missing player credits</h3>
+      <p>Enter only a value checked against a reliable source. The source URL is saved with the correction.</p>
+      <div id="creditRows"></div><pre id="creditStatus"></pre>
+    </section>
     <script>
-    let adminToken='';
+    let adminToken='', currentMatchId='';
+    const headers=()=>({'Content-Type':'application/json','X-Admin-Token':adminToken});
+    async function loadCredits(matchId){
+      const r=await fetch('/api/v1/admin/matches/'+encodeURIComponent(matchId)+'/credits',{headers:headers()});
+      const data=await r.json();
+      const section=document.getElementById('credits'), rows=document.getElementById('creditRows');
+      section.hidden=false; rows.innerHTML='';
+      const missing=(data.credits_missing_players||[]);
+      if(!missing.length){rows.textContent='All squad players have credits.';}
+      missing.forEach(p=>{
+        const card=document.createElement('div');
+        card.style='background:white;border:1px solid #ccd3d8;border-radius:8px;padding:12px;margin:12px 0';
+        const heading=document.createElement('strong'); heading.textContent=p.player_name+' ('+p.team+')';
+        const credit=document.createElement('input'); credit.type='number';credit.min='0.1';credit.max='20';credit.step='0.5';credit.placeholder='Player credits';
+        const source=document.createElement('input');source.type='text';source.placeholder='Source name';
+        const url=document.createElement('input');url.type='url';url.placeholder='HTTPS source URL';
+        const save=document.createElement('button');save.textContent='Save verified credit';
+        const msg=document.createElement('small');msg.style='display:block;margin-top:8px';
+        save.onclick=async()=>{
+          const value=Number(credit.value);
+          if(!(value>0&&value<=20)){msg.textContent='Enter a credit greater than 0 and at most 20.';return;}
+          if(!source.value.trim()||!url.value.trim().startsWith('https://')){msg.textContent='Enter source name and HTTPS URL.';return;}
+          save.disabled=true;msg.textContent='Saving…';
+          try{
+            const response=await fetch('/api/v1/admin/matches/'+encodeURIComponent(currentMatchId)+'/credits',{method:'POST',headers:headers(),body:JSON.stringify({player_id:p.player_id,credits:value,source_label:source.value.trim(),source_url:url.value.trim()})});
+            const result=await response.json();msg.textContent=response.ok?'Saved. Missing: '+result.credits_missing_count:JSON.stringify(result);
+            if(response.ok)await loadCredits(currentMatchId);
+          }catch(e){msg.textContent='Request failed: '+e.message;}
+          finally{save.disabled=false;}
+        };
+        card.append(heading,credit,source,url,save,msg);rows.append(card);
+      });
+      document.getElementById('creditStatus').textContent=JSON.stringify({credits_verified_count:data.credits_verified_count,credits_missing_count:data.credits_missing_count,credits_ready_for_team_builder:data.credits_ready_for_team_builder},null,2);
+    }
     document.getElementById('go').onclick=async()=>{
       if(!adminToken)adminToken=prompt('Enter admin token once for this page session:')||'';
       if(!adminToken)return;
@@ -374,11 +478,11 @@ def admin_page():
       const out=document.getElementById('out');out.textContent='Fetching match data…';
       try{
         if(!url){out.textContent='Please paste an AI11 match URL first.';return;}
-        const r=await fetch('/api/v1/admin/import/ai11',{method:'POST',headers:{'Content-Type':'application/json','X-Admin-Token':adminToken},body:JSON.stringify({analysis_url:url})});
-        const raw=await r.text();
-        let data;
+        const r=await fetch('/api/v1/admin/import/ai11',{method:'POST',headers:headers(),body:JSON.stringify({analysis_url:url})});
+        const raw=await r.text();let data;
         try{data=JSON.parse(raw);}catch(_){data={message:'Server returned a non-JSON response',http_status:r.status,response:raw.slice(0,4000)};}
         out.textContent=JSON.stringify({http_status:r.status,...(data&&typeof data==='object'?data:{response:data})},null,2);
+        if(r.ok&&data.match_id){currentMatchId=data.match_id;await loadCredits(currentMatchId);}
         if(r.status===401)adminToken='';
       }catch(e){out.textContent='Network/request error: '+e.message;}
     };
