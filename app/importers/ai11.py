@@ -140,36 +140,55 @@ def parse_analysis(html: str):
     match_id = _player_id(match_name) or "ai11-match"
     players = []
     profiles = []
+
+    # AI11 currently renders a two-row grouped table header. Find the actual
+    # column-heading row rather than assuming the first <tr> is the header.
     for table in soup.find_all("table"):
         rows = table.find_all("tr")
-        if len(rows) < 2:
+        header_index = None
+        headers = []
+        for index, row in enumerate(rows):
+            candidate = [c.get_text(" ", strip=True).lower() for c in row.find_all(["th", "td"])]
+            if any(x in {"name", "player"} for x in candidate) and any("s%" in x for x in candidate):
+                header_index, headers = index, candidate
+                break
+        if header_index is None:
             continue
-        header = [c.get_text(" ", strip=True).lower() for c in rows[0].find_all(["th", "td"])]
-        if not any(x in header for x in ("name", "player")) or not any("s%" in x for x in header):
+        name_idx = next((i for i, x in enumerate(headers) if x in {"name", "player"}), None)
+        team_idx = next((i for i, x in enumerate(headers) if x in {"t", "team"}), None)
+        role_idx = next((i for i, x in enumerate(headers) if x in {"r", "role"}), None)
+        status_idx = next((i for i, x in enumerate(headers) if x in {"s", "status", "lineup"}), None)
+        selection_idx = next((i for i, x in enumerate(headers) if "s%" in x), None)
+        captain_idx = next((i for i, x in enumerate(headers) if x == "c"), None)
+        vice_idx = next((i for i, x in enumerate(headers) if x == "vc"), None)
+        if name_idx is None or role_idx is None:
             continue
-        for row in rows[1:]:
+        for row in rows[header_index + 1:]:
             cells = [c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])]
-            if len(cells) < 10:
+            if len(cells) <= max(name_idx, role_idx):
                 continue
-            name = cells[0].strip()
-            if not name or name.lower() in {"name", "player"}:
+            name = cells[name_idx].strip()
+            role = _role(cells[role_idx] if role_idx < len(cells) else "")
+            if not name or name.lower() in {"name", "player"} or not role:
                 continue
-            role = _role(cells[2] if len(cells) > 2 else "")
-            if not role:
-                continue
-            team = cells[1].strip() if cells[1].strip() else "UNKNOWN"
-            selection = _number(cells[-3] if len(cells) >= 3 else None)
-            captain_pct = _number(cells[-2] if len(cells) >= 2 else None)
-            vice_pct = _number(cells[-1] if cells else None)
-            lineup = cells[3].strip().lower() if len(cells) > 3 else ""
+            team = cells[team_idx].strip() if team_idx is not None and team_idx < len(cells) and cells[team_idx].strip() else "UNKNOWN"
+            selection = _number(cells[selection_idx]) if selection_idx is not None and selection_idx < len(cells) else None
+            captain_pct = _number(cells[captain_idx]) if captain_idx is not None and captain_idx < len(cells) else None
+            vice_pct = _number(cells[vice_idx]) if vice_idx is not None and vice_idx < len(cells) else None
+            lineup = cells[status_idx].strip().lower() if status_idx is not None and status_idx < len(cells) else ""
             status = "confirmed" if "✓" in lineup or "confirmed" in lineup else "unknown"
             pid = _player_id(name)
+            if any(p["id"] == pid for p in players):
+                continue
             players.append({"id": pid, "name": name, "team": team, "role": role,
                             "credits": None, "selection_pct": selection, "status": status,
                             "source": "AI11"})
             profiles.append({"player_id": pid, "player_name": name, "team": team, "role": role,
                 "format": fmt, "ai11_captain_pct": captain_pct, "ai11_vice_captain_pct": vice_pct,
                 "ai11_selection_pct": selection, "ai11_row": cells, "source": "AI11"})
+        if players:
+            break
+
     intelligence = {}
 
     def find_num(pattern):
@@ -197,7 +216,6 @@ def parse_analysis(html: str):
     return {"title": match_name, "format": fmt, "team_a": team_a, "team_b": team_b,
             "venue": venue, "players": players, "profiles": profiles,
             "intelligence": intelligence, "player_count": len(players)}
-
 
 def parse_fantasy(html: str):
     soup = BeautifulSoup(html, "html.parser")
