@@ -1288,6 +1288,8 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
         data["venue_provider"] = "CRICBUZZ"
         if venue_row:
             data["venue_id"] = venue_row.provider_key
+            if venue_row.source_urls:
+                data["venue_report_source_url"] = venue_row.source_urls[0]
         data.update(analysis_context_fields(venue_analysis))
         if intel_row is None:
             intel_row = MatchIntelligence(match_id=match_id, data=data)
