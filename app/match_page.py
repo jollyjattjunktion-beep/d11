@@ -47,6 +47,46 @@ def _player_row(player: dict) -> str:
     )
 
 
+def _fixed_player_picker(players: list[dict], lineup_confirmed: bool) -> str:
+    eligible = []
+    for player in players:
+        try:
+            selection = float(player.get("selection_pct"))
+        except (TypeError, ValueError):
+            continue
+        if selection < 80:
+            continue
+        if lineup_confirmed and str(player.get("status") or "").casefold() not in {"playing", "confirmed"}:
+            continue
+        eligible.append(player)
+    eligible.sort(key=lambda item: float(item.get("selection_pct") or 0), reverse=True)
+    if not eligible:
+        reason = "No imported players currently meet the 80% selection threshold and confirmed-XI rule."
+        return '<div class="empty">' + html.escape(reason) + '</div>'
+    rows = []
+    for index, player in enumerate(eligible):
+        player_id = html.escape(str(player.get("player_id") or ""), quote=True)
+        name = html.escape(str(player.get("player_name") or "Unknown player"))
+        team = html.escape(str(player.get("team") or ""))
+        role = html.escape(str(player.get("role") or ""))
+        selection = float(player.get("selection_pct") or 0)
+        credits = player.get("credits")
+        credits_text = f"{float(credits):g} cr" if credits is not None else "credits missing"
+        image = _safe_image_url(player.get("image"))
+        avatar = (
+            f'<img src="{html.escape(image, quote=True)}" alt="{name}" loading="lazy">'
+            if image else f'<span class="fixed-avatar">{html.escape(name[:1].upper())}</span>'
+        )
+        checked = " checked" if index < 4 else ""
+        rows.append(
+            f'<label class="fixed-option">{avatar}'
+            f'<span class="fixed-meta"><strong>{name}</strong>'
+            f'<small>{role} • {team} • {selection:.1f}% selected • {html.escape(credits_text)}</small></span>'
+            f'<input class="fixed-choice" type="checkbox" value="{player_id}"{checked}></label>'
+        )
+    return "".join(rows)
+
+
 def _squad_markup(team_a: str, team_b: str, players: list[dict]) -> str:
     groups = []
     for team in (team_a, team_b):
@@ -164,6 +204,7 @@ def render_match_detail(
         "{{KICKOFF}}": html.escape(kickoff),
         "{{VENUE}}": html.escape(venue),
         "{{MATCH_ID}}": html.escape(str(match.get("id"))),
+        "{{LINEUP_CONFIRMED}}": "true" if lineup_confirmed else "false",
         "{{TEAM_A}}": html.escape(str(match.get("team_a") or "")),
         "{{TEAM_B}}": html.escape(str(match.get("team_b") or "")),
         "{{TEAM_A_FULL}}": html.escape(str(match.get("team_a_name") or match.get("team_a") or "")),
@@ -177,6 +218,7 @@ def render_match_detail(
         "{{IMPORT_NOTICE_CLASS}}": notice_class,
         "{{IMPORT_NOTICE}}": html.escape(import_note),
         "{{SQUAD_CONTENT}}": _squad_markup(str(match.get("team_a")), str(match.get("team_b")), players),
+        "{{FIXED_PLAYER_OPTIONS}}": _fixed_player_picker(players, lineup_confirmed),
         "{{SCORECARD_CONTENT}}": _scorecard_markup(scorecards),
         "{{PITCH}}": html.escape(str(pitch)),
         "{{TOSS}}": html.escape(str(toss)),
