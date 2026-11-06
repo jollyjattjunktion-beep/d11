@@ -159,6 +159,7 @@ class CricbuzzSeriesImportRequest(BaseModel):
 class CricbuzzSeriesIndexImportRequest(BaseModel):
     url: str = Field(min_length=20, max_length=1200)
     max_series: int = Field(default=8, ge=1, le=20)
+    series_offset: int = Field(default=0, ge=0, le=10000)
 
 
 class VenueEnrichRequest(BaseModel):
