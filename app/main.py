@@ -162,45 +162,65 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
     match=db.get(Match,match_id)
     if not match: raise HTTPException(404,"Match not found")
     squads=db.scalars(select(MatchSquad).where(MatchSquad.match_id==match_id)).all()
+    if not squads: raise HTTPException(422,"No squad players are imported for this match.")
     missing_credit_players=[]
     for squad in squads:
         if squad.credits is None:
             player=db.get(Player,squad.player_id)
             missing_credit_players.append(player.name if player else squad.player_id)
     if missing_credit_players:
-        raise HTTPException(
-            422,
-            detail={
-                "message":"Dream11 team generation is paused because valid player credits are missing.",
-                "credits_missing_count":len(missing_credit_players),
-                "credits_missing_players":missing_credit_players,
-                "action":"Import verified credits from an official/source-backed player list or enter them manually. No credit values are guessed."
-            },
-        )
+        raise HTTPException(422,detail={
+            "message":"Team generation requires verified player credits.",
+            "credits_missing_count":len(missing_credit_players),
+            "credits_missing_players":missing_credit_players,
+            "action":"Import verified credits or enter them manually. No credit values are guessed."
+        })
     predictions=predict_match(db,match_id)
     squad_by_id={s.player_id:s for s in squads}
     combined=[]
     for prediction in predictions:
         s=squad_by_id[prediction["player_id"]]
         combined.append({**prediction,"credits":s.credits,"selection_pct":s.selection_pct,"status":s.status})
+    history_ready=bool(combined) and all(p.get("expected_points") is not None for p in combined)
+    requested=payload.generation_mode
+    modes=(["ai_prediction","provisional"] if requested=="both" else [requested])
+    if "ai_prediction" in modes and not history_ready:
+        if requested=="ai_prediction":
+            raise HTTPException(422,detail={
+                "message":"AI Prediction Mode requires format-matched historical fantasy-point records.",
+                "prediction_status":"insufficient_history",
+                "players_missing_history":[p["player_name"] for p in combined if p.get("expected_points") is None],
+                "action":"Import verified match-by-match historical records for this format, then retry. Use Provisional Team Builder in the meantime."
+            })
+        modes.remove("ai_prediction")
     results={}
-    for strategy in payload.strategies:
-        try:
-            results[strategy]=build_teams(
-                combined,strategy,payload.rules,payload.teams_per_strategy,payload.scenario,
-                team_a=match.team_a,locked_ids=payload.locked_player_ids,
-                excluded_ids=payload.excluded_player_ids,captain_pool=payload.captain_pool,
-                vice_captain_pool=payload.vice_captain_pool,
-                manual_captain_id=payload.manual_captain_id,
-                manual_vice_captain_id=payload.manual_vice_captain_id)
-        except ValueError as exc:
-            raise HTTPException(422,str(exc))
-    return {"match_id":match_id,"model_version":MODEL_VERSION,
-            "mode":payload.team_mode,"teams":results,
-            "manual_controls":{"locked":payload.locked_player_ids,
-                "excluded":payload.excluded_player_ids,
-                "captain_pool":payload.captain_pool,"vice_captain_pool":payload.vice_captain_pool},
-            "warning":"Projected points are model estimates, not guaranteed fantasy outcomes."}
+    for mode in modes:
+        results[mode]={}
+        for strategy in payload.strategies:
+            try:
+                results[mode][strategy]=build_teams(
+                    combined,strategy,payload.rules,payload.teams_per_strategy,payload.scenario,
+                    team_a=match.team_a,locked_ids=payload.locked_player_ids,
+                    excluded_ids=payload.excluded_player_ids,captain_pool=payload.captain_pool,
+                    vice_captain_pool=payload.vice_captain_pool,
+                    manual_captain_id=payload.manual_captain_id,
+                    manual_vice_captain_id=payload.manual_vice_captain_id,
+                    mode=mode)
+            except ValueError as exc:
+                raise HTTPException(422,str(exc))
+    return {
+        "match_id":match_id,"model_version":MODEL_VERSION,
+        "generation_mode_requested":requested,
+        "history_status":"ready" if history_ready else "insufficient_history",
+        "available_modes":(["ai_prediction","provisional"] if history_ready else ["provisional"]),
+        "teams":results,
+        "manual_controls":{"locked":payload.locked_player_ids,
+            "excluded":payload.excluded_player_ids,
+            "captain_pool":payload.captain_pool,"vice_captain_pool":payload.vice_captain_pool},
+        "warnings":[
+            "AI Prediction Mode uses format-matched historical statistical estimates; it is not a trained machine-learning model."
+        ] + (["Provisional teams use selection and AI11 C/VC trends as weak selection signals only. Projected fantasy points are null and no points prediction is claimed."] if not history_ready or "provisional" in modes else [])
+    }
 
 @app.get("/api/v1/model/status")
 def model_status(db: Session = Depends(get_db)):
