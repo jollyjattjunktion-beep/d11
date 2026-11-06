@@ -1010,16 +1010,22 @@ def import_cricbuzz_venue_report(match_id: str, payload: CricbuzzVenueImportRequ
     data["auto_venue_analysis"] = venue_analysis
     data.update(analysis_context_fields(venue_analysis))
 
+    if intel_row is None:
+        intel_row = MatchIntelligence(match_id=match_id, data=data)
+        db.add(intel_row)
+    else:
+        intel_row.data = data
+    # Persist format-specific ground adjustments before requesting player estimates.
+    db.commit()
+
     # Team-strength recommendation is generated only when both sides have enough
     # format-matched historical player points. It is not a prediction of match winner.
     predictions = predict_match(db, match_id)
     strength = compare_squad_strength(match.team_a, match.team_b, predictions)
     data["team_strength_analysis"] = strength
     data["strong_team"] = strength.get("strong_team")
-    if intel_row is None:
-        db.add(MatchIntelligence(match_id=match_id, data=data))
-    else:
-        intel_row.data = data
+    intel_row = db.get(MatchIntelligence, match_id)
+    intel_row.data = data
     db.commit()
     return {
         "imported": True,
