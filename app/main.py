@@ -5,6 +5,7 @@ from urllib.parse import urljoin, urlparse
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 import secrets
+import httpx
 from datetime import datetime, timezone
 from app.database import Base, engine, get_db
 from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile
@@ -12,7 +13,7 @@ from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
                          TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate)
 from app.predictor import predict_match
 from app.optimizer import build_teams
-from app.config import MODEL_VERSION, ADMIN_TOKEN
+from app.config import MODEL_VERSION, ADMIN_TOKEN, TG_API_TOKEN
 from app.importers.ai11 import (fetch_page, parse_analysis, parse_fantasy, AI11RateLimitError)
 
 Base.metadata.create_all(bind=engine)
@@ -446,6 +447,49 @@ def history_coverage(_admin: bool = Depends(require_admin), db: Session = Depend
                        for fmt,v in by_format.items()},
             "training_ready":False,
             "note":"Training readiness requires enough clean, chronological records and verified scoring rules; record count alone is not a quality guarantee."}
+
+
+@app.get("/api/v1/admin/teamgeneration/matches/{match_id}/inspect")
+def inspect_teamgeneration_match(match_id: str, _admin: bool = Depends(require_admin)):
+    """Fetch one Team Generation match using a server-side token; never return or log credentials."""
+    if not TG_API_TOKEN:
+        raise HTTPException(
+            503,
+            detail="Team Generation importer is not configured. Add TG_API_TOKEN to Render environment variables."
+        )
+    if not match_id or len(match_id) > 50 or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for ch in match_id):
+        raise HTTPException(422, "Invalid Team Generation match ID.")
+    url = f"https://v2.tgsoftware-api.online/matches/{match_id}"
+    try:
+        with httpx.Client(timeout=20.0, follow_redirects=False, trust_env=False) as client:
+            response = client.get(
+                url,
+                headers={"Authorization": f"Bearer {TG_API_TOKEN}", "Accept": "application/json"}
+            )
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {"response_text": response.text[:4000]}
+        if response.status_code == 401:
+            raise HTTPException(
+                502,
+                detail="Team Generation rejected TG_API_TOKEN (401). Check that the correct authorized access token is set in Render."
+            )
+        if response.status_code >= 400:
+            raise HTTPException(
+                502,
+                detail={"message": "Team Generation upstream request failed.", "upstream_status": response.status_code, "response": payload}
+            )
+        return {
+            "source": "Team Generation",
+            "match_id": match_id,
+            "upstream_status": response.status_code,
+            "data": payload
+        }
+    except HTTPException:
+        raise
+    except httpx.RequestError as exc:
+        raise HTTPException(502, f"Could not reach Team Generation API: {type(exc).__name__}")
 
 
 @app.get("/admin", response_class=HTMLResponse)
