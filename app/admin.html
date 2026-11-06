@@ -38,8 +38,8 @@
   <nav class="stepper" id="stepper">
     <div class="step active" data-step="1"><span class="num">1</span><span><strong>Match Import</strong><small>Fetch squads & credits</small></span></div>
     <div class="step" data-step="2"><span class="num">2</span><span><strong>Playing XI</strong><small>Confirm both teams</small></span></div>
-    <div class="step" data-step="3"><span class="num">3</span><span><strong>Pitch & Toss</strong><small>Match conditions</small></span></div>
-    <div class="step" data-step="4"><span class="num">4</span><span><strong>Fixed Players</strong><small>Venue suggestions</small></span></div>
+    <div class="step" data-step="3"><span class="num">3</span><span><strong>Venue Analysis</strong><small>Automatic ground & team assessment</small></span></div>
+    <div class="step" data-step="4"><span class="num">4</span><span><strong>Fixed Players</strong><small>80%+ selection recommendations</small></span></div>
     <div class="step" data-step="5"><span class="num">5</span><span><strong>Generate Teams</strong><small>Review final combinations</small></span></div>
   </nav>
   <section class="panel">
@@ -75,32 +75,35 @@
         <div class="controls"><button class="btn secondary" data-back>Back</button><div class="row"><button class="btn secondary" id="saveProvisionalXI">Save provisional picks</button><button class="btn green" id="confirmXI">Confirm official XI</button></div></div>
       </section>
       <section class="step-view" id="view3">
-        <div class="section-label">Pitch Details</div>
-        <div class="choice-grid" id="pitchChoices">
-          <button class="choice" data-pitch="batting"><strong>🏏 Batting Pitch</strong><small>More favourable for batters</small></button>
-          <button class="choice" data-pitch="bowling"><strong>🎯 Bowling Pitch</strong><small>More favourable for bowlers</small></button>
-          <button class="choice" data-pitch="balanced"><strong>⚖️ Balanced</strong><small>No strong pitch preference</small></button>
+        <div class="panel" style="box-shadow:none;margin-bottom:16px">
+          <div class="panelhead"><div><h2>Automatic venue analysis</h2><div class="helper">Cricbuzz data is evaluated using this match format: ODI, T20 or Test.</div></div><span class="pill">DATA-DRIVEN</span></div>
+          <div class="panelbody">
+            <div class="urlbox"><input class="field" id="venueUrlStep3" type="url" placeholder="https://www.cricbuzz.com/cricket-series/.../venues/42/hnry-stadium"><button class="btn" id="importCricbuzzVenueStep3">Fetch & analyse venue</button></div>
+            <div class="helper">Paste the Cricbuzz venue profile URL. The system saves ODI/T20/Test figures separately and uses only the correct format for this match.</div>
+            <div id="venueAnalysisNotice" class="notice warn">Checking the saved stadium catalogue for this venue…</div>
+            <div id="autoVenueAnalysis" style="display:none"></div>
+          </div>
         </div>
-        <div class="section-label" style="margin-top:26px">Strong Team?</div>
-        <div class="inline-options" id="strongChoices"></div>
-        <div class="section-label" style="margin-top:26px">Toss Completed?</div>
-        <div class="inline-options" id="tossChoices"><button class="option" data-toss="true">Yes</button><button class="option" data-toss="false">No</button></div>
-        <div id="tossExtra" style="display:none;margin-top:16px">
-          <div class="section-label">Toss Winner</div><select id="tossWinner" class="field"></select>
-          <div class="section-label">Decision</div><div class="inline-options" id="tossDecision"><button class="option" data-decision="bat">Bat</button><button class="option" data-decision="bowl">Bowl</button></div>
-        </div>
-        <div class="notice" id="conditionsNotice">The pitch choice guides the batting/bowling scenario. A selected strong team will receive the larger team split when teams are generated. These are selection preferences, not guaranteed match outcomes.</div>
-        <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn green" id="saveConditions">Save conditions & continue</button></div>
+        <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn green" id="continueVenue">Continue to fixed players</button></div>
       </section>
       <section class="step-view" id="view4">
         <div class="row" style="justify-content:space-between;align-items:flex-end;margin-bottom:12px"><div><b>Stadium report & fixed players</b><div class="helper">First fetch CREX ground statistics. Then compare current squad players using saved records from this venue.</div></div><span class="pill" id="fixedCount">0 / 5 fixed</span></div>
         <div class="panel" style="box-shadow:none;margin-bottom:16px">
-          <div class="panelhead"><h2>Update venue details from CREX</h2><span class="pill">SOURCE IMPORT</span></div>
+          <div class="panelhead"><div><h2>Cricbuzz stadium data</h2><div class="helper">Update this ground's profile or import additional stadiums from another series.</div></div><span class="pill">SQL VENUE DATABASE</span></div>
           <div class="panelbody">
-            <div class="urlbox"><input class="field" id="venueUrl" type="url" placeholder="https://crex.com/cricket-live-score/..."><button class="btn" id="importCrexVenue">Fetch stadium report</button></div>
-            <div class="helper">Paste the CREX match Info/Venue page URL (the page showing Venue Stats, Pace vs Spin, Weather and Pitch Report). The saved report can be refreshed with another URL any time.</div>
-            <div id="venueNotice" class="notice">No CREX venue report imported yet. Paste the CREX match URL above.</div>
+            <div class="urlbox"><input class="field" id="venueUrl" type="url" placeholder="https://www.cricbuzz.com/cricket-series/.../venues/42/hnry-stadium"><button class="btn" id="importCricbuzzVenue">Update stadium data</button></div>
+            <div class="helper">Use the Cricbuzz venue page. The system refreshes all available format records and recalculates the automatic analysis.</div>
+            <div id="venueNotice" class="notice">No Cricbuzz venue report loaded yet. Paste a venue URL in Step 3 or here.</div>
             <div id="crexReportPanel" style="display:none;margin-top:14px"></div>
+          </div>
+        </div>
+        <div class="panel" style="box-shadow:none;margin-bottom:16px">
+          <div class="panelhead"><div><h2>Grow the world stadium catalogue</h2><div class="helper">Import all listed grounds from a Cricbuzz series Venues page. Each saved ground goes into SQL for reuse in future matches.</div></div><span class="pill">BULK IMPORT</span></div>
+          <div class="panelbody">
+            <div class="urlbox"><input class="field" id="seriesVenuesUrl" placeholder="https://www.cricbuzz.com/cricket-series/12543/india-tour-of-new-zealand-2026/venues"><button class="btn secondary" id="importSeriesVenues">Import series stadiums</button></div>
+            <div id="catalogueImportNotice" class="helper">Every imported competition adds more stadiums to your searchable catalogue. This is a growing catalogue, not a claimed complete world list.</div>
+            <div class="urlbox" style="margin-top:12px"><input class="field" id="venueCatalogSearch" placeholder="Search saved grounds by stadium, city or alias"><button class="btn outline" id="searchVenueCatalog">Search database</button></div>
+            <div id="venueCatalogResults"></div>
           </div>
         </div>
         <div class="section-label">Both teams — analysis at this venue</div>
@@ -138,14 +141,14 @@
 <div class="footer">PREET FANTASY AI • Source-backed cricket data • No guaranteed fantasy points or outcomes</div>
 </main>
 <script>
-const state={matchId:null,match:null,players:[],intelligence:{},step:1,lineupSelected:new Set(),lineupConfirmed:false,fixed:new Set(),pitch:'balanced',strongTeam:'equal',tossCompleted:false,tossWinner:'',tossDecision:'',venueSuggestions:[],venueReport:null,teamVenueAnalysis:[],roleFilter:'ALL',importRoleFilter:'ALL',suggestedFixed:new Set()};
+const state={matchId:null,match:null,players:[],intelligence:{},step:1,lineupSelected:new Set(),lineupConfirmed:false,fixed:new Set(),pitch:'balanced',strongTeam:'equal',tossCompleted:false,tossWinner:'',tossDecision:'',venueSuggestions:[],venueReport:null,venueAnalysis:null,teamStrengthAnalysis:null,teamVenueAnalysis:[],roleFilter:'ALL',importRoleFilter:'ALL',suggestedFixed:new Set()};
 const $=id=>document.getElementById(id);
 const token=()=> $('adminToken').value.trim();
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function headers(){if(!token())throw new Error('Enter your admin token first.');return {'Content-Type':'application/json','X-Admin-Token':token()};}
 async function api(url,options={}){const r=await fetch(url,{...options,headers:{...headers(),...(options.headers||{})}});const raw=await r.text();let data;try{data=JSON.parse(raw)}catch{data={detail:raw.slice(0,1000)}}if(!r.ok){if(r.status===401)$('adminToken').value='';throw new Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail||data));}return data;}
 function idFromUrl(v){const s=v.trim();if(/^\d{4,}$/.test(s))return s;const m=s.match(/\/match\/([A-Za-z0-9_-]+)/i)||s.match(/\/matches\/([A-Za-z0-9_-]+)/i);if(!m)throw new Error('Paste a Team Generation match URL such as https://teamgeneration.in/match/113941');return m[1];}
-function setStep(n){if(!state.matchId&&n!==1)return;if(n===4){state.roleFilter='ALL';if(state.players.length)renderFixed();}state.step=n;document.querySelectorAll('.step').forEach(e=>{const x=Number(e.dataset.step);e.classList.toggle('active',x===n);e.classList.toggle('done',x<n)});document.querySelectorAll('.step-view').forEach(e=>e.classList.toggle('active',e.id==='view'+n));$('stepBadge').textContent='STEP 0'+n+' / 05';const titles=['Fetch match and import players','Confirm Playing XI for both teams','Set pitch, strong team and toss','Choose fixed players and venue options','Generate and review fantasy teams'];$('panelTitle').textContent='Step '+n+' — '+titles[n-1];}
+function setStep(n){if(!state.matchId&&n!==1)return;if(n===4){state.roleFilter='ALL';if(state.players.length)renderFixed();}state.step=n;document.querySelectorAll('.step').forEach(e=>{const x=Number(e.dataset.step);e.classList.toggle('active',x===n);e.classList.toggle('done',x<n)});document.querySelectorAll('.step-view').forEach(e=>e.classList.toggle('active',e.id==='view'+n));$('stepBadge').textContent='STEP 0'+n+' / 05';const titles=['Fetch match and import players','Confirm Playing XI for both teams','Automatic venue and team analysis','Choose 4–5 high-selection players','Generate and review fantasy teams'];$('panelTitle').textContent='Step '+n+' — '+titles[n-1];}
 function notice(id,msg,kind=''){const el=$(id);el.className='notice '+kind;el.textContent=msg;el.style.display='block';}
 function playerProfile(p){return p.profile||{};}
 async function loadWizard(){
@@ -160,10 +163,10 @@ async function loadWizard(){
  const withCredits=state.players.filter(p=>p.credits!=null).length;
  $('creditReady').textContent=withCredits+' / '+state.players.length+' player credits verified. '+(withCredits===state.players.length?'Ready for team generation.':'Some credits are missing; correct them before generating teams.');
  $('creditReady').style.display='block';$('creditReady').className='notice '+(withCredits===state.players.length?'good':'warn');
- $('venueInput').value=state.match.venue||'';
  $('venueUrl').value=state.intelligence.venue_report_source_url||'';
+ $('venueUrlStep3').value=state.intelligence.venue_report_source_url||'';
  renderCreditCorrections();renderImportRoster();
- renderLineup();renderConditions();renderFixed();await loadVenueSuggestions();
+ renderLineup();renderFixed();await loadVenueSuggestions();
 }
 async function importMatch(){
  try{const id=idFromUrl($('matchUrl').value);state.matchId=id;$('fetchMatch').disabled=true;$('fetchMatch').textContent='Fetching…';notice('importNotice','Fetching match and player data…');const result=await api('/api/v1/admin/import/teamgeneration/'+encodeURIComponent(id),{method:'POST',body:'{}'});await loadWizard();notice('importNotice',result.players_imported+' players imported for '+(result.match?.name||id)+'. Check player credits and continue to Playing XI.','good');setStep(1);}
