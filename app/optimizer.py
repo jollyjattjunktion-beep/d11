@@ -11,9 +11,9 @@ def _provisional_score(p, strategy, scenario):
     """Selection-priority score only; never interpreted as fantasy points."""
     selection = p.get("selection_pct")
     selection = 50.0 if selection is None else max(0.0, min(100.0, float(selection)))
-    captain = float(p.get("ai11_captain_pct") or 0.0)
-    vice = float(p.get("ai11_vice_captain_pct") or 0.0)
-    # AI11 selection and C/VC trends are weak signals, deliberately bounded.
+    captain = float(p.get("captain_pct") or p.get("ai11_captain_pct") or 0.0)
+    vice = float(p.get("vice_captain_pct") or p.get("ai11_vice_captain_pct") or 0.0)
+    # Source ownership and C/VC trends are weak selection signals, not fantasy points.
     value = selection * 0.70 + min(captain, 100.0) * 0.20 + min(vice, 100.0) * 0.10
     status = (p.get("status") or "unknown").lower()
     if status in {"playing", "confirmed"}:
