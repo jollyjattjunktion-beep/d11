@@ -138,3 +138,67 @@ The team-A count is measured against the match's `team_a` value. Omit it for any
 6. Authenticated admin UI and a manual visual team editor.
 
 Respect each data provider's terms and access controls. This project does not guarantee fantasy contest results.
+
+
+## AI11 and external historical-data import (v0.3)
+
+### Enable protected admin imports
+
+Set `ADMIN_TOKEN` in Render Environment to a long random secret. Do not put it in browser JavaScript or commit the real value to GitHub. The importer endpoints return 503 until this variable is configured and 401 for an invalid token.
+
+### Import an AI11 match
+
+`POST /api/v1/admin/import/ai11` with header `X-Admin-Token: YOUR_SECRET`:
+
+```json
+{
+  "analysis_url": "https://www.ai11.in/cricket/series/india-in-new-zealand-odis-2026-27/match/new-zealand-vs-india-2nd-odi-2026",
+  "fantasy_url": "https://www.ai11.in/fantasy/cricket/new-zealand-vs-india-2nd-odi-2026"
+}
+```
+
+The importer:
+- Accepts only HTTPS URLs hosted on `ai11.in` or `www.ai11.in`.
+- Fetches the analysis and fantasy pages with bounded timeouts and response size.
+- Imports match format, teams, player names, roles, selection percentage, lineup marker, available match context and source attribution.
+- Saves AI11's player-row values as source profiles for later feature engineering.
+- Extracts credits only when explicitly present in page HTML or embedded JSON. It leaves credits missing rather than guessing them. If the fantasy page renders player credits only in browser-side API calls, this server-side HTML importer will report that limitation; inspect the page's permitted public data interface before adding a supported adapter.
+
+The parser is intentionally conservative and AI11 may change its markup. Review imported squads and credits in the admin workflow before team generation. It does not bypass login, anti-bot controls or access restrictions.
+
+### Import independent historical scorecards
+
+AI11 match pages provide current match context, career/series aggregates and selection trends. Those are not a substitute for match-by-match fantasy points. Import external scorecard-derived historical records through:
+
+`POST /api/v1/admin/history/import` with header `X-Admin-Token: YOUR_SECRET`:
+
+```json
+{
+  "source": "verified_scorecard_provider_and_scoring_rules_v1",
+  "records": [
+    {
+      "match_id": "historic-odi-001",
+      "player_id": "virat-kohli",
+      "format": "ODI",
+      "fantasy_points": 72,
+      "runs": 74,
+      "balls": 51,
+      "fours": 13,
+      "sixes": 1,
+      "match_date": "2026-10-10"
+    }
+  ]
+}
+```
+
+The importer upserts records by match/player. Player identities must exist first. Use the same exact fantasy scoring rules across the dataset; the API does not assume that raw runs/wickets can be converted correctly without the selected contest's scoring table.
+
+Check dataset coverage with `GET /api/v1/admin/history/coverage` and source player profiles with `GET /api/v1/admin/matches/{match_id}/source-profiles`, both using the admin header.
+
+### Important data distinction
+
+- AI11 source profiles: player career/series summaries, selection%, C% and VC%.
+- Historical scorecard records: one row per player per completed match, with format and correctly calculated fantasy points.
+- Match intelligence: pitch, venue, weather, H2H and recent form.
+
+Only the second category trains historical fantasy-point prediction. The first and third enrich pre-match features. Do not train on future match information or post-match facts when simulating a pre-match prediction.
