@@ -60,14 +60,14 @@ def _fixture_card(match: dict) -> str:
     team_b = _team_markup(match.get("team_b"), match.get("team_b_name"), match.get("team_b_image"), True)
     return (
         f'<article class="match-card" data-match-id="{match_id}" data-status="{status_class}">'
-        f'<div class="match-card-link">'
+        f'<a class="match-card-link" href="/match/{match_id}" aria-label="View {html.escape(str(match.get("team_a") or ""))} vs {html.escape(str(match.get("team_b") or ""))} match details">'
         f'<div class="series-line"><span class="format-mark">{html.escape(fmt[:1])}</span>'
         f'<span class="series-name">{series}</span><span class="match-status {status_class}">{status_label}</span></div>'
         f'<div class="versus-row">{team_a}<div class="match-time"><strong>{time_markup}</strong>'
         f'<small>{html.escape(fmt)} MATCH</small></div>{team_b}</div>'
-        f'</div><div class="card-bottom"><div class="card-tags"><span class="tag {fmt_class}">{html.escape(fmt)}</span>'
+        f'<div class="card-bottom"><div class="card-tags"><span class="tag {fmt_class}">{html.escape(fmt)}</span>'
         f'<span class="tag">CRICKET</span></div><span class="card-venue">📍 {venue}</span></div>'
-        f'</article>'
+        f'</a></article>'
     )
 
 
@@ -139,12 +139,17 @@ def render_home(template: str, matches: list[dict], base_url: str, last_sync: st
 
 
 def render_sitemap(base_url: str, matches: list[dict]) -> str:
-    urls = [base_url.rstrip("/") + "/"]
+    root_url = base_url.rstrip("/") + "/"
     lastmod = datetime.now(timezone.utc).date().isoformat()
     body = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-        f"<url><loc>{html.escape(urls[0])}</loc><lastmod>{lastmod}</lastmod><changefreq>hourly</changefreq><priority>1.0</priority></url>",
-        "</urlset>",
+        f"<url><loc>{html.escape(root_url)}</loc><lastmod>{lastmod}</lastmod><changefreq>hourly</changefreq><priority>1.0</priority></url>",
     ]
+    for match in matches:
+        match_id = str(match.get("id") or "")
+        if match_id and all(ch.isalnum() or ch in "_-" for ch in match_id):
+            loc = root_url.rstrip("/") + "/match/" + match_id
+            body.append(f"<url><loc>{html.escape(loc)}</loc><lastmod>{lastmod}</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>")
+    body.append("</urlset>")
     return "\n".join(body)
