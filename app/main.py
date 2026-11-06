@@ -344,9 +344,9 @@ def save_manual_match_credit(match_id: str, payload: ManualCreditUpdate,
     squad=db.get(MatchSquad,(match_id,payload.player_id))
     if not squad:
         raise HTTPException(404,"Player is not in this match squad")
-    source_url=payload.source_url.strip()
-    if not source_url.startswith("https://"):
-        raise HTTPException(422,"A verified HTTPS source URL is required.")
+    source_url=payload.source_url.strip() if payload.source_url else None
+    if source_url and not source_url.startswith("https://"):
+        raise HTTPException(422,"Source URL must use HTTPS.")
     player=db.get(Player,payload.player_id)
     old_credit=squad.credits
     squad.credits=payload.credits
@@ -357,7 +357,7 @@ def save_manual_match_credit(match_id: str, payload: ManualCreditUpdate,
     audit.append({"player_id":payload.player_id,"player_name":player.name if player else payload.player_id,
                   "credits":payload.credits,"previous_credits":old_credit,
                   "source_label":payload.source_label.strip(),"source_url":source_url,
-                  "verification":"admin_entered_source_backed","updated_at":datetime.now(timezone.utc).isoformat()})
+                  "verification":"admin_confirmed_manual_entry","updated_at":datetime.now(timezone.utc).isoformat()})
     data["credit_audit"]=audit
     if intel:
         intel.data=data
@@ -455,23 +455,20 @@ def admin_page():
         card.style='background:white;border:1px solid #ccd3d8;border-radius:8px;padding:12px;margin:12px 0';
         const heading=document.createElement('strong'); heading.textContent=p.player_name+' ('+p.team+')';
         const credit=document.createElement('input'); credit.type='number';credit.min='0.1';credit.max='20';credit.step='0.5';credit.placeholder='Player credits';
-        const source=document.createElement('input');source.type='text';source.placeholder='Source name';
-        const url=document.createElement('input');url.type='url';url.placeholder='HTTPS source URL';
-        const save=document.createElement('button');save.textContent='Save verified credit';
+        const save=document.createElement('button');save.textContent='Save credit';
         const msg=document.createElement('small');msg.style='display:block;margin-top:8px';
         save.onclick=async()=>{
           const value=Number(credit.value);
           if(!(value>0&&value<=20)){msg.textContent='Enter a credit greater than 0 and at most 20.';return;}
-          if(!source.value.trim()||!url.value.trim().startsWith('https://')){msg.textContent='Enter source name and HTTPS URL.';return;}
           save.disabled=true;msg.textContent='Saving…';
           try{
-            const response=await fetch('/api/v1/admin/matches/'+encodeURIComponent(currentMatchId)+'/credits',{method:'POST',headers:headers(),body:JSON.stringify({player_id:p.player_id,credits:value,source_label:source.value.trim(),source_url:url.value.trim()})});
+            const response=await fetch('/api/v1/admin/matches/'+encodeURIComponent(currentMatchId)+'/credits',{method:'POST',headers:headers(),body:JSON.stringify({player_id:p.player_id,credits:value})});
             const result=await response.json();msg.textContent=response.ok?'Saved. Missing: '+result.credits_missing_count:JSON.stringify(result);
             if(response.ok)await loadCredits(currentMatchId);
           }catch(e){msg.textContent='Request failed: '+e.message;}
           finally{save.disabled=false;}
         };
-        card.append(heading,credit,source,url,save,msg);rows.append(card);
+        card.append(heading,credit,save,msg);rows.append(card);
       });
       document.getElementById('creditStatus').textContent=JSON.stringify({credits_verified_count:data.credits_verified_count,credits_missing_count:data.credits_missing_count,credits_ready_for_team_builder:data.credits_ready_for_team_builder},null,2);
     }
