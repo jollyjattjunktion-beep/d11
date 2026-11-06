@@ -281,7 +281,7 @@ The root route `/` serves an SEO-friendly public cricket match centre. It uses t
 - `app/public_feed.py` normalizes fixtures, detects ODI/T20/Test formats, derives live/upcoming/completed/cancelled state and applies format-aware stale-match cutoffs when the provider omits status.
 - `app/main.py` upserts lightweight match rows into `matches` and stores series/team labels/logos/provider status in the `match_intelligence.data.public_feed` JSON object. It does not import full player squads from the public homepage.
 - A background sync runs every five minutes while the web service is awake. The homepage, sitemap and public feed API also trigger a throttled sync, so the first visit after a cold start refreshes the database.
-- Completed/cancelled fixtures, and records omitted by a later full provider fixture list, are hidden from the public page. Their match, squad, scorecard and player-history records are retained in SQL.
+- Completed/cancelled fixtures are hidden immediately. If the provider omits an in-progress match from its upcoming-only list, the app retains it through a format-aware playing window (7 hours for T20, 12 for ODI and 6 days for Test) before hiding it. Match, squad, scorecard and player-history records are retained in SQL.
 - `GET /api/v1/public/matches` returns the visible fixture feed and sync status.
 - `POST /api/v1/admin/public-matches/sync` forces a manual sync and requires `X-Admin-Token`.
 - `/robots.txt` and `/sitemap.xml` are served for search-engine discovery. Set `PUBLIC_SITE_URL` in Render when a custom canonical domain is configured; otherwise the request host is used.
