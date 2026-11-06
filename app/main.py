@@ -9,7 +9,7 @@ from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
 from app.predictor import predict_match
 from app.optimizer import build_teams
 from app.config import MODEL_VERSION, ADMIN_TOKEN
-from app.importers.ai11 import fetch_page, parse_analysis, parse_fantasy
+from app.importers.ai11 import (fetch_page, parse_analysis, parse_fantasy, AI11RateLimitError)
 
 Base.metadata.create_all(bind=engine)
 app = FastAPI(
@@ -201,8 +201,17 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
         fantasy_data={"credits":{},"credits_found":0,"dynamic_content_may_require_browser":True}
         if payload.fantasy_url:
             fantasy_data=parse_fantasy(fetch_page(payload.fantasy_url))
+    except AI11RateLimitError as exc:
+        raise HTTPException(
+            429,
+            detail={"message": str(exc), "provider": "AI11", "retry_after_seconds": exc.retry_after,
+                    "action": "Wait before retrying. Successful pages are cached for 10 minutes."},
+            headers={"Retry-After": str(exc.retry_after)},
+        )
+    except ValueError as exc:
+        raise HTTPException(422, f"AI11 import rejected: {str(exc)[:300]}")
     except Exception as exc:
-        raise HTTPException(422, f"AI11 import failed: {str(exc)[:300]}")
+        raise HTTPException(502, f"AI11 upstream fetch failed: {str(exc)[:300]}")
     if not parsed["players"]:
         raise HTTPException(422, "No player rows were extracted from the AI11 analysis page. Page markup may have changed or content may require browser rendering.")
     match_id=parsed["match_id"]
