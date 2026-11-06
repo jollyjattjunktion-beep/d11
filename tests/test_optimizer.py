@@ -1,4 +1,4 @@
-from app.optimizer import build_teams
+from app.optimizer import build_teams, _score_context_multiplier
 from app.schemas import TeamRules
 import pytest
 
@@ -118,3 +118,40 @@ def test_all_supported_team_a_team_b_splits(team_a_count, team_b_count):
     assert team["team_split"]["B"] == team_b_count
     assert sum(team["team_split"].values()) == 11
     assert max(team["team_split"].values()) <= 7
+
+
+def test_first_innings_high_score_boosts_batting_side_batters_and_opposition_bowlers():
+    batter = {"team": "A", "role": "BAT"}
+    opposition_bowler = {"team": "B", "role": "BOWL"}
+    assert _score_context_multiplier(
+        batter, "first_innings", "A", 190, "T20"
+    ) == 1.04
+    assert _score_context_multiplier(
+        opposition_bowler, "first_innings", "A", 190, "T20"
+    ) == 1.035
+
+
+def test_chasing_scenario_boosts_chasing_batters_and_defending_bowlers():
+    chasing_batter = {"team": "B", "role": "WK"}
+    defending_bowler = {"team": "A", "role": "AR"}
+    assert _score_context_multiplier(
+        chasing_batter, "chasing", "B", 190, "T20"
+    ) == 1.04
+    assert _score_context_multiplier(
+        defending_bowler, "chasing", "B", 190, "T20"
+    ) == 1.035
+
+
+def test_score_scenario_is_recorded_as_user_assumption_not_projection():
+    players = sample_players()
+    for player in players:
+        player["expected_points"] = None
+    team = build_teams(
+        players, "balanced", TeamRules(), 1, mode="provisional",
+        innings_mode="chasing", score_team="B", scenario_score=190,
+        match_format="T20",
+    )[0]
+    assert team["score_scenario"] == {
+        "mode": "chasing", "team": "B", "scenario_score": 190, "format": "T20"
+    }
+    assert team["projected_points"] is None
