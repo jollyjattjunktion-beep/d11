@@ -52,6 +52,13 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
         source_vc = float(p.get("vice_captain_pct") or p.get("ai11_vice_captain_pct") or 0.0)
         # Provisional score is a selection-priority index, never fantasy points.
         base = _role_opportunity(p) * 35.0 + popularity * 0.10 + min(source_c, 100) * 0.025 + min(source_vc, 100) * 0.015
+        # AI11 career/series aggregates can refine a provisional selection
+        # index slightly, but never become expected/floor/ceiling fantasy points.
+        try:
+            ai11_factor = max(0.97, min(1.03, float(p.get("ai11_profile_factor") or 1.0)))
+            base *= ai11_factor
+        except (TypeError, ValueError):
+            pass
         floor_v, upside, consistency = base * 0.55, base * (1.18 if p.get("role") in {"AR", "WK"} else 1.08), 0.35
 
     role = p.get("role")
