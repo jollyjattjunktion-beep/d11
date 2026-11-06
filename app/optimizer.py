@@ -7,7 +7,39 @@ STRATEGY_WEIGHTS = {
     "scenario": (0.60, 0.15, 0.25),
 }
 
-def _provisional_score(p, strategy, scenario):
+def _score_context_multiplier(p, innings_mode, score_team, scenario_score, match_format):
+    """Small preference adjustment for a user-entered innings scenario, not points."""
+    if innings_mode not in {"first_innings", "chasing"} or not score_team or scenario_score is None:
+        return 1.0
+    fmt = str(match_format or "T20").upper()
+    high_threshold, low_threshold = {
+        "T20": (180, 145),
+        "ODI": (280, 230),
+        "TEST": (350, 220),
+    }.get(fmt, (180, 145))
+    high_score = int(scenario_score) >= high_threshold
+    low_score = int(scenario_score) <= low_threshold
+    team = p.get("team")
+    role = p.get("role")
+    batting_roles = {"BAT", "WK"}
+    bowling_roles = {"BOWL", "AR"}
+    if innings_mode == "first_innings":
+        if team == score_team:
+            if role in batting_roles:
+                return 1.04 if high_score else 1.015 if not low_score else 0.985
+        elif role in bowling_roles:
+            return 1.035 if high_score else 1.02 if low_score else 1.0
+    else:
+        # score_team is the chasing side.
+        if team == score_team and role in batting_roles:
+            return 1.04 if high_score else 1.02
+        if team != score_team and role in bowling_roles:
+            return 1.035 if high_score else 1.02
+    return 1.0
+
+
+def _provisional_score(p, strategy, scenario, innings_mode="none", score_team=None,
+                       scenario_score=None, match_format="T20"):
     """Selection-priority score only; never interpreted as fantasy points."""
     selection = p.get("selection_pct")
     selection = 50.0 if selection is None else max(0.0, min(100.0, float(selection)))
@@ -26,9 +58,11 @@ def _provisional_score(p, strategy, scenario):
         value += 1.0
     if scenario in {"bowling_friendly", "spin_friendly", "pace_friendly"} and p.get("role") in {"BOWL", "AR"}:
         value += 1.0
+    value *= _score_context_multiplier(p, innings_mode, score_team, scenario_score, match_format)
     return value
 
-def _score(p, strategy, scenario):
+def _score(p, strategy, scenario, innings_mode="none", score_team=None,
+           scenario_score=None, match_format="T20"):
     exp = float(p.get("expected_points") or 0)
     consistency = float(p.get("consistency") or 0)
     upside = float(p.get("upside") or 0)
@@ -43,6 +77,7 @@ def _score(p, strategy, scenario):
     if scenario == "pace_friendly" and p.get("role") in {"BOWL","AR"}: value *= 1.03
     if strategy == "grand_league" and p.get("selection_pct") is not None:
         value *= 1.08 if p["selection_pct"] < 25 else 0.97 if p["selection_pct"] > 75 else 1.0
+    value *= _score_context_multiplier(p, innings_mode, score_team, scenario_score, match_format)
     return value
 
 def _valid(p, chosen, rules, team_a, team_a_count, allow_missing_expected=False):
@@ -66,7 +101,8 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
                 team_a=None, locked_ids=None, excluded_ids=None,
                 captain_pool=None, vice_captain_pool=None,
                 manual_captain_id=None, manual_vice_captain_id=None,
-                mode="ai_prediction"):
+                mode="ai_prediction", innings_mode="none", score_team=None,
+                scenario_score=None, match_format="T20"):
     if mode not in {"ai_prediction", "provisional"}:
         raise ValueError("Unknown team generation mode.")
     provisional = mode == "provisional"
@@ -110,6 +146,7 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
     made, usage = [], Counter()
     states = [(locked, 0.0)]
     scorer = _provisional_score if provisional else _score
+    score_args = (innings_mode, score_team, scenario_score, match_format)
     for _ in range(rules.team_size-len(locked)):
         expanded=[]
         for chosen,_score_so_far in states:
@@ -122,7 +159,7 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
                 remaining=rules.team_size-len(next_chosen)
                 deficits=sum(max(0,n-counts[r]) for r,n in rules.min_role.items())
                 if deficits > remaining: continue
-                value=sum(scorer(x,strategy,scenario) - usage[x["player_id"]]*1.5 for x in next_chosen)
+                value=sum(scorer(x,strategy,scenario,*score_args) - usage[x["player_id"]]*1.5 for x in next_chosen)
                 expanded.append((next_chosen,value))
         if not expanded: break
         unique={}
@@ -161,7 +198,9 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
         for p in chosen: usage[p["player_id"]]+=1
         total=sum(float(p["credits"]) for p in chosen)
         projected=None if provisional else round(sum(float(p["expected_points"]) for p in chosen)+float(captain["expected_points"])+0.5*float(vice["expected_points"]),2)
-        made.append({"generation_mode":mode,"strategy":strategy,"scenario":scenario,"players":chosen,
+        made.append({"generation_mode":mode,"strategy":strategy,"scenario":scenario,
+            "score_scenario":{"mode":innings_mode,"team":score_team,"scenario_score":scenario_score,"format":match_format} if innings_mode != "none" else None,
+            "players":chosen,
             "captain_id":captain["player_id"],"vice_captain_id":vice["player_id"],
             "total_credits":round(total,1),"projected_points":projected,
             "selection_score":round(score,2),"role_counts":dict(Counter(p["role"] for p in chosen)),
