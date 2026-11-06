@@ -34,6 +34,7 @@ class SquadImport(BaseModel):
 class StatsIn(BaseModel):
     match_id: str
     player_id: str
+    player_name: str | None = None
     format: str = "T20"
     fantasy_points: float | None = None
     runs: int = 0
