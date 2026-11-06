@@ -118,6 +118,60 @@ def _player_id(name):
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:110]
 
 
+def _stat_header_key(value: str) -> str | None:
+    """Map AI11's compact grouped-table labels to stable profile field names."""
+    raw = re.sub(r"[^a-z0-9%/]+", " ", (value or "").casefold()).strip()
+    compact = raw.replace(" ", "")
+    aliases = {
+        "m#": "matches", "matches": "matches", "mat": "matches", "m": "matches",
+        "inn": "innings", "no": "not_outs", "runs": "runs", "r": "runs",
+        "hs": "highest_score", "avg": "batting_average", "sr": "strike_rate",
+        "50+": "fifties", "100+": "hundreds", "4/6": "fours_sixes",
+        "4s": "fours", "6s": "sixes", "wk": "wickets", "w": "wickets",
+        "ov": "overs", "overs": "overs", "eco": "economy", "econ": "economy",
+        "best": "best_bowling", "c/st": "catches_stumpings", "c": "catches",
+        "st": "stumpings", "pts": "fantasy_points", "pt": "fantasy_points",
+        "s%": "selection_pct", "vc": "vice_captain_pct",
+    }
+    if compact in aliases:
+        return aliases[compact]
+    if raw in {"bat", "bowl", "series performance"}:
+        return None
+    if "average" in raw and "bowl" in raw:
+        return "bowling_average"
+    if "average" in raw:
+        return "batting_average"
+    if "strike" in raw and "rate" in raw:
+        return "strike_rate"
+    if "economy" in raw:
+        return "economy"
+    if "wicket" in raw:
+        return "wickets"
+    if "catch" in raw:
+        return "catches"
+    if "stump" in raw:
+        return "stumpings"
+    if "hundred" in raw:
+        return "hundreds"
+    if "fifty" in raw or "50+" in compact:
+        return "fifties"
+    if "run" in raw and "out" in raw:
+        return "run_outs"
+    return None
+
+
+def _parse_ai11_stat_value(value: str):
+    value = (value or "").strip()
+    if not value or value in {"-", "—", "N/A"}:
+        return None
+    # Preserve cricket notation such as 5/37 and 2/27 as text.
+    if re.fullmatch(r"\\d+\\s*/\\s*\\d+", value):
+        return re.sub(r"\\s+", "", value)
+    if re.fullmatch(r"[0-9,.]+", value):
+        return _number(value)
+    return value[:80]
+
+
 def parse_analysis(html: str):
     soup = BeautifulSoup(html, "html.parser")
     page_title = soup.title.get_text(" ", strip=True) if soup.title else "AI11 match"
@@ -202,9 +256,28 @@ def parse_analysis(html: str):
             players.append({"id": pid, "name": name, "team": team, "role": role,
                             "credits": None, "selection_pct": selection, "status": status,
                             "source": "AI11"})
+            # Store source-reported aggregates as a separate profile. They are
+            # never converted into PlayerMatchStats or treated as fantasy points.
+            stat_values = {}
+            for column_index, header in enumerate(headers):
+                if column_index >= len(cells):
+                    continue
+                key = _stat_header_key(header)
+                if key and key not in {"selection_pct", "vice_captain_pct"}:
+                    value = _parse_ai11_stat_value(cells[column_index])
+                    if value is not None:
+                        stat_values[key] = value
+            if captain_pct is not None:
+                stat_values["captain_pct"] = captain_pct
+            if vice_pct is not None:
+                stat_values["vice_captain_pct"] = vice_pct
+            if selection is not None:
+                stat_values["selection_pct"] = selection
             profiles.append({"player_id": pid, "player_name": name, "team": team, "role": role,
                 "format": fmt, "ai11_captain_pct": captain_pct, "ai11_vice_captain_pct": vice_pct,
-                "ai11_selection_pct": selection, "ai11_row": cells, "source": "AI11"})
+                "ai11_selection_pct": selection, "ai11_statistics": stat_values,
+                "ai11_row": cells, "source": "AI11",
+                "data_type": "career_or_series_aggregate_not_match_level"})
         if players:
             break
 
