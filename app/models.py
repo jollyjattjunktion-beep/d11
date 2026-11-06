@@ -59,6 +59,15 @@ class PlayerMatchStats(Base):
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     player: Mapped["Player"] = relationship(back_populates="stats")
 
+class PlayerSourceProfile(Base):
+    __tablename__ = "player_source_profiles"
+    __table_args__ = (UniqueConstraint("match_id", "player_id", "source", name="uq_player_source_profile"),)
+    match_id: Mapped[str] = mapped_column(ForeignKey("matches.id"), primary_key=True)
+    player_id: Mapped[str] = mapped_column(ForeignKey("players.id"), primary_key=True)
+    source: Mapped[str] = mapped_column(String(50), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
 class MatchIntelligence(Base):
     __tablename__ = "match_intelligence"
     match_id: Mapped[str] = mapped_column(ForeignKey("matches.id"), primary_key=True)
