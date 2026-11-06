@@ -277,7 +277,8 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
         values={"team":item["team"],"role":item["role"],
                 "credits":credit if credit is not None else (squad.credits if squad else None),
                 "selection_pct":item.get("selection_pct"),
-                "status":item.get("status","unknown"),"source":"AI11"}
+                "status":item.get("status","unknown"),
+                "source":"AI11" if credit is not None or squad is None else (squad.source or "AI11")}
         if squad is None: db.add(MatchSquad(match_id=match_id,player_id=pid,**values))
         else:
             for key,value in values.items():
