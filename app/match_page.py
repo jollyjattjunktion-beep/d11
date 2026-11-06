@@ -87,11 +87,36 @@ def _detail_schema(base_url: str, match: dict) -> str:
             .replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e"))
 
 
+def _scorecard_markup(scorecards: list[dict]) -> str:
+    if not scorecards:
+        return '<div class="empty">No match-specific scorecard records have been imported yet. Player statistics will appear here when verified scorecard data is available.</div>'
+    rows = []
+    for item in scorecards:
+        points = item.get("fantasy_points")
+        points_text = f"{float(points):.1f}" if points is not None else "—"
+        rows.append(
+            '<tr><td>' + html.escape(str(item.get("player_name") or "Unknown")) + '</td>'
+            + '<td>' + html.escape(str(item.get("team") or "—")) + '</td>'
+            + '<td>' + str(int(item.get("runs") or 0)) + '</td>'
+            + '<td>' + str(int(item.get("balls") or 0)) + '</td>'
+            + '<td>' + str(int(item.get("fours") or 0)) + '</td>'
+            + '<td>' + str(int(item.get("sixes") or 0)) + '</td>'
+            + '<td>' + str(int(item.get("wickets") or 0)) + '</td>'
+            + '<td>' + points_text + '</td></tr>'
+        )
+    return (
+        '<div style="overflow-x:auto;padding:12px 16px"><table style="border-collapse:collapse;width:100%;font-size:11px">'
+        '<thead><tr>' + ''.join(f'<th style="text-align:left;padding:8px;border-bottom:1px solid #e7e9f0">{label}</th>' for label in ['Player','Team','Runs','Balls','4s','6s','Wkts','Fantasy pts']) + '</tr></thead>'
+        '<tbody>' + ''.join(rows) + '</tbody></table></div>'
+    )
+
+
 def render_match_detail(
     template: str,
     match: dict,
     intelligence: dict,
     players: list[dict],
+    scorecards: list[dict],
     base_url: str,
     import_note: str,
     import_ok: bool,
@@ -148,6 +173,7 @@ def render_match_detail(
         "{{IMPORT_NOTICE_CLASS}}": notice_class,
         "{{IMPORT_NOTICE}}": html.escape(import_note),
         "{{SQUAD_CONTENT}}": _squad_markup(str(match.get("team_a")), str(match.get("team_b")), players),
+        "{{SCORECARD_CONTENT}}": _scorecard_markup(scorecards),
         "{{PITCH}}": html.escape(str(pitch)),
         "{{TOSS}}": html.escape(str(toss)),
         "{{DATA_NOTE}}": "Squads, roles, credits and selection trends are shown only when supplied by the connected provider. Historical fantasy points and scorecard figures are not invented.",
