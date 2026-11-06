@@ -200,8 +200,14 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
         analysis_html=fetch_page(payload.analysis_url)
         parsed=parse_analysis(analysis_html)
         fantasy_data={"credits":{},"credits_found":0,"dynamic_content_may_require_browser":True}
-        if payload.fantasy_url:
-            fantasy_data=parse_fantasy(fetch_page(payload.fantasy_url))
+        fantasy_url = payload.fantasy_url
+        if not fantasy_url:
+            from urllib.parse import urlparse
+            parts = [part for part in urlparse(payload.analysis_url).path.split("/") if part]
+            if parts:
+                fantasy_url = f"https://www.ai11.in/fantasy/cricket/{parts[-1]}"
+        if fantasy_url:
+            fantasy_data=parse_fantasy(fetch_page(fantasy_url))
     except AI11RateLimitError as exc:
         raise HTTPException(
             429,
@@ -250,7 +256,7 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
         saved+=1
     intel=db.get(MatchIntelligence,match_id)
     intel_data={**parsed.get("intelligence",{}),
-                "source_urls":[payload.analysis_url]+([payload.fantasy_url] if payload.fantasy_url else []),
+                "source_urls":[payload.analysis_url]+([fantasy_url] if fantasy_url else []),
                 "source":"AI11","imported_player_count":saved}
     if intel is None: db.add(MatchIntelligence(match_id=match_id,data=intel_data))
     else: intel.data={**(intel.data or {}),**intel_data}
@@ -317,21 +323,22 @@ def history_coverage(_admin: bool = Depends(require_admin), db: Session = Depend
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page():
     return """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Preet Fantasy AI Import</title></head><body style="font:16px system-ui;max-width:650px;margin:40px auto;padding:20px">
-    <h2>Preet Fantasy AI — AI11 Import</h2>
-    <p>Paste one AI11 match analysis URL. The importer will derive the matching fantasy URL.</p>
-    <input id="url" type="url" placeholder="Paste AI11 match URL" style="width:100%;padding:14px;box-sizing:border-box">
-    <button id="go" style="padding:14px;margin-top:12px;width:100%">Fetch match data</button>
-    <pre id="out" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+    <title>Preet Fantasy AI Import</title><style>body{font:16px system-ui;max-width:650px;margin:40px auto;padding:20px;background:#f5f7f8}input,button{width:100%;padding:14px;box-sizing:border-box;margin-top:12px}button{background:#16a878;color:white;border:0;border-radius:8px;font-weight:700}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#17212b;color:#e8fff4;padding:14px;border-radius:8px}</style></head>
+    <body><h2>Preet Fantasy AI — AI11 Import</h2>
+    <p>Paste one AI11 match analysis URL. The matching fantasy page is fetched automatically.</p>
+    <input id="url" type="url" placeholder="Paste AI11 match URL">
+    <button id="go">Fetch match data</button><pre id="out">Ready.</pre>
     <script>
+    let adminToken='';
     document.getElementById('go').onclick=async()=>{
-      const token=prompt('Admin token (one time for this request):');
-      if(!token)return;
+      if(!adminToken)adminToken=prompt('Enter admin token once for this page session:')||'';
+      if(!adminToken)return;
       const url=document.getElementById('url').value.trim();
-      const out=document.getElementById('out');out.textContent='Fetching…';
+      const out=document.getElementById('out');out.textContent='Fetching match data…';
       try{
-        const r=await fetch('/api/v1/admin/import/ai11',{method:'POST',headers:{'Content-Type':'application/json','X-Admin-Token':token},body:JSON.stringify({analysis_url:url,fantasy_url:null})});
+        const r=await fetch('/api/v1/admin/import/ai11',{method:'POST',headers:{'Content-Type':'application/json','X-Admin-Token':adminToken},body:JSON.stringify({analysis_url:url})});
         const data=await r.json();out.textContent=JSON.stringify(data,null,2);
+        if(r.status===401)adminToken='';
       }catch(e){out.textContent=e.message;}
     };
     </script></body></html>"""
