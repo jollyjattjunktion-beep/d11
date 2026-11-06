@@ -155,3 +155,35 @@ def test_score_scenario_is_recorded_as_user_assumption_not_projection():
         "mode": "chasing", "team": "B", "scenario_score": 190, "format": "T20"
     }
     assert team["projected_points"] is None
+
+
+def test_multi_team_portfolio_rotates_captaincy_and_reports_exposure():
+    players = sample_players()
+    # Keep the shortlist close enough that leadership exposure should matter,
+    # while preserving different role opportunities.
+    for player in players:
+        player["expected_points"] = 50.0
+        player["floor_points"] = 32.0
+        player["ceiling_points"] = 82.0
+        player["upside"] = 82.0
+        player["consistency"] = 0.70
+        player["risk"] = "medium"
+
+    teams = build_teams(players, "balanced", TeamRules(), count_teams=3)
+    assert len(teams) == 3
+    assert len({(team["captain_id"], team["vice_captain_id"]) for team in teams}) > 1
+    assert all(team["captain_id"] != team["vice_captain_id"] for team in teams)
+    assert all(0 <= team["captain_exposure_pct"] <= 100 for team in teams)
+    assert all(0 <= team["vice_captain_exposure_pct"] <= 100 for team in teams)
+    assert all("portfolio_exposure" in team and team["portfolio_exposure"] for team in teams)
+    assert all("lineup_overlap_pct" in team for team in teams)
+
+
+def test_unavailable_players_are_excluded_even_before_xi_lock():
+    players = sample_players()
+    players[0]["status"] = "out"
+    players[1]["status"] = "injured"
+    teams = build_teams(players, "balanced", TeamRules(), count_teams=1)
+    selected_ids = {player["player_id"] for player in teams[0]["players"]}
+    assert "p0" not in selected_ids
+    assert "p1" not in selected_ids
