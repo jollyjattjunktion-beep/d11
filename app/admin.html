@@ -54,7 +54,6 @@
         <div id="matchSummary" style="display:none">
           <div class="match-grid" id="matchStats"></div>
           <div class="notice good" id="creditReady" style="display:none"></div>
-          <div class="row" style="margin:14px 0"><input class="field" id="venueInput" placeholder="Stadium / venue (enter if not supplied by source)"><button class="btn outline" id="saveVenue">Save venue</button></div>
           <div id="creditCorrections"></div>
           <div id="importRoster" style="margin-top:22px;display:none">
             <div class="row" style="justify-content:space-between"><div class="section-label">Imported player squad</div><span class="pill" id="importPlayerCount">0 players</span></div>
@@ -87,7 +86,7 @@
         <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn green" id="continueVenue">Continue to fixed players</button></div>
       </section>
       <section class="step-view" id="view4">
-        <div class="row" style="justify-content:space-between;align-items:flex-end;margin-bottom:12px"><div><b>Stadium report & fixed players</b><div class="helper">First fetch CREX ground statistics. Then compare current squad players using saved records from this venue.</div></div><span class="pill" id="fixedCount">0 / 5 fixed</span></div>
+        <div class="row" style="justify-content:space-between;align-items:flex-end;margin-bottom:12px"><div><b>Ground performance & fixed players</b><div class="helper">Review Cricbuzz ground records, both squads' venue history and eligible 80%+ players.</div></div><span class="pill" id="fixedCount">0 / 5 fixed</span></div>
         <div class="panel" style="box-shadow:none;margin-bottom:16px">
           <div class="panelhead"><div><h2>Cricbuzz stadium data</h2><div class="helper">Update this ground's profile or import additional stadiums from another series.</div></div><span class="pill">SQL VENUE DATABASE</span></div>
           <div class="panelbody">
@@ -307,18 +306,6 @@ async function loadVenueSuggestions(){
   else{notice('venueNotice',d.reason||'Paste a Cricbuzz Info/Venue URL to fetch the stadium report. '+eligible+' current players meet the 80% selection threshold.','warn');}
  }catch(e){notice('venueNotice',e.message,'error');}
 }
-async function importCrexVenue(){
- const url=$('venueUrl').value.trim();if(!url){notice('venueNotice','Paste a CREX match Info/Venue URL first.','warn');return;}
- const btn=$('importCrexVenue');btn.disabled=true;btn.textContent='Fetching…';
- try{
-  const d=await api('/api/v1/admin/matches/'+encodeURIComponent(state.matchId)+'/venue/import',{method:'POST',body:JSON.stringify({url})});
-  state.venueReport=d.report||null;$('venueInput').value=d.venue||'';
-  await saveContext({venue:d.venue||null});await loadWizard();
-  notice('venueNotice','CREX ground report updated successfully for '+d.venue+'. Team-by-team venue analysis refreshed.','good');
- }catch(e){notice('venueNotice',e.message,'error');}
- finally{btn.disabled=false;btn.textContent='Fetch stadium report';}
-}
-$('importCrexVenue').onclick=importCrexVenue;
 function renderVenueSuggestions(){
  const root=$('venueSuggestions');root.innerHTML='';
  const eligible=state.venueSuggestions.filter(p=>Number(p.selection_pct)>=80&&(!state.lineupConfirmed||state.players.some(x=>x.player_id===p.player_id&&x.status==='playing')));
