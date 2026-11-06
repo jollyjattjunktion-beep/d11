@@ -84,6 +84,8 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
     if manual_vice_captain_id and vice_captain_pool and manual_vice_captain_id not in vice_captain_pool:
         raise ValueError("Manual vice-captain must be included in the vice-captain pool.")
     pool = [p for p in players if p["player_id"] not in excluded_ids]
+    if not provisional and any(p.get("expected_points") is None for p in pool):
+        raise ValueError("AI Prediction Mode requires expected fantasy points for every eligible squad player.")
     if any(by_id[x].get("credits") is None for x in locked_ids):
         raise ValueError("A locked player has unknown credits.")
     if len(locked_ids) > rules.team_size: raise ValueError("More locked players than team size.")
