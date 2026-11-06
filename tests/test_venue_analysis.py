@@ -53,5 +53,5 @@ def test_missing_format_statistics_do_not_make_a_venue_recommendation():
         "ODI",
     )
     assert result["available"] is False
-    assert result["recommended_innings_mode"] if "recommended_innings_mode" in result else True
+    assert "recommended_innings_mode" not in result
     assert result["pitch_recommendation"] == "Insufficient format-specific venue data"
