@@ -143,7 +143,7 @@ def parse_analysis(html: str):
         if alt and alt.lower() not in {"image", "logo"} and alt not in teams:
             teams.append(alt)
     if len(teams) < 2:
-        m = re.search(r"([A-Za-z ]+)\s+vs\s+([A-Za-z ]+)", title, re.I)
+        m = re.search(r"([A-Za-z ]+)\s+vs\s+([A-Za-z ]+)", page_title, re.I)
         if m:
             teams = [m.group(1).strip(), m.group(2).strip()]
     team_a, team_b = (teams[0], teams[1]) if len(teams) >= 2 else ("TEAM_A", "TEAM_B")
