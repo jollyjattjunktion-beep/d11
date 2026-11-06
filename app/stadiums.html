@@ -53,6 +53,7 @@ button:disabled{opacity:.55;cursor:wait}
    </div>
    <div class="controls" style="margin-top:14px"><button class="green" id="importFeatured">Import all three supplied stadiums</button></div>
    <div class="notice" id="featuredNotice">Each successfully imported ground is stored in the SQL venue catalogue with format-specific stats when Cricbuzz exposes them.</div>
+   <div class="notice warn">Render storage note: use a persistent PostgreSQL DATABASE_URL for long-term stadium storage. SQLite on a Render Free web service can be reset when the service restarts or spins down.</div>
   </div>
  </div>
 
