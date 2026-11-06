@@ -227,6 +227,21 @@ def parse_analysis(html: str):
                 break
         if header_index is None:
             continue
+        # Expand the preceding grouped header (e.g. Batting / Bowling) across
+        # its colspan so repeated Inn/Avg/SR labels remain unambiguous.
+        group_by_index = {}
+        if header_index > 0:
+            group_row = rows[header_index - 1]
+            cursor = 0
+            for cell in group_row.find_all(["th", "td"]):
+                label = cell.get_text(" ", strip=True).casefold()
+                try:
+                    span = max(1, int(cell.get("colspan", 1)))
+                except (TypeError, ValueError):
+                    span = 1
+                for offset in range(span):
+                    group_by_index[cursor + offset] = label
+                cursor += span
         name_idx = next((i for i, x in enumerate(headers) if x in {"name", "player"}), None)
         team_idx = next((i for i, x in enumerate(headers) if x in {"t", "team"}), None)
         role_idx = next((i for i, x in enumerate(headers) if x in {"r", "role"}), None)
@@ -262,7 +277,14 @@ def parse_analysis(html: str):
             for column_index, header in enumerate(headers):
                 if column_index >= len(cells):
                     continue
+                group = group_by_index.get(column_index, "")
                 key = _stat_header_key(header)
+                if key in {"innings", "batting_average", "strike_rate"} and "bowl" in group:
+                    key = {"innings": "bowling_innings", "batting_average": "bowling_average",
+                           "strike_rate": "bowling_strike_rate"}[key]
+                elif key in {"innings", "batting_average", "strike_rate"} and "bat" in group:
+                    key = {"innings": "batting_innings", "batting_average": "batting_average",
+                           "strike_rate": "batting_strike_rate"}[key]
                 if key and key not in {"selection_pct", "vice_captain_pct"}:
                     value = _parse_ai11_stat_value(cells[column_index])
                     if value is not None:
