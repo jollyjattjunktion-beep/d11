@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, Header
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 import secrets
@@ -311,3 +312,26 @@ def history_coverage(_admin: bool = Depends(require_admin), db: Session = Depend
                        for fmt,v in by_format.items()},
             "training_ready":False,
             "note":"Training readiness requires enough clean, chronological records and verified scoring rules; record count alone is not a quality guarantee."}
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_page():
+    return """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Preet Fantasy AI Import</title></head><body style="font:16px system-ui;max-width:650px;margin:40px auto;padding:20px">
+    <h2>Preet Fantasy AI — AI11 Import</h2>
+    <p>Paste one AI11 match analysis URL. The importer will derive the matching fantasy URL.</p>
+    <input id="url" type="url" placeholder="Paste AI11 match URL" style="width:100%;padding:14px;box-sizing:border-box">
+    <button id="go" style="padding:14px;margin-top:12px;width:100%">Fetch match data</button>
+    <pre id="out" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+    <script>
+    document.getElementById('go').onclick=async()=>{
+      const token=prompt('Admin token (one time for this request):');
+      if(!token)return;
+      const url=document.getElementById('url').value.trim();
+      const out=document.getElementById('out');out.textContent='Fetching…';
+      try{
+        const r=await fetch('/api/v1/admin/import/ai11',{method:'POST',headers:{'Content-Type':'application/json','X-Admin-Token':token},body:JSON.stringify({analysis_url:url,fantasy_url:null})});
+        const data=await r.json();out.textContent=JSON.stringify(data,null,2);
+      }catch(e){out.textContent=e.message;}
+    };
+    </script></body></html>"""
