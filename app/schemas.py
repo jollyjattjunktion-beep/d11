@@ -129,3 +129,8 @@ class ManualCreditUpdate(BaseModel):
     credits: float = Field(gt=0, le=20)
     source_label: str = Field(default="Admin verified manual entry", min_length=2, max_length=120)
     source_url: str | None = Field(default=None, max_length=1000)
+
+
+class PlayingXIUpdate(BaseModel):
+    selected_player_ids: list[str] = Field(default_factory=list, max_length=30)
+    confirmed: bool = True
