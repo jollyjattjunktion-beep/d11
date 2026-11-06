@@ -966,7 +966,7 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
         PlayerSourceProfile.match_id == match_id,
         PlayerSourceProfile.source == "TEAM_GENERATION"
     )).all()
-    images = {p.player_id: (p.data or {}).get("image") for p in profiles}
+    profile_map = {p.player_id: (p.data or {}) for p in profiles}
     suggestions = []
     for player_id, entry in aggregates.items():
         if not entry["points"]:
@@ -978,7 +978,11 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
             "player_id": player_id,
             "player_name": player.name if player else player_id,
             "team": squad.team, "role": squad.role, "credits": squad.credits,
-            "image": images.get(player_id), "venue_matches": entry["matches"],
+            "image": profile_map.get(player_id, {}).get("image"),
+            "selection_pct": squad.selection_pct,
+            "captain_pct": profile_map.get(player_id, {}).get("captain_pct"),
+            "vice_captain_pct": profile_map.get(player_id, {}).get("vice_captain_pct"),
+            "venue_matches": entry["matches"],
             "scored_venue_matches": len(points),
             "avg_fantasy_points": round(sum(points) / len(points), 2),
             "avg_runs": round(sum(entry["runs"]) / len(entry["runs"]), 1) if entry["runs"] else 0,
