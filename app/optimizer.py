@@ -310,7 +310,18 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
                 unique[key]=(chosen_set,value)
         expanded=list(unique.values())
         expanded.sort(key=lambda x:x[1], reverse=True)
-        states=expanded[:350]
+        # Keep a diverse beam so later teams are not limited to one near-identical branch.
+        diverse=[]
+        beam_ids=[]
+        for candidate, candidate_score in expanded:
+            candidate_ids={p["player_id"] for p in candidate}
+            if any(len(candidate_ids & prior) >= rules.team_size-1 for prior in beam_ids):
+                continue
+            diverse.append((candidate,candidate_score))
+            beam_ids.append(candidate_ids)
+            if len(diverse)>=350:
+                break
+        states=diverse or expanded[:350]
     valid=[]
     for chosen,score in states:
         counts=Counter(p["role"] for p in chosen)
