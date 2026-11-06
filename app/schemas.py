@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Literal
 
 Role = Literal["WK", "BAT", "AR", "BOWL"]
@@ -53,6 +53,31 @@ class StatsIn(BaseModel):
 class StatsImport(BaseModel):
     records: list[StatsIn]
 
+class MatchIntelligenceIn(BaseModel):
+    pitch_type: str | None = None
+    pitch_notes: str | None = None
+    batting_friendly: float | None = Field(default=None, ge=0, le=1)
+    pace_friendly: float | None = Field(default=None, ge=0, le=1)
+    spin_friendly: float | None = Field(default=None, ge=0, le=1)
+    average_first_innings: float | None = Field(default=None, ge=0)
+    venue_matches: int = Field(default=0, ge=0)
+    weather_summary: str | None = None
+    rain_probability: float | None = Field(default=None, ge=0, le=100)
+    humidity: float | None = Field(default=None, ge=0, le=100)
+    wind_kmh: float | None = Field(default=None, ge=0)
+    dew_likely: bool | None = None
+    h2h_summary: str | None = None
+    team_a_recent_form: str | None = None
+    team_b_recent_form: str | None = None
+    source_urls: list[str] = Field(default_factory=list)
+
+class SquadPlayerEdit(BaseModel):
+    credits: float | None = Field(default=None, ge=0, le=20)
+    selection_pct: float | None = Field(default=None, ge=0, le=100)
+    status: str | None = None
+    role: Role | None = None
+    team: str | None = None
+
 class TeamRules(BaseModel):
     team_size: int = Field(default=11, ge=1, le=11)
     max_from_one_team: int = Field(default=7, ge=1, le=11)
@@ -60,11 +85,30 @@ class TeamRules(BaseModel):
     min_role: dict[str, int] = Field(default_factory=lambda: {"WK": 1, "BAT": 3, "AR": 1, "BOWL": 3})
     max_role: dict[str, int] = Field(default_factory=lambda: {"WK": 4, "BAT": 6, "AR": 4, "BOWL": 6})
     playing_xi_only: bool = False
+    team_a_count: int | None = Field(default=None, ge=0, le=11)
+
+    @model_validator(mode="after")
+    def validate_role_bounds(self):
+        for role, minimum in self.min_role.items():
+            if minimum > self.max_role.get(role, self.team_size):
+                raise ValueError(f"Minimum {role} count cannot exceed its maximum")
+        if sum(self.min_role.values()) > self.team_size:
+            raise ValueError("Minimum role counts exceed team size")
+        if self.team_a_count is not None and self.team_a_count > self.team_size:
+            raise ValueError("team_a_count cannot exceed team_size")
+        return self
 
 class TeamRequest(BaseModel):
     strategies: list[Literal["safe", "balanced", "grand_league", "scenario"]] = Field(
-        default_factory=lambda: ["safe", "balanced", "grand_league", "scenario"]
+        default_factory=lambda: ["balanced"]
     )
     teams_per_strategy: int = Field(default=1, ge=1, le=20)
     rules: TeamRules = Field(default_factory=TeamRules)
     scenario: Literal["neutral", "batting_friendly", "bowling_friendly", "spin_friendly", "pace_friendly"] = "neutral"
+    locked_player_ids: list[str] = Field(default_factory=list)
+    excluded_player_ids: list[str] = Field(default_factory=list)
+    captain_pool: list[str] = Field(default_factory=list)
+    vice_captain_pool: list[str] = Field(default_factory=list)
+    manual_captain_id: str | None = None
+    manual_vice_captain_id: str | None = None
+    team_mode: Literal["manual", "automatic"] = "automatic"
