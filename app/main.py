@@ -485,6 +485,8 @@ def public_match_detail_page(match_id: str, request: Request, db: Session = Depe
             base_url,
             detail["import_note"],
             detail["import_ok"],
+            detail.get("venue_analysis"),
+            detail.get("venue_report"),
         ),
         headers={"Cache-Control": "public, max-age=60"},
     )
@@ -505,8 +507,9 @@ def public_match_detail_api(match_id: str, db: Session = Depends(get_db)):
             "selected_player_count": len(intelligence.get("lineup_selected_player_ids") or []),
         },
         "venue": {
+            "name": detail["match"].get("venue"),
             "pitch_type": intelligence.get("pitch_type"),
-            "analysis": intelligence.get("auto_venue_analysis"),
+            "analysis": detail.get("venue_analysis") or intelligence.get("auto_venue_analysis"),
             "toss": intelligence.get("toss") or intelligence.get("toss_winner"),
         },
         "source": {
