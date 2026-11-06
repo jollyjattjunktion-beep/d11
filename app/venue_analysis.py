@@ -112,10 +112,10 @@ def analyse_venue(report: dict, match_format: str) -> dict:
     elif bowl_rate is not None and bowl_rate >= 0.58:
         toss = "Bowl first"
         toss_key = "bowl"
-    elif pitch_type == "batting" and bat_rate is not None and bat_rate > bowl_rate:
+    elif pitch_type == "batting" and bat_rate is not None and bowl_rate is not None and bat_rate > bowl_rate:
         toss = "Slight preference: bat first"
         toss_key = "bat"
-    elif pitch_type == "bowling" and bowl_rate is not None and bowl_rate > bat_rate:
+    elif pitch_type == "bowling" and bowl_rate is not None and bat_rate is not None and bowl_rate > bat_rate:
         toss = "Slight preference: bowl first"
         toss_key = "bowl"
     else:
