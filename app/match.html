@@ -92,6 +92,34 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
 .builder-alert.error{display:block;background:#fff0f1;color:#a72b39;border:1px solid #ffd2d8}
 .builder-alert.info{display:block;background:#f2effb;color:#5b4387;border:1px solid #e1d8f2}
 .generated-results{display:grid;gap:13px;margin-top:16px}
+/* Pro-style ground lineup cards */
+.generated-results{grid-template-columns:repeat(3,minmax(0,1fr));align-items:start;gap:14px}
+.generated-card{min-width:0;box-shadow:0 5px 18px #17233b0c}
+.generated-field{position:relative;isolation:isolate;overflow:hidden;min-height:590px;margin:10px;background:#176f36;border:5px solid #176f36;border-radius:12px;color:#fff;padding:16px 8px 20px;display:grid;grid-template-rows:1.05fr 1fr 1.05fr .95fr;gap:4px;background-image:repeating-linear-gradient(90deg,#ffffff08 0,#ffffff08 12.5%,#00000008 12.5%,#00000008 25%),linear-gradient(180deg,#238846,#12622f)}
+.generated-field:before{content:"";position:absolute;inset:3% 4%;border:2px solid #ffffff32;border-radius:48% / 12%;z-index:-1}
+.generated-field:after{content:"";position:absolute;left:50%;top:36%;bottom:19%;width:22%;transform:translateX(-50%);border-radius:10px;background:#c49b4a30;border:1px solid #f0d48a36;z-index:-1}
+.field-role{min-height:0;display:flex;flex-direction:column;align-items:center;padding:2px 0 4px}
+.field-role h4{margin:2px 0 8px;text-align:center;color:#e2f4e7;font-size:clamp(9px,1vw,12px);font-weight:900;letter-spacing:.7px;text-shadow:0 1px 3px #082b17}
+.field-players{display:flex;justify-content:center;align-content:flex-start;align-items:flex-start;gap:7px 5px;flex-wrap:wrap;width:100%}
+.field-player{position:relative;display:flex;flex-direction:column;align-items:center;width:calc((100% - 20px)/3);min-width:0;text-align:center;padding:2px 0}
+.field-photo,.field-avatar{width:clamp(43px,5.8vw,70px);height:clamp(43px,5.8vw,70px);border-radius:50%;object-fit:cover;object-position:center top;border:2px solid #ffffffa8;background:#e5ebed;box-shadow:0 2px 7px #06291470}
+.field-avatar{display:grid;place-items:center;color:#1a5830;font-size:19px;font-weight:900}
+.field-name{display:block;max-width:100%;margin-top:-2px;padding:5px 7px;border-radius:4px;background:#263447;color:#fff;font-size:clamp(9px,.92vw,12px);font-weight:900;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.field-credit{font-size:clamp(9px,.9vw,12px);font-weight:800;color:#f7fff8;margin-top:3px;text-shadow:0 1px 2px #08341d}
+.field-badge{position:absolute;top:0;right:2px;width:20px;height:20px;border:2px solid #fff;border-radius:50%;display:grid;place-items:center;font-size:9px;font-weight:900;background:#dcae26;color:#fff;z-index:2}
+.field-badge.vc{background:#6940b5}
+.field-empty{padding:16px 5px;text-align:center;color:#e6f4e9;font-size:10px}
+.generated-analysis{padding:12px 14px;border-top:1px solid var(--line);background:#fbfbfe}
+.generated-analysis strong{display:block;font-size:10px;color:#34405a}
+.generated-analysis p{font-size:10px;line-height:1.5;color:var(--muted);margin:5px 0 0}
+.generated-analysis-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px}
+.generated-analysis-grid>div{padding:8px;border-radius:8px;background:#f0eef7}
+.generated-analysis-grid small{display:block;color:var(--muted);font-size:8px;font-weight:800;text-transform:uppercase}
+.generated-analysis-grid b{font-size:10px}
+@media(max-width:899px){.generated-results{grid-template-columns:repeat(2,minmax(0,1fr))}.generated-field{min-height:560px}}
+@media(max-width:600px){.generated-results{grid-template-columns:1fr}.generated-field{min-height:610px}.field-photo,.field-avatar{width:68px;height:68px}.field-name,.field-credit{font-size:11px}}
+@media print{.generated-results{grid-template-columns:repeat(2,minmax(0,1fr))}.generated-card{break-inside:avoid}.generated-field{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+
 .generated-card{border:1px solid var(--line);background:white;border-radius:13px;overflow:hidden}
 .generated-head{padding:13px 15px;background:#f4f0fb;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
 .generated-head strong{font-size:12px}.generated-head small{display:block;font-size:9px;color:var(--muted);margin-top:3px}
@@ -320,15 +348,16 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
  }));
  updateFixedCount();
  function element(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;}
- function renderPlayer(parent,p,t){
-  const row=element('div','generated-player');
+ function renderFieldPlayer(parent,p,t){
+  const item=element('div','field-player');
   const src=p.team_generation_image||p.image;
-  if(src){const img=element('img');img.src=src;img.alt=p.player_name||'Player';img.loading='lazy';img.onerror=()=>{const f=element('span','generated-fallback',(p.player_name||'?').slice(0,1));img.replaceWith(f);};row.append(img);}
-  else row.append(element('span','generated-fallback',(p.player_name||'?').slice(0,1)));
-  const info=element('div');const name=element('strong','',p.player_name||'Unknown player');const small=element('small','',(p.role||'')+' • '+(p.team||'')+' • '+(p.credits??'—')+' cr');info.append(name,small);row.append(info);
-  if(p.player_id===t.captain_id)row.append(element('span','player-mark','C'));
-  else if(p.player_id===t.vice_captain_id)row.append(element('span','player-mark vc','VC'));
-  parent.append(row);
+  if(src){const img=element('img','field-photo');img.src=src;img.alt=p.player_name||'Player';img.loading='lazy';img.onerror=()=>{const f=element('span','field-avatar',(p.player_name||'?').slice(0,1));img.replaceWith(f);};item.append(img);}
+  else item.append(element('span','field-avatar',(p.player_name||'?').slice(0,1)));
+  item.append(element('strong','field-name',p.player_name||'Unknown'));
+  item.append(element('span','field-credit',(p.credits??'—')+' Cr'));
+  if(p.player_id===t.captain_id)item.append(element('span','field-badge','C'));
+  else if(p.player_id===t.vice_captain_id)item.append(element('span','field-badge vc','VC'));
+  parent.append(item);
  }
  function renderTeam(team,strategy,mode,index){
   const card=element('article','generated-card');
@@ -347,14 +376,32 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
   const split=team.team_split||{};
   [team.players.length+' players',team.total_credits+' / 100 credits',teamA+' '+(split[teamA]??0)+' : '+(split[teamB]??0)+' '+teamB].forEach(x=>stats.append(element('span','generated-stat',x)));
   card.append(stats);
-  const groupRoot=element('div','generated-player-groups');
-  const labels={WK:'Wicket-keepers',BAT:'Batters',AR:'All-rounders',BOWL:'Bowlers'};
+  const field=element('div','generated-field');
+  const labels={WK:'WICKET-KEEPERS',BAT:'BATTERS',AR:'ALL-ROUNDERS',BOWL:'BOWLERS'};
   ['WK','BAT','AR','BOWL'].forEach(role=>{
-   const groupPlayers=(team.players||[]).filter(p=>p.role===role);if(!groupPlayers.length)return;
-   const group=element('section','generated-role');group.append(element('h4','',labels[role]));
-   groupPlayers.forEach(p=>renderPlayer(group,p,team));groupRoot.append(group);
+   const groupPlayers=(team.players||[]).filter(p=>p.role===role);
+   const section=element('section','field-role');
+   section.append(element('h4','',labels[role]));
+   const lineup=element('div','field-players');
+   if(!groupPlayers.length)lineup.append(element('div','field-empty','No players in this role'));
+   groupPlayers.forEach(p=>renderFieldPlayer(lineup,p,team));
+   section.append(lineup);field.append(section);
   });
-  card.append(groupRoot);
+  card.append(field);
+  const analysis=element('div','generated-analysis');
+  analysis.append(element('strong','','STRATEGY & C/VC INTELLIGENCE'));
+  const captainName=(team.players||[]).find(p=>p.player_id===team.captain_id)?.player_name||'—';
+  const viceName=(team.players||[]).find(p=>p.player_id===team.vice_captain_id)?.player_name||'—';
+  analysis.append(element('p','', 'Captain: '+captainName+'. '+(team.captain_reason||'Adaptive team-specific captain selection.')));
+  analysis.append(element('p','', 'Vice-captain: '+viceName+'. '+(team.vice_captain_reason||'Independently ranked vice-captain.')));
+  const altGrid=element('div','generated-analysis-grid');
+  const altC=(team.captain_alternatives||[]).map(x=>x.player_name).filter(Boolean).join(' • ')||'No alternative available';
+  const altVC=(team.vice_captain_alternatives||[]).map(x=>x.player_name).filter(Boolean).join(' • ')||'No alternative available';
+  const cbox=element('div');cbox.append(element('small','','Captain alternatives'),element('b','',altC));
+  const vcbox=element('div');vcbox.append(element('small','','Vice-captain alternatives'),element('b','',altVC));
+  altGrid.append(cbox,vcbox);analysis.append(altGrid);
+  analysis.append(element('p','', 'Risk profile: '+(team.risk_profile||strategy)+'. '+(team.points_available?'Statistical estimate available.':'Provisional selection index only; fantasy points unavailable.')));
+  card.append(analysis);
   const foot=element('div','generated-footer');
   foot.append(element('span','', 'Captain: '+((team.players||[]).find(p=>p.player_id===team.captain_id)?.player_name||'—')+' • Vice-captain: '+((team.players||[]).find(p=>p.player_id===team.vice_captain_id)?.player_name||'—')));
   foot.append(element('span','',team.score_scenario?'Score scenario: '+team.score_scenario.mode.replace('_',' ')+' • '+team.score_scenario.scenario_score:'Selection score: '+team.selection_score));
