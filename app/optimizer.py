@@ -65,6 +65,14 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
         pass
 
     condition = 1.0
+    # With no historical fantasy-point sample, retain the predictor's bounded
+    # venue/weather adjustment as a selection signal. Historical predictions
+    # already include this adjustment, so do not apply it twice.
+    if expected is None and p.get("condition_factor") is not None:
+        try:
+            condition *= max(0.82, min(1.18, float(p["condition_factor"])))
+        except (TypeError, ValueError):
+            pass
     try:
         if role in {"BAT", "WK"} and p.get("batting_friendly") is not None:
             condition += (float(p["batting_friendly"]) - 0.5) * 0.12
@@ -206,6 +214,8 @@ def _captaincy_reason(player, strategy, role_label):
         details.append(f"expected bowling workload {float(player['expected_overs']):g} overs")
     if player.get("involvement_score") is not None:
         details.append("imported involvement score available")
+    if expected is None and player.get("condition_factor") is not None:
+        details.append(f"venue/weather adjustment {float(player['condition_factor']):.2f}x applied to the provisional role score")
     status = str(player.get("status") or "unknown").lower()
     if status in {"playing", "confirmed"}:
         details.append("Playing XI confirmed")
