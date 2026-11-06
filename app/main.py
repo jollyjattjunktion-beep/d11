@@ -7,10 +7,11 @@ from sqlalchemy import select
 import secrets
 import httpx
 from datetime import datetime, timezone
+from pathlib import Path
 from app.database import Base, engine, get_db
 from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
-                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate)
+                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate)
 from app.predictor import predict_match
 from app.optimizer import build_teams
 from app.config import MODEL_VERSION, ADMIN_TOKEN, TG_API_TOKEN
@@ -113,6 +114,7 @@ def edit_match_player(match_id: str, player_id: str, payload: SquadPlayerEdit,
 
 @app.put("/api/v1/matches/{match_id}/intelligence")
 def save_match_intelligence(match_id: str, payload: MatchIntelligenceIn,
+                             _admin: bool = Depends(require_admin),
                              db: Session = Depends(get_db)):
     if not db.get(Match,match_id): raise HTTPException(404,"Match not found")
     row=db.get(MatchIntelligence,match_id)
@@ -747,108 +749,190 @@ def inspect_teamgeneration_match(match_id: str, _admin: bool = Depends(require_a
         raise HTTPException(502, f"Could not reach Team Generation API: {type(exc).__name__}")
 
 
+
+@app.get("/api/v1/admin/matches/{match_id}/wizard")
+def get_match_wizard_data(match_id: str, _admin: bool = Depends(require_admin),
+                          db: Session = Depends(get_db)):
+    match = db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "Match not found")
+    intel_row = db.get(MatchIntelligence, match_id)
+    intelligence = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+    profiles = db.scalars(select(PlayerSourceProfile).where(
+        PlayerSourceProfile.match_id == match_id
+    )).all()
+    profile_map = {}
+    for profile in profiles:
+        profile_map.setdefault(profile.player_id, {})
+        profile_map[profile.player_id].update(profile.data or {})
+    squads = db.scalars(select(MatchSquad).where(
+        MatchSquad.match_id == match_id
+    )).all()
+    players = []
+    for squad in squads:
+        player = db.get(Player, squad.player_id)
+        profile = profile_map.get(squad.player_id, {})
+        players.append({
+            "player_id": squad.player_id,
+            "player_name": player.name if player else squad.player_id,
+            "team": squad.team,
+            "role": squad.role,
+            "credits": squad.credits,
+            "selection_pct": squad.selection_pct,
+            "status": squad.status,
+            "image": profile.get("image"),
+            "captain_pct": profile.get("captain_pct"),
+            "vice_captain_pct": profile.get("vice_captain_pct"),
+            "batting_order": profile.get("batting_order"),
+            "lineup_order": profile.get("lineup_order"),
+            "dream11_id": (profile.get("fantasy_ids") or {}).get("dream11"),
+        })
+    lineup_status = str(intelligence.get("lineup_status") or "").lower()
+    source_confirmed = (
+        any(word in lineup_status for word in ("announc", "confirmed", "complete", "final"))
+        and not any(word in lineup_status for word in ("not_announced", "not announced", "unannounced", "pending"))
+    )
+    lineup_confirmed = bool(intelligence.get("lineup_confirmed", source_confirmed))
+    selected_ids = intelligence.get("lineup_selected_player_ids")
+    if not isinstance(selected_ids, list):
+        selected_ids = [p["player_id"] for p in players if p["status"] == "playing"]
+    return {
+        "match": {
+            "id": match.id, "name": match.name, "format": match.format,
+            "start_time": match.start_time, "venue": match.venue,
+            "team_a": match.team_a, "team_b": match.team_b,
+            "status": match.status, "source": match.source,
+        },
+        "players": players,
+        "intelligence": intelligence,
+        "lineup_confirmed": lineup_confirmed,
+        "selected_player_ids": selected_ids,
+        "credits_verified_count": sum(1 for p in players if p["credits"] is not None),
+        "credits_missing_count": sum(1 for p in players if p["credits"] is None),
+    }
+
+
+@app.post("/api/v1/admin/matches/{match_id}/lineup")
+def save_playing_xi(match_id: str, payload: PlayingXIUpdate,
+                    _admin: bool = Depends(require_admin),
+                    db: Session = Depends(get_db)):
+    match = db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "Match not found")
+    squads = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match_id)).all()
+    by_id = {row.player_id: row for row in squads}
+    selected = set(payload.selected_player_ids)
+    if len(selected) != len(payload.selected_player_ids):
+        raise HTTPException(422, "Duplicate player IDs are not allowed.")
+    unknown = sorted(selected - set(by_id))
+    if unknown:
+        raise HTTPException(422, detail={"message": "Some selected players are not in this match squad.", "unknown_player_ids": unknown})
+    if payload.confirmed:
+        counts = {
+            match.team_a: sum(1 for pid in selected if by_id[pid].team == match.team_a),
+            match.team_b: sum(1 for pid in selected if by_id[pid].team == match.team_b),
+        }
+        if counts[match.team_a] != 11 or counts[match.team_b] != 11:
+            raise HTTPException(422, detail={
+                "message": "Official Playing XI confirmation requires exactly 11 players from each team.",
+                "selected_by_team": counts,
+                "action": "Select 11 players for each team, or save the list as provisional until official line-ups are announced."
+            })
+    for player_id, squad in by_id.items():
+        if payload.confirmed:
+            squad.status = "playing" if player_id in selected else "not_playing"
+        else:
+            # A provisional shortlist must not mark omitted squad members as unavailable.
+            squad.status = "probable" if player_id in selected else "not_announced"
+    intel = db.get(MatchIntelligence, match_id)
+    data = dict(intel.data or {}) if intel and isinstance(intel.data, dict) else {}
+    data["lineup_confirmed"] = bool(payload.confirmed)
+    data["lineup_selected_player_ids"] = sorted(selected)
+    data["lineup_admin_updated_at"] = datetime.now(timezone.utc).isoformat()
+    data["lineup_admin_source"] = "admin_confirmed" if payload.confirmed else "admin_provisional"
+    if intel:
+        intel.data = data
+    else:
+        db.add(MatchIntelligence(match_id=match_id, data=data))
+    db.commit()
+    return {
+        "saved": True, "match_id": match_id, "confirmed": payload.confirmed,
+        "selected_count": len(selected),
+        "selected_by_team": {
+            match.team_a: sum(1 for pid in selected if by_id[pid].team == match.team_a),
+            match.team_b: sum(1 for pid in selected if by_id[pid].team == match.team_b),
+        },
+        "note": "Unselected players remain available in provisional mode." if not payload.confirmed else "Official XI saved; unselected squad players are marked not_playing."
+    }
+
+
+@app.get("/api/v1/admin/matches/{match_id}/venue-suggestions")
+def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
+                          db: Session = Depends(get_db)):
+    match = db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "Match not found")
+    if not match.venue:
+        return {"available": False, "venue": None, "suggestions": [],
+                "reason": "The match source did not provide a stadium/venue. Add a verified venue and import historical match records with venue names."}
+    normalize = lambda value: "".join(ch for ch in str(value or "").casefold() if ch.isalnum())
+    target = normalize(match.venue)
+    squads = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match_id)).all()
+    squad_by_id = {s.player_id: s for s in squads}
+    history_rows = db.execute(
+        select(PlayerMatchStats, Match)
+        .join(Match, PlayerMatchStats.match_id == Match.id)
+        .where(Match.venue.is_not(None), PlayerMatchStats.match_id != match_id)
+    ).all()
+    aggregates = {}
+    for stats, historical_match in history_rows:
+        if normalize(historical_match.venue) != target:
+            continue
+        if stats.player_id not in squad_by_id:
+            continue
+        entry = aggregates.setdefault(stats.player_id, {
+            "matches": 0, "points": [], "runs": [], "wickets": []
+        })
+        entry["matches"] += 1
+        if stats.fantasy_points is not None:
+            entry["points"].append(float(stats.fantasy_points))
+        entry["runs"].append(int(stats.runs or 0))
+        entry["wickets"].append(int(stats.wickets or 0))
+    profiles = db.scalars(select(PlayerSourceProfile).where(
+        PlayerSourceProfile.match_id == match_id,
+        PlayerSourceProfile.source == "TEAM_GENERATION"
+    )).all()
+    images = {p.player_id: (p.data or {}).get("image") for p in profiles}
+    suggestions = []
+    for player_id, entry in aggregates.items():
+        if not entry["points"]:
+            continue
+        squad = squad_by_id[player_id]
+        player = db.get(Player, player_id)
+        points = entry["points"]
+        suggestions.append({
+            "player_id": player_id,
+            "player_name": player.name if player else player_id,
+            "team": squad.team, "role": squad.role, "credits": squad.credits,
+            "image": images.get(player_id), "venue_matches": entry["matches"],
+            "scored_venue_matches": len(points),
+            "avg_fantasy_points": round(sum(points) / len(points), 2),
+            "avg_runs": round(sum(entry["runs"]) / len(entry["runs"]), 1) if entry["runs"] else 0,
+            "total_venue_wickets": sum(entry["wickets"]),
+            "evidence": "Match-by-match imported records at this venue",
+        })
+    suggestions.sort(key=lambda p: (p["avg_fantasy_points"], p["scored_venue_matches"]), reverse=True)
+    return {
+        "available": bool(suggestions), "venue": match.venue,
+        "suggestions": suggestions,
+        "reason": None if suggestions else "No scored historical records at this venue are available for players in this match squad."
+    }
+
+
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page():
-    return """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Preet Fantasy AI Import</title><style>body{font:16px system-ui;max-width:650px;margin:40px auto;padding:20px;background:#f5f7f8}input,button{width:100%;padding:14px;box-sizing:border-box;margin-top:12px}button{background:#16a878;color:white;border:0;border-radius:8px;font-weight:700}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#17212b;color:#e8fff4;padding:14px;border-radius:8px}</style></head>
-    <body><h2>Preet Fantasy AI — Import Centre</h2>
-    <section style="background:white;padding:16px;border-radius:12px;margin-bottom:18px">
-      <h3>Source 1 — AI11</h3>
-    <p>Paste one AI11 match URL (Fantasy or Analysis). The matching page is detected automatically.</p>
-    <input id="url" type="url" placeholder="Paste AI11 match URL">
-    <button id="go">Fetch match data</button><pre id="out">Ready.</pre>
-    </section>
-    <section id="credits" hidden><h3>Missing player credits</h3>
-      <p>Enter only a value checked against a reliable source. The source URL is saved with the correction.</p>
-      <div id="creditRows"></div><pre id="creditStatus"></pre>
-    </section>
-    <script>
-    let adminToken='', currentMatchId='';
-    const headers=()=>({'Content-Type':'application/json','X-Admin-Token':adminToken});
-    async function loadCredits(matchId){
-      const r=await fetch('/api/v1/admin/matches/'+encodeURIComponent(matchId)+'/credits',{headers:headers()});
-      const data=await r.json();
-      const section=document.getElementById('credits'), rows=document.getElementById('creditRows');
-      section.hidden=false; rows.innerHTML='';
-      const missing=(data.credits_missing_players||[]);
-      if(!missing.length){rows.textContent='All squad players have credits.';}
-      missing.forEach(p=>{
-        const card=document.createElement('div');
-        card.style='background:white;border:1px solid #ccd3d8;border-radius:8px;padding:12px;margin:12px 0';
-        const heading=document.createElement('strong'); heading.textContent=p.player_name+' ('+p.team+')';
-        const credit=document.createElement('input'); credit.type='number';credit.min='0.1';credit.max='20';credit.step='0.5';credit.placeholder='Player credits';
-        const save=document.createElement('button');save.textContent='Save credit';
-        const msg=document.createElement('small');msg.style='display:block;margin-top:8px';
-        save.onclick=async()=>{
-          const value=Number(credit.value);
-          if(!(value>0&&value<=20)){msg.textContent='Enter a credit greater than 0 and at most 20.';return;}
-          save.disabled=true;msg.textContent='Saving…';
-          try{
-            const response=await fetch('/api/v1/admin/matches/'+encodeURIComponent(currentMatchId)+'/credits',{method:'POST',headers:headers(),body:JSON.stringify({player_id:p.player_id,credits:value})});
-            const result=await response.json();msg.textContent=response.ok?'Saved. Missing: '+result.credits_missing_count:JSON.stringify(result);
-            if(response.ok)await loadCredits(currentMatchId);
-          }catch(e){msg.textContent='Request failed: '+e.message;}
-          finally{save.disabled=false;}
-        };
-        card.append(heading,credit,save,msg);rows.append(card);
-      });
-      document.getElementById('creditStatus').textContent=JSON.stringify({credits_verified_count:data.credits_verified_count,credits_missing_count:data.credits_missing_count,credits_ready_for_team_builder:data.credits_ready_for_team_builder},null,2);
-    }
-    document.getElementById('go').onclick=async()=>{
-      if(!adminToken)adminToken=prompt('Enter admin token once for this page session:')||'';
-      if(!adminToken)return;
-      const url=document.getElementById('url').value.trim();
-      const out=document.getElementById('out');out.textContent='Fetching match data…';
-      try{
-        if(!url){out.textContent='Please paste an AI11 match URL first.';return;}
-        const r=await fetch('/api/v1/admin/import/ai11',{method:'POST',headers:headers(),body:JSON.stringify({analysis_url:url})});
-        const raw=await r.text();let data;
-        try{data=JSON.parse(raw);}catch(_){data={message:'Server returned a non-JSON response',http_status:r.status,response:raw.slice(0,4000)};}
-        out.textContent=JSON.stringify({http_status:r.status,...(data&&typeof data==='object'?data:{response:data})},null,2);
-        if(r.ok&&data.match_id){currentMatchId=data.match_id;await loadCredits(currentMatchId);}
-        if(r.status===401)adminToken='';
-      }catch(e){out.textContent='Network/request error: '+e.message;}
-    };
-    async function ensureAdminToken(){if(!adminToken)adminToken=prompt('Enter Preet Fantasy AI admin token:')||'';return !!adminToken;}
-    </script>
-    <section style="background:white;padding:16px;border-radius:12px;margin:18px 0">
-      <h3>Source 2 — Team Generation</h3>
-      <p>Uses the authorized Team Generation access token configured privately as TG_API_TOKEN in Render. No source token is entered into this page.</p>
-      <button id="tgLoad">Load upcoming cricket matches</button>
-      <div id="tgMatches"></div><pre id="tgOut">Ready.</pre>
-    </section>
-    <script>
-    async function loadTgMatches(){
-      if(!await ensureAdminToken())return;
-      const box=document.getElementById('tgMatches'),out=document.getElementById('tgOut');
-      box.textContent='Loading fixtures…';out.textContent='Connecting to Team Generation…';
-      try{
-        const r=await fetch('/api/v1/admin/teamgeneration/fixtures',{headers:headers()});
-        const data=await r.json();
-        if(!r.ok){box.textContent='Could not load fixtures.';out.textContent=JSON.stringify(data,null,2);if(r.status===401)adminToken='';return;}
-        box.innerHTML='';
-        (data.matches||[]).forEach(m=>{
-          const card=document.createElement('div');
-          card.style='border:1px solid #ccd3d8;border-radius:8px;padding:12px;margin:10px 0;background:#fafafa';
-          const title=document.createElement('strong');
-          title.textContent=(m.left.code||m.left.name)+' vs '+(m.right.code||m.right.name)+' — '+(m.series||'Cricket');
-          const meta=document.createElement('small');meta.style='display:block;margin:6px 0';
-          meta.textContent='ID: '+m.id+' | '+(m.startTime||'')+' | '+(m.lineupStatus||'lineup unknown');
-          const btn=document.createElement('button');btn.textContent='Import players and credits';
-          btn.onclick=async()=>{
-            btn.disabled=true;out.textContent='Importing '+m.id+'…';
-            try{
-              const response=await fetch('/api/v1/admin/import/teamgeneration/'+encodeURIComponent(m.id),{method:'POST',headers:headers()});
-              const result=await response.json();out.textContent=JSON.stringify({http_status:response.status,...result},null,2);
-              if(response.ok&&result.match_id){currentMatchId=result.match_id;await loadCredits(currentMatchId);}
-              if(response.status===401)adminToken='';
-            }catch(e){out.textContent='Import failed: '+e.message;}
-            finally{btn.disabled=false;}
-          };
-          card.append(title,meta,btn);box.append(card);
-        });
-        out.textContent='Loaded '+(data.count||0)+' fixtures.';
-      }catch(e){box.textContent='Request failed.';out.textContent=e.message;}
-    }
-    document.getElementById('tgLoad').onclick=loadTgMatches;
-    </script></body></html>"""
+    admin_file = Path(__file__).with_name("admin.html")
+    if not admin_file.is_file():
+        raise HTTPException(500, "Admin interface file is missing.")
+    return HTMLResponse(admin_file.read_text(encoding="utf-8"))
+
