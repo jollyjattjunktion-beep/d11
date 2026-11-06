@@ -121,7 +121,12 @@ def import_history(payload: StatsImport, db: Session = Depends(get_db)):
     saved,skipped=0,0
     for item in payload.records:
         data=item.model_dump()
-        if not db.get(Player,data["player_id"]): skipped+=1; continue
+        player_name=data.pop("player_name",None)
+        player=db.get(Player,data["player_id"])
+        if player is None and player_name:
+            player=Player(id=data["player_id"],name=player_name)
+            db.add(player)
+        if player is None: skipped+=1; continue
         existing=db.scalar(select(PlayerMatchStats).where(
             PlayerMatchStats.match_id==data["match_id"],
             PlayerMatchStats.player_id==data["player_id"]))
@@ -262,8 +267,13 @@ def import_external_history(payload: HistoricalBatchImport,
     saved,skipped=0,0
     for item in payload.records:
         data=item.model_dump()
+        player_name=data.pop("player_name",None)
         data["source"]=payload.source
-        if not db.get(Player,data["player_id"]):
+        player=db.get(Player,data["player_id"])
+        if player is None and player_name:
+            player=Player(id=data["player_id"],name=player_name)
+            db.add(player)
+        if player is None:
             skipped+=1
             continue
         existing=db.scalar(select(PlayerMatchStats).where(
