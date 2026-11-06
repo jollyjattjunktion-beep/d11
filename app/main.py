@@ -882,6 +882,17 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
             "action":"Import verified credits or enter them manually. No credit values are guessed."
         })
     predictions=predict_match(db,match_id)
+    intelligence_row=db.get(MatchIntelligence,match_id)
+    match_context=dict(intelligence_row.data or {}) if intelligence_row and isinstance(intelligence_row.data,dict) else {}
+    toss_batting_team=None
+    if match_context.get("toss_completed"):
+        toss_winner=match_context.get("toss_winner")
+        toss_decision=match_context.get("toss_decision")
+        if toss_winner in {match.team_a,match.team_b}:
+            if toss_decision=="bat":
+                toss_batting_team=toss_winner
+            elif toss_decision=="bowl":
+                toss_batting_team=match.team_b if toss_winner==match.team_a else match.team_a
     squad_by_id={s.player_id:s for s in squads}
     combined=[]
     for prediction in predictions:
@@ -899,7 +910,13 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
                          "batting_position":tg_data.get("batting_position",prediction.get("batting_position")),
                          "expected_overs":tg_data.get("expected_overs",prediction.get("expected_overs")),
                          "involvement_score":tg_data.get("involvement_score",prediction.get("involvement_score")),
-                         "matchup_score":tg_data.get("matchup_score",prediction.get("matchup_score"))})
+                         "matchup_score":tg_data.get("matchup_score",prediction.get("matchup_score")),
+                         "batting_friendly":match_context.get("batting_friendly"),
+                         "pace_friendly":match_context.get("pace_friendly"),
+                         "spin_friendly":match_context.get("spin_friendly"),
+                         "dew_likely":match_context.get("dew_likely"),
+                         "rain_probability":match_context.get("rain_probability"),
+                         "toss_batting_team":toss_batting_team})
     history_ready=bool(combined) and all(p.get("expected_points") is not None for p in combined)
     if payload.score_mode != "none":
         if payload.score_team not in {match.team_a, match.team_b}:
