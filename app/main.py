@@ -971,7 +971,7 @@ def _venue_report_for_match(db: Session, match: Match):
     wanted = normalize(match.venue)
     for venue in rows:
         names = [venue.name, venue.city_country] + list(venue.aliases or [])
-        if any(normalize(name) == wanted or (wanted and normalize(name).startswith(wanted)) for name in names if name):
+        if any((normalize(name) == wanted or (wanted and (normalize(name) in wanted or wanted in normalize(name)))) for name in names if name):
             fmt = "T20" if match.format.upper() in {"T20", "T20I", "WT20", "WT20I"} else "ODI" if match.format.upper() in {"ODI", "WODI"} else "TEST"
             return venue, (venue.formats or {}).get(fmt)
     return None, None
@@ -999,7 +999,8 @@ def import_cricbuzz_venue_report(match_id: str, payload: CricbuzzVenueImportRequ
         raise HTTPException(502, "Could not fetch Cricbuzz venue page: " + type(exc).__name__)
 
     venue_row = _save_cricbuzz_venue(db, report)
-    match.venue = report["name"]
+    city = (report.get("city_country") or "").split(",")[0].strip()
+    match.venue = report["name"] + (", " + city if city else "")
     venue_analysis = analyse_venue(report, match.format)
     intel_row = db.get(MatchIntelligence, match_id)
     data = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
