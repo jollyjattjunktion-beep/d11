@@ -280,7 +280,7 @@ def public_matches_api(db: Session = Depends(get_db)):
         "matches": matches,
         "last_sync": _last_public_sync_at,
         "sync": sync,
-        "note": "Completed, cancelled and no-longer-listed fixtures are hidden from the public feed; SQL match and player-history records are retained."
+        "note": "Completed/cancelled fixtures are hidden immediately. Omitted fixtures remain visible during their format-aware playing window, then are hidden; SQL match and player-history records are retained."
     }
 
 
