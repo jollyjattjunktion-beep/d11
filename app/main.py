@@ -1107,7 +1107,8 @@ def discover_cricbuzz_series_and_venues(payload: CricbuzzSeriesIndexImportReques
     except httpx.RequestError as exc:
         raise HTTPException(502, "Could not fetch Cricbuzz series index: " + type(exc).__name__)
 
-    series = series[:payload.max_series]
+    total_series = len(series)
+    series = series[payload.series_offset:payload.series_offset + payload.max_series]
     discovered = []
     failures = []
     for series_item in series:
@@ -1138,7 +1139,11 @@ def discover_cricbuzz_series_and_venues(payload: CricbuzzSeriesIndexImportReques
     return {
         "provider": "CRICBUZZ",
         "index_url": payload.url,
-        "series_seen": len(series),
+        "series_total_available": total_series,
+        "series_offset": payload.series_offset,
+        "series_seen_this_batch": len(series),
+        "next_series_offset": payload.series_offset + len(series),
+        "has_more_series": payload.series_offset + len(series) < total_series,
         "series_with_venues_or_attempts": len(series) - len(failures),
         "venues_discovered": len(discovered),
         "venues_saved_or_updated": len(discovered),
