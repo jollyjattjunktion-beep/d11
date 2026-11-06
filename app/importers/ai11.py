@@ -123,7 +123,7 @@ def _stat_header_key(value: str) -> str | None:
     raw = re.sub(r"[^a-z0-9%/]+", " ", (value or "").casefold()).strip()
     compact = raw.replace(" ", "")
     aliases = {
-        "m#": "matches", "matches": "matches", "mat": "matches", "m": "matches",
+        "m#": "matches", "matches": "matches", "mat": "matches", "m": "matches", "50": "fifties", "100": "hundreds",
         "inn": "innings", "no": "not_outs", "runs": "runs", "r": "runs",
         "hs": "highest_score", "avg": "batting_average", "sr": "strike_rate",
         "50+": "fifties", "100+": "hundreds", "4/6": "fours_sixes",
