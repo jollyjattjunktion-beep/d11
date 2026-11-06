@@ -72,8 +72,15 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
                 value=sum(_score(x,strategy,scenario) - usage[x["player_id"]]*1.5 for x in next_chosen)
                 expanded.append((next_chosen,value))
         if not expanded: break
+        # Deduplicate the same XI reached through different selection orders.
+        unique={}
+        for chosen_set, value in expanded:
+            key=tuple(sorted(p["player_id"] for p in chosen_set))
+            if key not in unique or value > unique[key][1]:
+                unique[key]=(chosen_set,value)
+        expanded=list(unique.values())
         expanded.sort(key=lambda x:x[1], reverse=True)
-        # Keep diverse candidate sets to avoid nearly identical greedy teams.
+        # Keep a broad beam so later constraints and alternatives remain visible.
         states=expanded[:350]
     valid=[]
     for chosen,score in states:
