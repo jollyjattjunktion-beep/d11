@@ -2,7 +2,7 @@ from math import sqrt
 from statistics import mean
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from app.models import Player, PlayerMatchStats, MatchSquad, Match, MatchIntelligence
+from app.models import Player, PlayerMatchStats, MatchSquad, Match, MatchIntelligence, PlayerSourceProfile
 from app.config import MODEL_VERSION
 
 def _weighted_mean(values):
@@ -54,9 +54,14 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
         ).order_by(PlayerMatchStats.match_date.desc(), PlayerMatchStats.id.desc()).limit(12)
     ).all()
     values = [float(r.fantasy_points) for r in rows]
+    source_profile = db.get(PlayerSourceProfile, (match_id, player.id, "AI11"))
+    source_data = source_profile.data if source_profile else {}
     base = {"match_id":match_id,"player_id":player.id,"player_name":player.name,
             "team":squad.team,"role":squad.role,"status":squad.status,
-            "credits":squad.credits,"selection_pct":squad.selection_pct}
+            "credits":squad.credits,"selection_pct":squad.selection_pct,
+            "ai11_captain_pct":source_data.get("ai11_captain_pct"),
+            "ai11_vice_captain_pct":source_data.get("ai11_vice_captain_pct"),
+            "source_profile_available":bool(source_data)}
     if not values:
         return {**base,"expected_points":None,"floor_points":None,"median_points":None,
                 "ceiling_points":None,"consistency":0.0,"upside":0.0,"confidence_score":0,
