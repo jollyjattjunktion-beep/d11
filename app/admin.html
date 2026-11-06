@@ -249,7 +249,7 @@ async function importSeriesVenues(){
  const btn=$('importSeriesVenues');btn.disabled=true;btn.textContent='Importing…';
  try{
   const d=await api('/api/v1/admin/venues/import-series',{method:'POST',body:JSON.stringify({url})});
-  $('catalogueImportNotice').textContent=d.venues_saved_or_updated+' stadiums saved to SQL from '+d.series_venues_found+' listed venues. '+d.venues_skipped+' skipped.';
+  $('catalogueImportNotice').textContent=d.venues_imported+' stadiums saved to SQL from '+d.series_venues_found+' listed venues. '+d.venues_skipped+' skipped.';
   await searchVenueCatalogue();
  }catch(e){$('catalogueImportNotice').textContent=e.message;}
  finally{btn.disabled=false;btn.textContent='Import one series';}
