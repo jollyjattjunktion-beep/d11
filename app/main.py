@@ -1120,6 +1120,7 @@ def search_venue_catalogue(q: str | None = None, limit: int = 100,
 
 
 
+
 @app.get("/api/v1/admin/matches/{match_id}/venue-suggestions")
 def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
                           db: Session = Depends(get_db)):
@@ -1128,17 +1129,28 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
         raise HTTPException(404, "Match not found")
     normalize = lambda value: "".join(ch for ch in str(value or "").casefold() if ch.isalnum())
     fmt = "T20" if match.format.upper() in {"T20", "T20I", "WT20", "WT20I"} else "ODI" if match.format.upper() in {"ODI", "WODI"} else "TEST"
-    squads = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match_id)).all()
-    squad_by_id = {s.player_id: s for s in squads}
+
+    intel_row = db.get(MatchIntelligence, match_id)
+    intel = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+    lineup_confirmed = bool(intel.get("lineup_confirmed"))
+    confirmed_ids = set(intel.get("lineup_selected_player_ids") or [])
+
+    squads_all = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match_id)).all()
+    squads = [
+        row for row in squads_all
+        if not lineup_confirmed or (
+            row.status == "playing" and (not confirmed_ids or row.player_id in confirmed_ids)
+        )
+    ]
+    squad_by_id = {row.player_id: row for row in squads}
     squad_player_ids_by_name = {}
     for squad in squads:
         current_player = db.get(Player, squad.player_id)
         if current_player:
             squad_player_ids_by_name.setdefault(normalize(current_player.name), squad.player_id)
 
-    intel_row = db.get(MatchIntelligence, match_id)
-    intel = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
     report = intel.get("cricbuzz_venue_report")
+    venue_row = None
     if not report:
         venue_row, _ = _venue_report_for_match(db, match)
         if venue_row:
@@ -1147,15 +1159,33 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
                 "provider_venue_id": venue_row.provider_venue_id,
                 "name": venue_row.name,
                 "city_country": venue_row.city_country,
+                "aliases": venue_row.aliases or [],
                 "formats": venue_row.formats or {},
                 "facts": venue_row.facts or {},
                 "profile_text": (venue_row.profile or {}).get("profile_text"),
                 "pitch_text": (venue_row.profile or {}).get("pitch_text"),
                 "source_urls": venue_row.source_urls or [],
             }
+
     venue_analysis = intel.get("auto_venue_analysis")
     if report and (not venue_analysis or venue_analysis.get("format") != fmt):
         venue_analysis = analyse_venue(report, match.format)
+        # Persist catalogue-linked data so subsequent predictions and UI reads
+        # use the same format-specific venue context.
+        data = dict(intel)
+        data["cricbuzz_venue_report"] = report
+        data["auto_venue_analysis"] = venue_analysis
+        data["venue_provider"] = "CRICBUZZ"
+        if venue_row:
+            data["venue_id"] = venue_row.provider_key
+        data.update(analysis_context_fields(venue_analysis))
+        if intel_row is None:
+            intel_row = MatchIntelligence(match_id=match_id, data=data)
+            db.add(intel_row)
+        else:
+            intel_row.data = data
+        db.commit()
+        intel = data
 
     history_rows = db.execute(
         select(PlayerMatchStats, Match)
@@ -1205,12 +1235,8 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
         profile_map.setdefault(profile.player_id, {})
         profile_map[profile.player_id].update(profile.data or {})
 
-    lineup_confirmed = bool(intel.get("lineup_confirmed"))
-    confirmed_ids = set(intel.get("lineup_selected_player_ids") or [])
     candidates = []
     for squad in squads:
-        if lineup_confirmed and (squad.status != "playing" or (confirmed_ids and squad.player_id not in confirmed_ids)):
-            continue
         try:
             selection_pct = float(squad.selection_pct) if squad.selection_pct is not None else None
         except (TypeError, ValueError):
@@ -1224,7 +1250,9 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
         candidates.append({
             "player_id": squad.player_id,
             "player_name": player.name if player else squad.player_id,
-            "team": squad.team, "role": squad.role, "credits": squad.credits,
+            "team": squad.team,
+            "role": squad.role,
+            "credits": squad.credits,
             "image": profile.get("image"),
             "selection_pct": selection_pct,
             "captain_pct": profile.get("captain_pct", profile.get("ai11_captain_pct")),
@@ -1236,10 +1264,10 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
             "total_venue_wickets": sum(history.get("wickets", [])),
             "selection_eligible": True,
         })
-    candidates.sort(
-        key=lambda p: (p["selection_pct"], p["avg_fantasy_points"] if p["avg_fantasy_points"] is not None else -1),
-        reverse=True
-    )
+    candidates.sort(key=lambda p: (
+        p["selection_pct"],
+        p["avg_fantasy_points"] if p["avg_fantasy_points"] is not None else -1
+    ), reverse=True)
 
     team_analysis = []
     for team_name in (match.team_a, match.team_b):
@@ -1273,11 +1301,23 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
             "average_runs_per_player_match": round(sum(item["runs"]) / len(item["runs"]), 1) if item["runs"] else None,
             "total_wickets_in_sample": sum(item["wickets"]),
             "top_players": players[:5],
-            "sample_note": "Format-matched imported scorecard data for players in this current squad; not team win percentage."
+            "sample_note": "Format-matched scorecards for the current XI/squad; this is not the team's venue win percentage."
         })
 
     predictions = predict_match(db, match_id)
+    if lineup_confirmed:
+        predictions = [p for p in predictions if p.get("status") in {"playing", "confirmed"}]
     strength = compare_squad_strength(match.team_a, match.team_b, predictions)
+    if report:
+        data = dict(intel)
+        data["team_strength_analysis"] = strength
+        data["strong_team"] = strength.get("strong_team")
+        if intel_row is None:
+            db.add(MatchIntelligence(match_id=match_id, data=data))
+        else:
+            intel_row.data = data
+        db.commit()
+
     return {
         "available": bool(report or any(player_history.values())),
         "venue": match.venue,
@@ -1291,7 +1331,7 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
         "eligible_over_80_count": len(candidates),
         "recommended_fixed_count": min(5, len(candidates)),
         "fixed_selection_threshold_pct": 80,
-        "reason": None if report else "No Cricbuzz venue page is linked yet. Paste a Cricbuzz venue URL to import ground statistics."
+        "reason": None if report else "No Cricbuzz venue page is linked to this ground yet. Paste its venue URL or import a series Venues page to populate the SQL stadium catalogue."
     }
 
 
