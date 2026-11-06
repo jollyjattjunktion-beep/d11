@@ -1447,6 +1447,85 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
     }
 
 
+
+FEATURED_CRICBUZZ_VENUES = [
+    "https://www.cricbuzz.com/cricket-series/11876/england-tour-of-australia-2026/venues/38/waca-ground",
+    "https://www.cricbuzz.com/cricket-series/13430/nepal-premier-league-2026/venues/458/tribhuvan-university-international-cricket-ground",
+    "https://www.cricbuzz.com/cricket-series/12677/womens-big-bash-league-2026/venues/122/junction-oval",
+]
+
+
+@app.post("/api/v1/admin/venues/import")
+def import_venue_into_catalogue(payload: CricbuzzVenueImportRequest,
+                                _admin: bool = Depends(require_admin),
+                                db: Session = Depends(get_db)):
+    try:
+        page = fetch_cricbuzz_venue_page(payload.url)
+        report = parse_cricbuzz_venue(page, payload.url)
+    except ValueError as exc:
+        raise HTTPException(422, "Cricbuzz venue import rejected: " + str(exc)[:400])
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(502, detail={
+            "message": "Cricbuzz refused the venue page request.",
+            "upstream_status": exc.response.status_code,
+            "action": "Open the venue URL in a browser and retry."
+        })
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Could not fetch Cricbuzz venue page: " + type(exc).__name__)
+    row = _save_cricbuzz_venue(db, report)
+    db.commit()
+    return {
+        "imported": True,
+        "venue_id": row.provider_key,
+        "name": row.name,
+        "city_country": row.city_country,
+        "formats_available": sorted((row.formats or {}).keys()),
+        "report": report,
+        "note": "Venue saved to the SQL stadium catalogue."
+    }
+
+
+@app.post("/api/v1/admin/venues/import-featured")
+def import_user_supplied_featured_venues(_admin: bool = Depends(require_admin),
+                                         db: Session = Depends(get_db)):
+    imported, failed = [], []
+    for url in FEATURED_CRICBUZZ_VENUES:
+        try:
+            page = fetch_cricbuzz_venue_page(url)
+            report = parse_cricbuzz_venue(page, url)
+            row = _save_cricbuzz_venue(db, report)
+            imported.append({
+                "venue_id": row.provider_key,
+                "name": row.name,
+                "city_country": row.city_country,
+                "formats_available": sorted((row.formats or {}).keys()),
+                "source_url": url,
+            })
+        except Exception as exc:
+            failed.append({
+                "url": url,
+                "error": type(exc).__name__,
+                "message": str(exc)[:180],
+            })
+    db.commit()
+    return {
+        "requested": len(FEATURED_CRICBUZZ_VENUES),
+        "imported": len(imported),
+        "failed": len(failed),
+        "venues": imported,
+        "errors": failed,
+        "note": "Successfully imported profiles are saved in the SQL venue catalogue and can be reused across matches."
+    }
+
+
+@app.get("/admin/stadiums", response_class=HTMLResponse)
+def stadium_database_admin_page():
+    stadiums_file = Path(__file__).with_name("stadiums.html")
+    if not stadiums_file.is_file():
+        raise HTTPException(500, "Stadium database interface is missing.")
+    return HTMLResponse(stadiums_file.read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
+
+
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page():
     admin_file = Path(__file__).with_name("admin.html")
