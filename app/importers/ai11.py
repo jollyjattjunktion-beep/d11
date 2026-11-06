@@ -82,7 +82,7 @@ def parse_analysis(html: str):
             role=_role(cells[2] if len(cells)>2 else "")
             if not role: continue
             team=cells[1].strip() if cells[1].strip() else "UNKNOWN"
-            selection=_number(cells[-4] if len(cells)>=4 else None)
+            selection=_number(cells[-3] if len(cells)>=3 else None)
             captain_pct=_number(cells[-2] if len(cells)>=2 else None)
             vice_pct=_number(cells[-1] if cells else None)
             lineup=(cells[3].strip().lower() if len(cells)>3 else "")
