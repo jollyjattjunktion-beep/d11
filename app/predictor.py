@@ -164,7 +164,8 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
         if not context:
             warnings.append("No pitch/weather/venue intelligence imported")
         return {**base, **form, "median_points":None, "condition_factor":round(condition_factor,3),
-                "reasons":reasons+condition_reasons,"warnings":warnings,"model_version":MODEL_VERSION}
+                "reasons":reasons+ai11_reasons+condition_reasons,"warnings":warnings,"model_version":MODEL_VERSION,
+                "prediction_type":"provisional_selection_support_only"}
     condition_factor, condition_reasons = _condition_adjustment(squad.role, context, fmt)
     status = (squad.status or "unknown").lower()
     availability = 1.0 if status in {"playing","confirmed"} else 0.94 if status in {"probable","likely","available"} else 0.88
