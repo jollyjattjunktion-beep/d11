@@ -238,13 +238,15 @@ $('importCricbuzzVenue').onclick=()=>importCricbuzzVenue($('venueUrl').value);
 $('continueVenue').onclick=()=>setStep(4);
 async function discoverSeriesVenues(){
  const url=$('seriesIndexUrl').value.trim();if(!url){$('catalogueImportNotice').textContent='Paste the Cricbuzz all-series schedule or an archive page URL.';return;}
+ if(url!==seriesIndexLastUrl){seriesIndexLastUrl=url;seriesDiscoveryOffset=0;}
  const btn=$('discoverSeriesVenues');btn.disabled=true;btn.textContent='Discovering…';
  try{
-  const d=await api('/api/v1/admin/venues/discover-series',{method:'POST',body:JSON.stringify({url,max_series:8})});
-  $('catalogueImportNotice').textContent='Discovered '+d.series_seen+' series and saved '+d.venues_saved_or_updated+' stadium entries. Some records may need stats enrichment. '+(d.failed_series||[]).length+' series page(s) could not be read.';
+  const d=await api('/api/v1/admin/venues/discover-series',{method:'POST',body:JSON.stringify({url,max_series:8,series_offset:seriesDiscoveryOffset})});
+  seriesDiscoveryOffset=d.next_series_offset||seriesDiscoveryOffset;
+  $('catalogueImportNotice').textContent='Imported '+d.series_seen_this_batch+' of '+d.series_total_available+' listed series; saved '+d.venues_saved_or_updated+' stadium entries. '+(d.failed_series||[]).length+' series page(s) failed. '+(d.has_more_series?'Click Discover next batch to continue.':'All series on this page have been processed.');
   await searchVenueCatalogue();
  }catch(e){$('catalogueImportNotice').textContent=e.message;}
- finally{btn.disabled=false;btn.textContent='Discover series & grounds';}
+ finally{btn.disabled=false;btn.textContent='Discover next batch';}
 }
 $('seriesIndexUrl').addEventListener('change',()=>{seriesIndexLastUrl='';seriesDiscoveryOffset=0;});
 async function importSeriesVenues(){
