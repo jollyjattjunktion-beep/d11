@@ -88,3 +88,18 @@ class Prediction(Base):
     confidence: Mapped[str] = mapped_column(String(20))
     model_version: Mapped[str] = mapped_column(String(50))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class Venue(Base):
+    __tablename__ = "venues"
+    provider_key: Mapped[str] = mapped_column(String(160), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), index=True)
+    city_country: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    aliases: Mapped[list] = mapped_column(JSON, default=list)
+    provider: Mapped[str] = mapped_column(String(40), default="CRICBUZZ", index=True)
+    provider_venue_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    facts: Mapped[dict] = mapped_column(JSON, default=dict)
+    formats: Mapped[dict] = mapped_column(JSON, default=dict)
+    profile: Mapped[dict] = mapped_column(JSON, default=dict)
+    source_urls: Mapped[list] = mapped_column(JSON, default=list)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
