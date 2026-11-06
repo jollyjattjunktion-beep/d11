@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import String, Float, Integer, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import String, Float, Integer, DateTime, ForeignKey, UniqueConstraint, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -17,7 +17,6 @@ class Match(Base):
     squad: Mapped[list["MatchSquad"]] = relationship(back_populates="match", cascade="all, delete-orphan")
 
 class Player(Base):
-    # Global player identity; match-specific role/team/credits live in MatchSquad.
     __tablename__ = "players"
     id: Mapped[str] = mapped_column(String(120), primary_key=True)
     name: Mapped[str] = mapped_column(String(180), index=True)
@@ -59,6 +58,12 @@ class PlayerMatchStats(Base):
     match_date: Mapped[str | None] = mapped_column(String(50), nullable=True)
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     player: Mapped["Player"] = relationship(back_populates="stats")
+
+class MatchIntelligence(Base):
+    __tablename__ = "match_intelligence"
+    match_id: Mapped[str] = mapped_column(ForeignKey("matches.id"), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 class Prediction(Base):
     __tablename__ = "predictions"
