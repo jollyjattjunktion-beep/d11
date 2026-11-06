@@ -14,7 +14,7 @@ from pathlib import Path
 from app.database import Base, engine, get_db, SessionLocal
 from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
-                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, VenueEnrichRequest)
+                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, VenueEnrichRequest)
 from app.predictor import predict_match
 from app.optimizer import build_teams
 from app.config import MODEL_VERSION, ADMIN_TOKEN, TG_API_TOKEN
@@ -587,6 +587,166 @@ def require_admin(x_admin_token: str | None = Header(default=None)):
     if not x_admin_token or not secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
         raise HTTPException(401, "Valid X-Admin-Token header required.")
     return True
+
+
+def _venue_report_payload_from_row(venue: Venue) -> dict:
+    return {
+        "provider": "CRICBUZZ",
+        "provider_venue_id": venue.provider_venue_id,
+        "name": venue.name,
+        "city_country": venue.city_country,
+        "aliases": venue.aliases or [],
+        "formats": venue.formats or {},
+        "facts": venue.facts or {},
+        "profile_text": (venue.profile or {}).get("profile_text"),
+        "pitch_text": (venue.profile or {}).get("pitch_text"),
+        "source_urls": venue.source_urls or [],
+    }
+
+
+@app.get("/api/v1/admin/matches")
+def admin_list_matches(q: str | None = None, status: str | None = None,
+                       limit: int = 250, _admin: bool = Depends(require_admin),
+                       db: Session = Depends(get_db)):
+    limit = max(1, min(limit, 500))
+    rows = db.scalars(select(Match).order_by(Match.start_time.desc())).all()
+    needle = "".join(ch for ch in str(q or "").casefold() if ch.isalnum())
+    if needle:
+        rows = [m for m in rows if needle in "".join(
+            ch for value in (m.id, m.name, m.team_a, m.team_b, m.venue, m.format, m.source)
+            for ch in str(value or "").casefold() if ch.isalnum()
+        )]
+    if status:
+        rows = [m for m in rows if (m.status or "").casefold() == status.casefold()]
+    results = []
+    for match in rows[:limit]:
+        intel_row = db.get(MatchIntelligence, match.id)
+        intel = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+        venue_id = intel.get("venue_id")
+        venue_row = db.get(Venue, venue_id) if venue_id else None
+        if venue_row is None and match.venue:
+            venue_row, _ = _venue_report_for_match(db, match)
+            if venue_row:
+                venue_id = venue_row.provider_key
+        report = intel.get("cricbuzz_venue_report") or (_venue_report_payload_from_row(venue_row) if venue_row else None)
+        analysis = intel.get("auto_venue_analysis") or (analyse_venue(report, match.format) if report else None)
+        squad_count = db.query(MatchSquad).filter(MatchSquad.match_id == match.id).count()
+        results.append({
+            "id": match.id,
+            "name": match.name,
+            "format": match.format,
+            "start_time": match.start_time,
+            "venue": match.venue,
+            "team_a": match.team_a,
+            "team_b": match.team_b,
+            "status": match.status,
+            "source": match.source,
+            "players": squad_count,
+            "venue_id": venue_id,
+            "venue_linked": bool(venue_row or report),
+            "venue_data_available": bool(analysis and analysis.get("available")),
+            "venue_pitch_recommendation": analysis.get("pitch_recommendation") if analysis else None,
+            "venue_innings_recommendation": analysis.get("recommended_innings_label") if analysis else None,
+        })
+    return {"count": len(results), "total_matches": len(rows), "matches": results}
+
+
+@app.patch("/api/v1/admin/matches/{match_id}")
+def admin_update_match(match_id: str, payload: AdminMatchUpdate,
+                       _admin: bool = Depends(require_admin),
+                       db: Session = Depends(get_db)):
+    match = db.get(Match, match_id)
+    if match is None:
+        raise HTTPException(404, "Match not found")
+    changes = payload.model_dump(exclude_unset=True)
+    venue_id_supplied = "venue_id" in changes
+    venue_id = changes.pop("venue_id", None)
+    venue_changed = "venue" in changes
+    for key, value in changes.items():
+        setattr(match, key, value)
+
+    intel_row = db.get(MatchIntelligence, match_id)
+    data = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+    venue_row = None
+    report = None
+
+    if venue_id_supplied:
+        if venue_id:
+            venue_row = db.get(Venue, venue_id)
+            if venue_row is None:
+                raise HTTPException(404, "Selected stadium is not in the SQL venue catalogue.")
+            city = (venue_row.city_country or "").split(",")[0].strip()
+            match.venue = venue_row.name + (", " + city if city else "")
+            report = _venue_report_payload_from_row(venue_row)
+            data["venue_id"] = venue_row.provider_key
+            data["venue_provider"] = venue_row.provider
+            data["venue_report_source_url"] = (venue_row.source_urls or [None])[0]
+            data["cricbuzz_venue_report"] = report
+        else:
+            data.pop("venue_id", None)
+            data.pop("venue_provider", None)
+            data.pop("venue_report_source_url", None)
+            data.pop("cricbuzz_venue_report", None)
+            data.pop("auto_venue_analysis", None)
+            venue_row = None
+    elif venue_changed:
+        venue_row, _ = _venue_report_for_match(db, match)
+        if venue_row:
+            report = _venue_report_payload_from_row(venue_row)
+            data["venue_id"] = venue_row.provider_key
+            data["venue_provider"] = venue_row.provider
+            data["venue_report_source_url"] = (venue_row.source_urls or [None])[0]
+            data["cricbuzz_venue_report"] = report
+        else:
+            # Do not accidentally retain the old ground's analysis after an edit.
+            data.pop("venue_id", None)
+            data.pop("venue_provider", None)
+            data.pop("venue_report_source_url", None)
+            data.pop("cricbuzz_venue_report", None)
+            data.pop("auto_venue_analysis", None)
+            data.pop("pitch_type", None)
+            data.pop("batting_friendly", None)
+            data.pop("venue_matches", None)
+    else:
+        existing_id = data.get("venue_id")
+        venue_row = db.get(Venue, existing_id) if existing_id else None
+        report = data.get("cricbuzz_venue_report") or (
+            _venue_report_payload_from_row(venue_row) if venue_row else None
+        )
+        if not report and match.venue:
+            venue_row, _ = _venue_report_for_match(db, match)
+            if venue_row:
+                report = _venue_report_payload_from_row(venue_row)
+                data["venue_id"] = venue_row.provider_key
+                data["venue_provider"] = venue_row.provider
+                data["venue_report_source_url"] = (venue_row.source_urls or [None])[0]
+                data["cricbuzz_venue_report"] = report
+
+    if report:
+        venue_analysis = analyse_venue(report, match.format)
+        data["auto_venue_analysis"] = venue_analysis
+        data.update(analysis_context_fields(venue_analysis))
+    elif "format" in changes:
+        data.pop("auto_venue_analysis", None)
+
+    data["admin_match_updated_at"] = datetime.now(timezone.utc).isoformat()
+    if intel_row is None:
+        db.add(MatchIntelligence(match_id=match_id, data=data))
+    else:
+        intel_row.data = data
+    db.commit()
+    return {
+        "updated": True,
+        "match": {
+            "id": match.id, "name": match.name, "format": match.format,
+            "start_time": match.start_time, "venue": match.venue,
+            "team_a": match.team_a, "team_b": match.team_b,
+            "status": match.status, "source": match.source,
+        },
+        "venue_id": data.get("venue_id"),
+        "venue_analysis": data.get("auto_venue_analysis"),
+        "note": "Match details saved. Venue recommendations are recalculated from the selected stadium's matching-format records."
+    }
 
 
 @app.post("/api/v1/admin/public-matches/sync")
