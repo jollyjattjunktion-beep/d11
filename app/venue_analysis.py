@@ -130,10 +130,26 @@ def analyse_venue(report: dict, match_format: str) -> dict:
     else:
         confidence = "medium" if (bat_rate is None or abs(bat_rate - 0.5) < 0.08) else "high"
 
+    # Recommend a batting-first or chase approach only when the format-specific
+    # sample has at least 15 matches and one innings outcome wins >=58%.
+    # Otherwise the venue record is not strong enough to preselect either.
+    recommended_innings_mode = (
+        "first_innings" if total is not None and total >= 15 and bat_rate is not None and bat_rate >= 0.58
+        else "chasing" if total is not None and total >= 15 and bowl_rate is not None and bowl_rate >= 0.58
+        else "manual"
+    )
+    recommended_innings_label = {
+        "first_innings": "Bat first — venue history favours teams batting first",
+        "chasing": "Chase — venue history favours teams bowling first",
+        "manual": "No strong first-innings / chasing edge from this sample",
+    }[recommended_innings_mode]
+
     return {
         "format": fmt,
         "available": True,
         "pitch_type": pitch_type,
+        "recommended_innings_mode": recommended_innings_mode,
+        "recommended_innings_label": recommended_innings_label,
         "pitch_recommendation": pitch,
         "toss_recommendation": toss,
         "toss_decision": toss_key,
