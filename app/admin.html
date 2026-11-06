@@ -25,6 +25,56 @@
 .venue-report-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.venue-report-card{border:1px solid var(--line);border-radius:11px;padding:12px;background:#fafbfe}.venue-report-card small{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;font-weight:800}.venue-report-card b{font-size:18px;display:block;margin-top:3px}.venue-subgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}.venue-stat-line{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #eef0f5}.venue-stat-line:last-child{border:0}.eligible-note{font-size:11px;color:var(--green);font-weight:800}.not-eligible{opacity:.55}
 .suggestion{border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;grid-template-columns:42px 1fr auto;gap:10px;align-items:center}.suggestion .metrics{font-size:11px;color:var(--muted)}.tag{font-size:10px;padding:3px 7px;border-radius:99px;background:#eaf8f2;color:#176b4d;font-weight:800}
 .results{display:grid;gap:15px}.result-team{border:1px solid var(--line);border-radius:13px;overflow:hidden}.result-title{background:#f4f0fb;padding:13px 16px;font-weight:800;display:flex;justify-content:space-between;gap:10px}.result-list{padding:0 14px}.result-player{display:grid;grid-template-columns:36px minmax(0,1fr) 74px 65px;align-items:center;gap:8px;border-bottom:1px solid #eef0f5;padding:9px 0}.result-player:last-child{border:0}.mini{width:36px;height:36px;border-radius:50%;object-fit:cover;background:#edf0f5}.role{font-size:10px;color:#626b7d;background:#f0f2f6;border-radius:6px;padding:3px 6px;display:inline-block}.cvc{font-size:10px;font-weight:900;color:#fff;background:#cf9b22;border-radius:5px;padding:3px 6px;margin-left:5px}.vc{background:#5872bd}.footer{text-align:center;color:#8992a3;font-size:11px;padding:20px}
+
+.dream-team-result{display:grid;gap:12px}
+.dream-team-preview{width:min(100%,470px);margin:0 auto;aspect-ratio:9/16;min-height:680px;max-height:900px;position:relative;overflow:hidden;border-radius:20px;border:7px solid #111a22;background:radial-gradient(ellipse at 50% 43%,#27a45c 0%,#138649 42%,#08703d 76%,#075b34 100%);color:#fff;box-shadow:0 18px 45px #071c1540;display:flex;flex-direction:column}
+.dream-team-preview:before{content:"";position:absolute;inset:7% 5%;border:1px solid #ffffff3d;border-radius:48% / 21%;pointer-events:none}
+.dream-team-preview:after{content:"";position:absolute;width:46%;height:18%;left:27%;top:39%;border:1px solid #ffffff24;border-radius:50%;pointer-events:none}
+.preview-head{position:relative;z-index:1;padding:16px 16px 12px;background:linear-gradient(180deg,#082d20a8,transparent);text-align:center}
+.preview-brand{font-size:10px;font-weight:900;letter-spacing:2px;color:#d8ffe4}
+.preview-match{font-size:15px;font-weight:900;margin-top:5px}
+.preview-meta{font-size:10px;color:#e0ffe8;margin-top:3px}
+.preview-statbar{display:flex;justify-content:center;gap:7px;flex-wrap:wrap;margin-top:9px}
+.preview-statbar span{font-size:10px;font-weight:800;border:1px solid #ffffff55;background:#063d2c75;border-radius:30px;padding:4px 8px}
+.preview-players{position:relative;z-index:1;display:flex;flex:1;flex-direction:column;justify-content:space-evenly;padding:8px 9px 10px;gap:3px}
+.pitch-role-group{display:flex;flex-direction:column;align-items:center;gap:5px}
+.pitch-role-title{font-size:9px;font-weight:900;letter-spacing:1.5px;color:#e2ffe8;text-shadow:0 1px 3px #003c22;text-transform:uppercase}
+.pitch-player-row{display:flex;justify-content:center;align-items:flex-start;gap:clamp(4px,2vw,17px);width:100%}
+.pitch-player{width:clamp(67px,18%,88px);min-width:58px;text-align:center;position:relative}
+.pitch-player-photo{width:clamp(38px,10vw,54px);height:clamp(38px,10vw,54px);object-fit:cover;border-radius:50%;border:2px solid #ecfff3;background:#d5e4db;box-shadow:0 3px 9px #00351e88}
+.pitch-player-fallback{display:grid;place-items:center;margin:0 auto;width:clamp(38px,10vw,54px);height:clamp(38px,10vw,54px);border-radius:50%;border:2px solid #ecfff3;background:#d5e4db;color:#244c37;font-size:17px;font-weight:900}
+.pitch-cvc{position:absolute;top:-5px;left:calc(50% + 12px);z-index:2;width:19px;height:19px;display:grid;place-items:center;border-radius:50%;background:#ffcf39;color:#332300;font-weight:950;font-size:10px;border:1px solid #fff}
+.pitch-cvc.vc{background:#d6e8ff;color:#153c72}
+.pitch-player-name{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:4px auto 0;padding:2px 4px;border-radius:4px;background:#092f24d9;color:#fff;font-size:10px;font-weight:850}
+.pitch-player-meta{font-size:9px;color:#e5ffec;text-shadow:0 1px 2px #003c22;margin-top:2px;white-space:nowrap}
+.preview-foot{position:relative;z-index:1;background:#052f24c9;padding:10px 12px;text-align:center;font-size:10px;color:#e8fff0;line-height:1.55}
+.preview-foot strong{color:#fff}
+.result-card-head{padding:12px 14px;background:#f4f0fb;border:1px solid var(--line);border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.result-card-head strong{font-size:13px}
+.result-card-actions{display:flex;gap:8px;flex-wrap:wrap}
+.team-details{width:min(100%,740px);margin:0 auto;border:1px solid var(--line);border-radius:10px;background:#fff;padding:10px 13px}
+.team-details summary{cursor:pointer;font-weight:800;color:var(--purple)}
+.team-details .result-list{margin-top:8px}
+.print-note{font-size:11px;color:var(--muted);text-align:center;margin:8px 0}
+@media print{
+ @page{size:A4 portrait;margin:10mm}
+ body{background:#fff!important}
+ body *{visibility:hidden!important}
+ #teamResults,#teamResults *{visibility:visible!important}
+ #teamResults{position:absolute!important;left:0!important;top:0!important;width:100%!important;display:block!important}
+ .dream-team-result{break-after:page;page-break-after:always}
+ .dream-team-preview{width:105mm!important;height:187mm!important;min-height:0!important;max-height:none!important;aspect-ratio:9/16!important;box-shadow:none!important;margin:0 auto!important;border-radius:12px!important;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+ .team-details,.result-card-actions,.print-note{display:none!important}
+}
+@media(max-width:540px){
+ .dream-team-preview{min-height:630px}
+ .preview-head{padding:12px 8px 8px}
+ .preview-match{font-size:13px}
+ .pitch-player-row{gap:3px}
+ .pitch-player{width:22%;min-width:0}
+ .pitch-player-name{font-size:9px}
+}
+
 @media(max-width:760px){.venue-report-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.venue-subgrid{grid-template-columns:1fr}.topbar{align-items:flex-start;flex-direction:column}.auth{width:100%}.auth input{flex:1}.stepper{grid-template-columns:repeat(2,1fr)}.step:last-child{grid-column:span 2}.match-grid{grid-template-columns:repeat(2,1fr)}.fixtures,.team-columns,.suggestions{grid-template-columns:1fr}.choice-grid{grid-template-columns:1fr}.panelbody{padding:15px}.panelhead{padding:15px}.intro{align-items:flex-start;flex-direction:column}.urlbox{flex-direction:column}.urlbox input{min-width:0}.controls{align-items:stretch}.controls .row{justify-content:flex-end}.result-player{grid-template-columns:34px 1fr 55px 55px}}
 </style>
 </head>
@@ -383,12 +433,94 @@ $('saveFixed').onclick=async()=>{
  }catch(e){alert(e.message)}
 };
 function renderFinalSummary(){const s=[['MATCH',state.match.name],['PITCH',state.venueAnalysis?.pitch_recommendation||'Not analysed'],['TOSS EDGE',state.venueAnalysis?.toss_recommendation||'Not analysed'],['STRONG TEAM',state.teamStrengthAnalysis?.strong_team||'Insufficient evidence'],['FIXED PLAYERS',state.fixed.size],['PLAYING XI',state.lineupConfirmed?'Confirmed':'Provisional']];$('finalSummary').innerHTML=s.map(x=>'<div class="stat"><small>'+esc(x[0])+'</small><b style="font-size:14px">'+esc(x[1])+'</b></div>').join('');}
-$('generateTeams').onclick=async()=>{const out=$('teamResults'),err=$('generationError');err.style.display='none';out.innerHTML='';$('generateTeams').disabled=true;$('generateTeams').textContent='Generating…';try{
- const strategy=$('strategy').value;const strategies=strategy==='all'?['safe','balanced','grand_league']:[strategy];const split=$('teamSplit').value;let team_a_count=null;if(split!=='auto'){const [a,b]=split.split('-').map(Number);team_a_count=a;}else if(state.strongTeam===state.match.team_a)team_a_count=6;else if(state.strongTeam===state.match.team_b)team_a_count=5;
- const req={strategies,teams_per_strategy:Number($('teamCount').value),rules:{team_size:11,max_from_one_team:7,max_credits:100,min_role:{WK:1,BAT:3,AR:1,BOWL:3},max_role:{WK:4,BAT:6,AR:4,BOWL:6},playing_xi_only:state.lineupConfirmed,team_a_count},scenario:state.pitch==='batting'?'batting_friendly':state.pitch==='bowling'?'bowling_friendly':'neutral',locked_player_ids:[...state.fixed],excluded_player_ids:[],captain_pool:[],vice_captain_pool:[],team_mode:'automatic',generation_mode:'both'};
- const d=await api('/api/v1/matches/'+encodeURIComponent(state.matchId)+'/teams',{method:'POST',body:JSON.stringify(req)});$('generationModeNotice').textContent='History status: '+d.history_status+'. Available modes: '+(d.available_modes||[]).join(', ')+'. '+(d.warnings||[]).join(' ');renderTeams(d);
- }catch(e){err.textContent=e.message;err.style.display='block';}finally{$('generateTeams').disabled=false;$('generateTeams').textContent='Generate Teams';}};
-function renderTeams(data){const root=$('teamResults');root.innerHTML='';const teams=data.teams||{};for(const [mode,strategies] of Object.entries(teams)){for(const [strategy,list] of Object.entries(strategies)){(list||[]).forEach((t,index)=>{const box=document.createElement('div');box.className='result-team';const title=document.createElement('div');title.className='result-title';title.textContent=strategy.toUpperCase().replace('_',' ')+' • '+mode.toUpperCase()+' • Team '+(index+1)+' • '+t.total_credits+' credits';const listEl=document.createElement('div');listEl.className='result-list';(t.players||[]).forEach(p=>{const row=document.createElement('div');row.className='result-player';const img=document.createElement('img');img.className='mini';img.src=p.team_generation_image||'';const name=document.createElement('div');const b=document.createElement('b');b.textContent=p.player_name;const role=document.createElement('span');role.className='role';role.textContent=p.role+' • '+p.team;const pid=p.player_id===t.captain_id?'<span class="cvc">C</span>':p.player_id===t.vice_captain_id?'<span class="cvc vc">VC</span>':'';name.innerHTML='';name.append(b,role);if(pid)name.insertAdjacentHTML('beforeend',pid);const cr=document.createElement('div');cr.textContent=p.credits+' cr';cr.style.textAlign='right';const pct=document.createElement('div');pct.textContent=p.selection_pct==null?'—':p.selection_pct.toFixed(1)+'%';pct.style.textAlign='right';row.append(img,name,cr,pct);listEl.append(row);});const footer=document.createElement('div');footer.style='padding:12px 14px;background:#fafbfe;font-size:12px;color:#596276';footer.textContent='Captain: '+((t.players||[]).find(p=>p.player_id===t.captain_id)?.player_name||'—')+' • Vice-captain: '+((t.players||[]).find(p=>p.player_id===t.vice_captain_id)?.player_name||'—')+' • '+(t.points_available?'Projected points available':'Provisional selection score only; not fantasy points');box.append(title,listEl,footer);root.append(box);});}}if(!root.children.length)root.textContent='No teams returned.';}
+function addPitchPlayer(row,p,t){
+ const card=document.createElement('div');card.className='pitch-player';
+ const isCaptain=p.player_id===t.captain_id,isVice=p.player_id===t.vice_captain_id;
+ if(isCaptain||isVice){const mark=document.createElement('span');mark.className='pitch-cvc'+(isVice?' vc':'');mark.textContent=isCaptain?'C':'VC';card.append(mark);}
+ const src=p.team_generation_image||p.image||'';
+ if(src){const img=document.createElement('img');img.className='pitch-player-photo';img.src=src;img.alt=p.player_name||'Player';img.loading='lazy';img.onerror=()=>{const fallback=document.createElement('div');fallback.className='pitch-player-fallback';fallback.textContent=(p.player_name||'?').trim().charAt(0).toUpperCase();img.replaceWith(fallback);};card.append(img);}
+ else{const fallback=document.createElement('div');fallback.className='pitch-player-fallback';fallback.textContent=(p.player_name||'?').trim().charAt(0).toUpperCase();card.append(fallback);}
+ const name=document.createElement('span');name.className='pitch-player-name';name.textContent=p.player_name||'Unknown player';name.title=p.player_name||'';card.append(name);
+ const meta=document.createElement('div');meta.className='pitch-player-meta';
+ const points=t.points_available&&p.expected_points!=null?Number(p.expected_points).toFixed(1)+' pts':(p.credits==null?'—':p.credits+' cr');
+ meta.textContent=(p.role||'')+' • '+points;card.append(meta);row.append(card);
+}
+function renderDreamTeamPreview(t,strategy,mode,index){
+ const wrap=document.createElement('article');wrap.className='dream-team-result';
+ const top=document.createElement('div');top.className='result-card-head';
+ const title=document.createElement('strong');title.textContent=strategy.toUpperCase().replaceAll('_',' ')+' • '+mode.toUpperCase()+' • TEAM '+(index+1);
+ const actions=document.createElement('div');actions.className='result-card-actions';
+ const copy=document.createElement('button');copy.className='btn outline';copy.textContent='Copy team';copy.onclick=()=>{const lines=(t.players||[]).map(p=>p.player_name+' ('+p.role+', '+p.team+', '+p.credits+' cr)'+(p.player_id===t.captain_id?' — C':p.player_id===t.vice_captain_id?' — VC':''));const textOut=lines.join('\n')+'\nTotal credits: '+t.total_credits;if(navigator.clipboard?.writeText)navigator.clipboard.writeText(textOut).then(()=>{copy.textContent='Copied';setTimeout(()=>copy.textContent='Copy team',1400)}).catch(()=>alert(textOut));else alert(textOut);};
+ actions.append(copy);top.append(title,actions);wrap.append(top);
+ const field=document.createElement('div');field.className='dream-team-preview';
+ const head=document.createElement('div');head.className='preview-head';
+ const brand=document.createElement('div');brand.className='preview-brand';brand.textContent='PREET FANTASY AI';
+ const match=document.createElement('div');match.className='preview-match';match.textContent=state.match.team_a+'  VS  '+state.match.team_b;
+ const meta=document.createElement('div');meta.className='preview-meta';meta.textContent=(state.match.format||'CRICKET')+' • '+(state.match.venue||'Venue not available');
+ const stats=document.createElement('div');stats.className='preview-statbar';
+ const split=t.team_split||{};const splitText=state.match.team_a+' '+(split[state.match.team_a]??'—')+' : '+(split[state.match.team_b]??'—')+' '+state.match.team_b;
+ [[(t.players||[]).length+' PLAYERS'],[t.total_credits+' / 100 CR'],[splitText]].forEach(x=>{const chip=document.createElement('span');chip.textContent=x[0];stats.append(chip);});
+ head.append(brand,match,meta,stats);field.append(head);
+ const players=document.createElement('div');players.className='preview-players';
+ const roleLabels={WK:'WICKET-KEEPERS',BAT:'BATTERS',AR:'ALL-ROUNDERS',BOWL:'BOWLERS'};
+ ['WK','BAT','AR','BOWL'].forEach(role=>{
+  const groupPlayers=(t.players||[]).filter(p=>p.role===role);
+  if(!groupPlayers.length)return;
+  const group=document.createElement('div');group.className='pitch-role-group';
+  const label=document.createElement('div');label.className='pitch-role-title';label.textContent=roleLabels[role];group.append(label);
+  const row=document.createElement('div');row.className='pitch-player-row';groupPlayers.forEach(p=>addPitchPlayer(row,p,t));group.append(row);players.append(group);
+ });
+ field.append(players);
+ const foot=document.createElement('div');foot.className='preview-foot';
+ const captain=(t.players||[]).find(p=>p.player_id===t.captain_id);
+ const vice=(t.players||[]).find(p=>p.player_id===t.vice_captain_id);
+ const c=document.createElement('div');c.innerHTML='<strong>C:</strong> '+esc(captain?.player_name||'—')+' &nbsp; <strong>VC:</strong> '+esc(vice?.player_name||'—');
+ const score=document.createElement('div');score.textContent=t.points_available&&t.projected_points!=null?'Estimated fantasy points: '+t.projected_points:'Provisional selection build • fantasy points not available';
+ foot.append(c,score);field.append(foot);wrap.append(field);
+ const detail=document.createElement('details');detail.className='team-details';const summary=document.createElement('summary');summary.textContent='View player list and selection percentages';detail.append(summary);
+ const list=document.createElement('div');list.className='result-list';
+ (t.players||[]).forEach(p=>{
+  const row=document.createElement('div');row.className='result-player';
+  const img=document.createElement('img');img.className='mini';img.src=p.team_generation_image||p.image||'';img.alt=p.player_name||'';
+  const name=document.createElement('div');const b=document.createElement('b');b.textContent=p.player_name;const role=document.createElement('span');role.className='role';role.textContent=p.role+' • '+p.team;name.append(b,role);
+  if(p.player_id===t.captain_id||p.player_id===t.vice_captain_id){const tag=document.createElement('span');tag.className='cvc'+(p.player_id===t.vice_captain_id?' vc':'');tag.textContent=p.player_id===t.captain_id?'C':'VC';name.append(tag);}
+  const cr=document.createElement('div');cr.textContent=p.credits+' cr';cr.style.textAlign='right';
+  const pct=document.createElement('div');pct.textContent=p.selection_pct==null?'—':Number(p.selection_pct).toFixed(1)+'%';pct.style.textAlign='right';
+  row.append(img,name,cr,pct);list.append(row);
+ });detail.append(list);wrap.append(detail);return wrap;
+}
+$('generateTeams').onclick=async()=>{
+ const out=$('teamResults'),err=$('generationError');err.style.display='none';out.innerHTML='';$('printTeams').disabled=true;
+ $('generateTeams').disabled=true;$('generateTeams').textContent='Generating teams…';
+ try{
+  const strategy=$('strategy').value;
+  const strategies=strategy==='all'?['safe','balanced','grand_league']:[strategy];
+  const split=$('teamSplit').value;let team_a_count=null;
+  if(split!=='auto')team_a_count=Number(split.split('-')[0]);
+  else if(state.strongTeam===state.match.team_a)team_a_count=6;
+  else if(state.strongTeam===state.match.team_b)team_a_count=5;
+  const req={
+   strategies,teams_per_strategy:Number($('teamCount').value),
+   rules:{team_size:11,max_from_one_team:7,max_credits:100,min_role:{WK:1,BAT:3,AR:1,BOWL:3},max_role:{WK:4,BAT:6,AR:4,BOWL:6},playing_xi_only:state.lineupConfirmed,team_a_count},
+   scenario:state.pitch==='batting'?'batting_friendly':state.pitch==='bowling'?'bowling_friendly':'neutral',
+   locked_player_ids:[...state.fixed],excluded_player_ids:[],captain_pool:[],vice_captain_pool:[],
+   team_mode:'automatic',generation_mode:'both'
+  };
+  const d=await api('/api/v1/matches/'+encodeURIComponent(state.matchId)+'/teams',{method:'POST',body:JSON.stringify(req)});
+  $('generationModeNotice').textContent='History status: '+d.history_status+'. Available modes: '+(d.available_modes||[]).join(', ')+'. '+(d.warnings||[]).join(' ');
+  const teams=d.teams||{};let rendered=0;
+  for(const [mode,strategiesOut] of Object.entries(teams)){
+   for(const [strategyOut,list] of Object.entries(strategiesOut||{})){
+    (list||[]).forEach((team,index)=>{out.append(renderDreamTeamPreview(team,strategyOut,mode,index));rendered++;});
+   }
+  }
+  if(!rendered){out.textContent='The server returned no legal teams. Check the error or change the team split / fixed players.';throw new Error('No team combination was returned.');}
+  $('printTeams').disabled=false;
+  const note=document.createElement('div');note.className='print-note';note.textContent=rendered+' team preview(s) generated. Use Print / Save PDF to export the Dream11-style line-up cards.';out.append(note);
+ }catch(e){err.textContent=e.message;err.style.display='block';}
+ finally{$('generateTeams').disabled=false;$('generateTeams').textContent='Generate fantasy teams';}
+};
+$('printTeams').onclick=()=>window.print();
 $('restart').onclick=()=>{location.reload()};
 $('ai11Import').onclick=async()=>{const out=$('ai11Out');out.style.display='block';try{const url=$('ai11Url').value.trim();if(!url)throw new Error('Paste an AI11 URL first.');$('ai11Import').disabled=true;const d=await api('/api/v1/admin/import/ai11',{method:'POST',body:JSON.stringify({analysis_url:url})});out.textContent=JSON.stringify(d,null,2);state.matchId=d.match_id;await loadWizard();setStep(1);}catch(e){out.textContent=e.message;}finally{$('ai11Import').disabled=false;}};
 </script>
