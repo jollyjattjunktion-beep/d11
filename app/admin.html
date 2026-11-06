@@ -99,8 +99,11 @@
         <div class="panel" style="box-shadow:none;margin-bottom:16px">
           <div class="panelhead"><div><h2>Grow the world stadium catalogue</h2><div class="helper">Import all listed grounds from a Cricbuzz series Venues page. Each saved ground goes into SQL for reuse in future matches.</div></div><span class="pill">BULK IMPORT</span></div>
           <div class="panelbody">
-            <div class="urlbox"><input class="field" id="seriesVenuesUrl" placeholder="https://www.cricbuzz.com/cricket-series/12543/india-tour-of-new-zealand-2026/venues"><button class="btn secondary" id="importSeriesVenues">Import series stadiums</button></div>
-            <div id="catalogueImportNotice" class="helper">Every imported competition adds more stadiums to your searchable catalogue. This is a growing catalogue, not a claimed complete world list.</div>
+            <div class="urlbox"><input class="field" id="seriesIndexUrl" value="https://www.cricbuzz.com/cricket-schedule/series/all" placeholder="Cricbuzz schedule or archive URL"><button class="btn" id="discoverSeriesVenues">Discover series & grounds</button></div>
+            <div class="helper">Discovers stadiums from the Cricbuzz schedule or a year archive, then saves them to SQL. It processes a limited batch of series per request.</div>
+            <div class="urlbox" style="margin-top:10px"><input class="field" id="seriesVenuesUrl" placeholder="Or paste one series Venues URL: https://www.cricbuzz.com/cricket-series/.../venues"><button class="btn secondary" id="importSeriesVenues">Import one series</button></div>
+            <div class="row" style="margin-top:10px"><button class="btn outline" id="enrichVenueStats">Enrich next 10 stadiums with ODI / T20 / Test stats</button></div>
+            <div id="catalogueImportNotice" class="helper">The catalogue grows as schedule/archive series are discovered. Re-run with different archive-year URLs to add more historical grounds. This is not a guaranteed complete world-stadium census.</div>
             <div class="urlbox" style="margin-top:12px"><input class="field" id="venueCatalogSearch" placeholder="Search saved grounds by stadium, city or alias"><button class="btn outline" id="searchVenueCatalog">Search database</button></div>
             <div id="venueCatalogResults"></div>
           </div>
@@ -231,15 +234,34 @@ async function importCricbuzzVenue(urlValue){
 $('importCricbuzzVenueStep3').onclick=()=>importCricbuzzVenue($('venueUrlStep3').value);
 $('importCricbuzzVenue').onclick=()=>importCricbuzzVenue($('venueUrl').value);
 $('continueVenue').onclick=()=>setStep(4);
+async function discoverSeriesVenues(){
+ const url=$('seriesIndexUrl').value.trim();if(!url){$('catalogueImportNotice').textContent='Paste the Cricbuzz all-series schedule or an archive page URL.';return;}
+ const btn=$('discoverSeriesVenues');btn.disabled=true;btn.textContent='Discovering…';
+ try{
+  const d=await api('/api/v1/admin/venues/discover-series',{method:'POST',body:JSON.stringify({url,max_series:8})});
+  $('catalogueImportNotice').textContent='Discovered '+d.series_seen+' series and saved '+d.venues_saved_or_updated+' stadium entries. Some records may need stats enrichment. '+(d.failed_series||[]).length+' series page(s) could not be read.';
+  await searchVenueCatalogue();
+ }catch(e){$('catalogueImportNotice').textContent=e.message;}
+ finally{btn.disabled=false;btn.textContent='Discover series & grounds';}
+}
 async function importSeriesVenues(){
  const url=$('seriesVenuesUrl').value.trim();if(!url){$('catalogueImportNotice').textContent='Paste a Cricbuzz series Venues page URL.';return;}
- $('importSeriesVenues').disabled=true;$('importSeriesVenues').textContent='Importing…';
+ const btn=$('importSeriesVenues');btn.disabled=true;btn.textContent='Importing…';
  try{
   const d=await api('/api/v1/admin/venues/import-series',{method:'POST',body:JSON.stringify({url})});
-  $('catalogueImportNotice').textContent=d.venues_imported+' stadiums saved to SQL from '+d.series_venues_found+' listed venues. '+d.venues_skipped+' skipped.';
-  await searchVenueCatalogue();await loadVenueSuggestions();
+  $('catalogueImportNotice').textContent=d.venues_saved_or_updated+' stadiums saved to SQL from '+d.series_venues_found+' listed venues. '+d.venues_skipped+' skipped.';
+  await searchVenueCatalogue();
  }catch(e){$('catalogueImportNotice').textContent=e.message;}
- finally{$('importSeriesVenues').disabled=false;$('importSeriesVenues').textContent='Import series stadiums';}
+ finally{btn.disabled=false;btn.textContent='Import one series';}
+}
+async function enrichVenueStats(){
+ const btn=$('enrichVenueStats');btn.disabled=true;btn.textContent='Enriching…';
+ try{
+  const d=await api('/api/v1/admin/venues/enrich',{method:'POST',body:JSON.stringify({limit:10})});
+  $('catalogueImportNotice').textContent='Enriched '+d.enriched+' stadiums; '+d.failed_this_batch+' failed this batch; '+d.remaining_pending+' still pending.';
+  await searchVenueCatalogue();
+ }catch(e){$('catalogueImportNotice').textContent=e.message;}
+ finally{btn.disabled=false;btn.textContent='Enrich next 10 stadiums with ODI / T20 / Test stats';}
 }
 async function searchVenueCatalogue(){
  const q=$('venueCatalogSearch').value.trim();
@@ -256,7 +278,7 @@ async function searchVenueCatalogue(){
   });
  }catch(e){$('venueCatalogResults').textContent=e.message;}
 }
-$('importSeriesVenues').onclick=importSeriesVenues;$('searchVenueCatalog').onclick=searchVenueCatalogue;
+$('discoverSeriesVenues').onclick=discoverSeriesVenues;$('importSeriesVenues').onclick=importSeriesVenues;$('enrichVenueStats').onclick=enrichVenueStats;$('searchVenueCatalog').onclick=searchVenueCatalogue;
 async function saveContext(extra={}){
  const old=state.intelligence||{};const body={...old,fixed_player_ids:[...state.fixed],lineup_confirmed:state.lineupConfirmed,...extra};
  const d=await api('/api/v1/matches/'+encodeURIComponent(state.matchId)+'/intelligence',{method:'PUT',body:JSON.stringify(body)});
