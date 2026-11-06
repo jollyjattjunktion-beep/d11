@@ -192,6 +192,21 @@
   <details style="margin-top:16px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px"><summary style="cursor:pointer;font-weight:800">Other provider — AI11 import</summary><p class="helper">AI11 remains separate from Team Generation. Paste the AI11 analysis or fantasy URL to import its player profiles.</p><div class="urlbox"><input class="field" id="ai11Url" type="url" placeholder="https://www.ai11.in/..."><button class="btn secondary" id="ai11Import">Import AI11</button></div><pre id="ai11Out" style="white-space:pre-wrap;background:#17212b;color:#e8fff4;padding:12px;border-radius:8px;display:none"></pre></details>
 <div class="footer">PREET FANTASY AI • Source-backed cricket data • No guaranteed fantasy points or outcomes</div>
 </main>
+<div class="suggest-modal" id="suggestModal">
+  <div class="suggest-card" role="dialog" aria-modal="true" aria-labelledby="suggestModalTitle">
+    <div class="suggest-card-head">
+      <span id="suggestModalTitle">Suggested fixed players — 80%+ selection</span>
+      <button type="button" class="btn secondary" id="closeSuggest">Close</button>
+    </div>
+    <div class="suggest-card-body" id="suggestModalRows">
+      <div class="import-empty">Select suggested players to lock them into each generated team.</div>
+    </div>
+    <div class="suggest-card-foot">
+      <button type="button" class="btn secondary" id="cancelSuggest">Cancel</button>
+      <button type="button" class="btn green" id="applySuggest">Apply selected players</button>
+    </div>
+  </div>
+</div>
 <script>
 const state={matchId:null,match:null,players:[],intelligence:{},step:1,lineupSelected:new Set(),lineupConfirmed:false,fixed:new Set(),pitch:'balanced',strongTeam:'equal',tossCompleted:false,tossWinner:'',tossDecision:'',venueSuggestions:[],venueReport:null,venueAnalysis:null,teamStrengthAnalysis:null,teamVenueAnalysis:[],roleFilter:'ALL',importRoleFilter:'ALL',suggestedFixed:new Set()};
 let seriesDiscoveryOffset=0;
