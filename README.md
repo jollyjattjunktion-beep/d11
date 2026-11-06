@@ -209,3 +209,8 @@ Only the second category trains historical fantasy-point prediction. The first a
 The AI11 importer caches successful page responses in the running application process for 10 minutes. A repeated import of the same URL during that window reuses the cached HTML rather than requesting AI11 again. Cache entries expire automatically; a Render restart clears this in-memory cache.
 
 When AI11 responds with HTTP 429, the importer makes up to three bounded attempts, respects the provider's `Retry-After` header when present (with a 15-second per-wait cap), and then returns HTTP 429 with a `Retry-After` response header and a clear retry message. Other upstream fetch failures are returned as HTTP 502; invalid URLs remain HTTP 422. Avoid repeated manual retries while the provider is rate-limiting requests.
+
+
+### Simple one-URL admin page
+
+Open `/admin` on your deployed service. Enter the AI11 analysis URL and press **Fetch match data**. The page asks for the admin token once per page session; it is held only in page memory and is not saved to the repository or browser storage. The API derives the matching fantasy-page URL from the analysis URL slug and attempts both imports. The JSON API endpoint also accepts only `analysis_url`; `fantasy_url` is optional.
