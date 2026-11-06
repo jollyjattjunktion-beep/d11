@@ -198,20 +198,71 @@ $('saveProvisionalXI').onclick=()=>saveLineup(false,true);$('confirmXI').onclick
 $('refreshSource').onclick=async()=>{try{const r=await api('/api/v1/admin/import/teamgeneration/'+encodeURIComponent(state.matchId),{method:'POST',body:'{}'});await loadWizard();notice('lineupNotice','Source refreshed. '+r.players_imported+' player records checked. Re-select the Playing XI if the toss or team announcement changed.','good');}catch(e){notice('lineupNotice',e.message,'error');}};
 document.querySelectorAll('[data-back]').forEach(b=>b.onclick=()=>setStep(Math.max(1,state.step-1)));
 document.querySelectorAll('.step').forEach(b=>b.onclick=()=>{const n=Number(b.dataset.step);if(n<=state.step||n===1)setStep(n);});
-function renderConditions(){
- document.querySelectorAll('[data-pitch]').forEach(b=>b.classList.toggle('selected',b.dataset.pitch===state.pitch));
- document.querySelectorAll('[data-toss]').forEach(b=>b.classList.toggle('selected',String(state.tossCompleted)===b.dataset.toss));
- document.querySelectorAll('[data-decision]').forEach(b=>b.classList.toggle('selected',b.dataset.decision===state.tossDecision));
- const teams=[state.match.team_a,state.match.team_b,'equal'];$('strongChoices').innerHTML='';teams.forEach(t=>{const b=document.createElement('button');b.className='option'+(t===state.strongTeam?' selected':'');b.textContent=t==='equal'?'Equal':t;b.onclick=()=>{state.strongTeam=t;renderConditions()};$('strongChoices').append(b);});
- $('tossExtra').style.display=state.tossCompleted?'block':'none';$('tossWinner').innerHTML='<option value="">Select toss winner</option>'+[state.match.team_a,state.match.team_b].map(t=>'<option>'+esc(t)+'</option>').join('');$('tossWinner').value=state.tossWinner;
+function renderAutoVenueAnalysis(){
+ const root=$('autoVenueAnalysis');root.innerHTML='';
+ const a=state.venueAnalysis||{},strength=state.teamStrengthAnalysis||{};
+ if(!state.venueReport&&!a.available){root.style.display='none';notice('venueAnalysisNotice','No Cricbuzz venue report found for this ground yet. Paste the Cricbuzz venue URL above.','warn');return;}
+ root.style.display='block';
+ notice('venueAnalysisNotice',(state.venueReport?.name||state.match.venue)+' • '+(a.format||state.match.format)+' analysis loaded from Cricbuzz.','good');
+ const tiles=[['Pitch assessment',a.pitch_recommendation||'No format stats'],['Toss recommendation',a.toss_recommendation||'No recommendation'],['Bat first wins',a.batting_first_win_pct==null?'—':a.batting_first_win_pct+'%'],['Bowl first wins',a.bowling_first_win_pct==null?'—':a.bowling_first_win_pct+'%'],['Avg 1st innings',a.first_innings_average??'—'],['Avg 2nd innings',a.second_innings_average??'—'],['Ground matches',a.total_matches??'—'],['Confidence',a.confidence||'Low']];
+ const grid=document.createElement('div');grid.className='venue-report-grid';
+ tiles.forEach(([label,value])=>{const card=document.createElement('div');card.className='venue-report-card';const small=document.createElement('small');small.textContent=label;const b=document.createElement('b');b.textContent=String(value);card.append(small,b);grid.append(card);});root.append(grid);
+ const pitchText=state.venueReport?.pitch_text||state.venueReport?.profile_text;
+ if(pitchText){const note=document.createElement('div');note.className='notice';note.style.marginTop='12px';note.textContent='Cricbuzz ground profile: '+pitchText.slice(0,700);root.append(note);}
+ const reasons=document.createElement('div');reasons.className='notice';reasons.style.marginTop='12px';reasons.textContent=(a.reasons||[]).join(' ')||'Venue statistics are stored, but no detailed format analysis is available.';root.append(reasons);
+ const box=document.createElement('div');box.className='team-box';box.style.marginTop='14px';const title=document.createElement('div');title.className='team-title';title.textContent='Which team has the stronger player pool?';const body=document.createElement('div');body.className='player-list';
+ const strong=strength.strong_team;const headline=document.createElement('div');headline.style.fontWeight='850';headline.style.fontSize='18px';headline.style.padding='8px 0';headline.textContent=strong?('Recommendation: '+strong):'Recommendation: No defensible strong-team pick';body.append(headline);
+ const stats=[[state.match.team_a+' average projected points',strength.team_a?.average_expected_fantasy_points??'—'],[state.match.team_b+' average projected points',strength.team_b?.average_expected_fantasy_points??'—'],['Player data coverage',(strength.team_a?.players_with_estimates||0)+' vs '+(strength.team_b?.players_with_estimates||0)],['Estimated squad edge',strength.edge_pct==null?'—':Math.abs(strength.edge_pct)+'%'],['Confidence',strength.confidence||'low']];
+ stats.forEach(([label,value])=>{const row=document.createElement('div');row.className='venue-stat-line';const l=document.createElement('span');l.textContent=label;const v=document.createElement('b');v.textContent=String(value);row.append(l,v);body.append(row);});
+ const rationale=document.createElement('div');rationale.className='helper';rationale.style.marginTop='10px';rationale.textContent=strength.note||'Import format-matched historical player scorecards to compare the two squads.';body.append(rationale);box.append(title,body);root.append(box);
+ const foot=document.createElement('div');foot.className='helper';foot.style.marginTop='10px';foot.textContent='Team-strength analysis compares player fantasy estimates. It is not a match-winner probability. Current toss outcome and match-day weather are not inferred from historical venue stats.';root.append(foot);
 }
-document.querySelectorAll('[data-pitch]').forEach(b=>b.onclick=()=>{state.pitch=b.dataset.pitch;renderConditions()});
-document.querySelectorAll('[data-toss]').forEach(b=>b.onclick=()=>{state.tossCompleted=b.dataset.toss==='true';if(!state.tossCompleted){state.tossWinner='';state.tossDecision='';}renderConditions()});
-document.querySelectorAll('[data-decision]').forEach(b=>b.onclick=()=>{state.tossDecision=b.dataset.decision;renderConditions()});
-$('tossWinner').onchange=e=>state.tossWinner=e.target.value;
-async function saveContext(extra={}){const old=state.intelligence||{};const batting=state.pitch==='batting'?0.85:state.pitch==='bowling'?0.25:0.5;const body={...old,venue:$('venueInput').value.trim()||null,pitch_type:state.pitch,batting_friendly:batting,strong_team:state.strongTeam,toss_completed:state.tossCompleted,toss_winner:state.tossWinner||null,toss_decision:state.tossDecision||null,fixed_player_ids:[...state.fixed],lineup_confirmed:state.lineupConfirmed,...extra};const d=await api('/api/v1/matches/'+encodeURIComponent(state.matchId)+'/intelligence',{method:'PUT',body:JSON.stringify(body)});state.intelligence={...old,...body};return d;}
-$('saveVenue').onclick=async()=>{try{await saveContext({venue:$('venueInput').value.trim()||null});await loadWizard();notice('importNotice','Venue saved. Stadium history suggestions have been refreshed.','good');}catch(e){alert(e.message)}};
-$('saveConditions').onclick=async()=>{try{if(state.tossCompleted&&(!state.tossWinner||!state.tossDecision)){notice('conditionsNotice','Select the toss winner and decision, or mark Toss Completed as No.','warn');return;}await saveContext();notice('conditionsNotice','Match conditions saved.','good');setStep(4);}catch(e){alert(e.message)}};
+async function importCricbuzzVenue(urlValue){
+ const url=(urlValue||'').trim();if(!url){notice('venueAnalysisNotice','Paste a Cricbuzz venue page URL first.','warn');return;}
+ const btns=[$('importCricbuzzVenueStep3'),$('importCricbuzzVenue')].filter(Boolean);btns.forEach(b=>{b.disabled=true;b.textContent='Fetching…';});
+ try{
+  const d=await api('/api/v1/admin/matches/'+encodeURIComponent(state.matchId)+'/venue/import',{method:'POST',body:JSON.stringify({url})});
+  state.venueReport=d.report||null;state.venueAnalysis=d.venue_analysis||null;state.teamStrengthAnalysis=d.team_strength_analysis||null;
+  $('venueUrl').value=url;$('venueUrlStep3').value=url;
+  await loadWizard();
+  notice('venueAnalysisNotice','Cricbuzz stadium data refreshed. Pitch/toss recommendation and squad comparison recalculated for '+state.match.format+'.','good');
+ }catch(e){notice('venueAnalysisNotice',e.message,'error');notice('venueNotice',e.message,'error');}
+ finally{btns.forEach(b=>{b.disabled=false;b.textContent='Fetch / update stadium data';});}
+}
+$('importCricbuzzVenueStep3').onclick=()=>importCricbuzzVenue($('venueUrlStep3').value);
+$('importCricbuzzVenue').onclick=()=>importCricbuzzVenue($('venueUrl').value);
+$('continueVenue').onclick=()=>setStep(4);
+async function importSeriesVenues(){
+ const url=$('seriesVenuesUrl').value.trim();if(!url){$('catalogueImportNotice').textContent='Paste a Cricbuzz series Venues page URL.';return;}
+ $('importSeriesVenues').disabled=true;$('importSeriesVenues').textContent='Importing…';
+ try{
+  const d=await api('/api/v1/admin/venues/import-series',{method:'POST',body:JSON.stringify({url})});
+  $('catalogueImportNotice').textContent=d.venues_imported+' stadiums saved to SQL from '+d.series_venues_found+' listed venues. '+d.venues_skipped+' skipped.';
+  await searchVenueCatalogue();await loadVenueSuggestions();
+ }catch(e){$('catalogueImportNotice').textContent=e.message;}
+ finally{$('importSeriesVenues').disabled=false;$('importSeriesVenues').textContent='Import series stadiums';}
+}
+async function searchVenueCatalogue(){
+ const q=$('venueCatalogSearch').value.trim();
+ try{
+  const d=await api('/api/v1/admin/venues?q='+encodeURIComponent(q)+'&limit=100');
+  const root=$('venueCatalogResults');root.innerHTML='';
+  const label=document.createElement('div');label.className='helper';label.textContent=d.total_matches+' saved stadiums found';root.append(label);
+  (d.venues||[]).forEach(v=>{
+   const row=document.createElement('div');row.className='fixture';
+   const left=document.createElement('div');const name=document.createElement('strong');name.textContent=v.name;const meta=document.createElement('small');meta.textContent=(v.city_country||'')+' • '+(v.formats_available||[]).join(', ');left.append(name,meta);
+   const btn=document.createElement('button');btn.className='btn outline';btn.textContent='Use ground';
+   btn.onclick=()=>{const src=(v.source_urls||[])[0];if(src){$('venueUrl').value=src;importCricbuzzVenue(src);}else{$('venueAnalysisNotice').textContent='No source URL is saved for this stadium. Paste its Cricbuzz venue page URL.';}};
+   row.append(left,btn);root.append(row);
+  });
+ }catch(e){$('venueCatalogResults').textContent=e.message;}
+}
+$('importSeriesVenues').onclick=importSeriesVenues;$('searchVenueCatalog').onclick=searchVenueCatalogue;
+async function saveContext(extra={}){
+ const old=state.intelligence||{};const body={...old,fixed_player_ids:[...state.fixed],lineup_confirmed:state.lineupConfirmed,...extra};
+ const d=await api('/api/v1/matches/'+encodeURIComponent(state.matchId)+'/intelligence',{method:'PUT',body:JSON.stringify(body)});
+ state.intelligence={...old,...body};return d;
+}
 function renderFixed(){renderRoleFilters('fixedFilters','fixed');const root=$('fixedTeams');root.innerHTML='';for(const g of grouped()){const box=document.createElement('div');box.className='team-box';const title=document.createElement('div');title.className='team-title';title.textContent=g.team;const list=document.createElement('div');list.className='player-list';g.players.filter(p=>!state.lineupConfirmed||p.status==='playing').filter(p=>state.roleFilter==='ALL'||p.role===state.roleFilter).forEach(p=>list.append(playerRow(p,'fixed')));box.append(title,list);root.append(box);} $('fixedCount').textContent=state.fixed.size+' / 5 fixed';}
 function reportValue(value,suffix=''){return value===null||value===undefined||value===''?'—':String(value)+suffix;}
 function renderVenueReport(){
