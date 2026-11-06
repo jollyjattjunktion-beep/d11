@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{PAGE_TITLE}}</title>
+<meta name="description" content="{{META_DESCRIPTION}}">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<link rel="canonical" href="{{CANONICAL_URL}}">
+<meta name="theme-color" content="#31205d">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Preet Fantasy AI">
+<meta property="og:title" content="{{PAGE_TITLE}}">
+<meta property="og:description" content="{{META_DESCRIPTION}}">
+<meta property="og:url" content="{{CANONICAL_URL}}">
+<meta name="twitter:card" content="summary">
+<script type="application/ld+json">{{JSON_LD}}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+:root{--purple:#5c3c91;--ink:#20263a;--muted:#727d91;--line:#e7e9f0;--bg:#f4f5f9;--green:#0c9a69;--red:#d94357}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:Inter,system-ui,Arial;color:var(--ink);line-height:1.5}
+a{color:inherit}.top{background:linear-gradient(115deg,#251a45,#553785 65%,#31235b);color:#fff}
+.topin{max-width:1050px;margin:auto;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;gap:14px}
+.brand{text-decoration:none;font-weight:900;letter-spacing:.4px}.brand em{font-style:normal;color:#d8c3ff}
+.back{color:#fff;text-decoration:none;font-size:12px;font-weight:800;border:1px solid #ffffff55;border-radius:9px;padding:8px 12px}
+main{max-width:1050px;margin:25px auto;padding:0 18px 45px}
+.hero{background:linear-gradient(125deg,#302255,#51347f);border-radius:17px;color:#fff;padding:22px 23px;box-shadow:0 8px 26px #1b17301c}
+.eyebrow{font-size:10px;text-transform:uppercase;letter-spacing:1.7px;color:#d7c5f8;font-weight:900}
+h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
+.series{font-size:12px;color:#e4dbf1}
+.meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:15px}
+.chip{font-size:10px;font-weight:800;padding:5px 10px;border-radius:30px;background:#ffffff1c;border:1px solid #ffffff35}
+.status{background:#eee8fb;color:#6541a5}.status.live{background:#ffeff1;color:#b82035}
+.teams{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-top:19px}
+.side{display:flex;align-items:center;gap:12px;min-width:0}.side.right{justify-content:flex-end;text-align:right}
+.logo{height:54px;width:54px;border-radius:50%;object-fit:cover;background:#fff;border:2px solid #ffffffaa;flex:none}
+.logo-fallback{height:54px;width:54px;border-radius:50%;display:grid;place-items:center;background:#ffffff27;border:1px solid #ffffff55;font-weight:900;flex:none}
+.teamname{font-size:20px;font-weight:900}.teamfull{font-size:10px;color:#e5dff0}
+.vs{font-size:12px;font-weight:900;color:#ded1f2}
+.section{background:#fff;border:1px solid var(--line);border-radius:14px;margin-top:16px;overflow:hidden}
+.section-head{padding:15px 17px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.section-head h2{font-size:16px;margin:0}.section-head small{font-size:10px;color:var(--muted)}
+.notice{padding:13px 16px;background:#f7f5fb;color:#65518a;font-size:12px;border-bottom:1px solid var(--line)}
+.notice.warn{background:#fff8e9;color:#885d10}.notice.good{background:#eaf8f2;color:#176b4d}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:14px 16px}
+.stat{border:1px solid var(--line);border-radius:10px;padding:11px;background:#fafafe}.stat small{display:block;color:var(--muted);font-size:9px;text-transform:uppercase;font-weight:800}.stat strong{font-size:17px;display:block;margin-top:3px}
+.squad-grid{display:grid;grid-template-columns:1fr 1fr;gap:0}
+.squad{padding:15px 17px}.squad+.squad{border-left:1px solid var(--line)}
+.squad h3{font-size:14px;margin:0 0 9px}
+.player{display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:9px;align-items:center;padding:9px 0;border-bottom:1px solid #eef0f4}
+.player:last-child{border-bottom:0}.photo{width:36px;height:36px;border-radius:50%;object-fit:cover;background:#edf0f6}
+.initial{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:#eee8fb;color:var(--purple);font-weight:900}
+.pname{font-size:12px;font-weight:800}.pmeta{font-size:10px;color:var(--muted);margin-top:2px}.pstatus{font-size:9px;font-weight:800;color:#167b56}
+.credit{text-align:right;font-size:11px;font-weight:900}.credit small{display:block;font-size:9px;color:var(--muted);font-weight:600}
+.empty{padding:28px 16px;text-align:center;color:var(--muted);font-size:12px}
+.info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px 16px}
+.info{background:#fafafe;border:1px solid var(--line);border-radius:10px;padding:12px}.info small{display:block;color:var(--muted);font-size:9px;text-transform:uppercase;font-weight:800}.info strong{font-size:12px}
+.footer{text-align:center;color:var(--muted);font-size:10px;padding:22px 0}
+@media(max-width:650px){main{margin:16px auto;padding:0 12px 35px}.hero{padding:17px}.teams{gap:5px}.logo,.logo-fallback{width:42px;height:42px}.teamname{font-size:16px}.teamfull{font-size:9px}.stats{grid-template-columns:repeat(2,1fr)}.squad-grid{grid-template-columns:1fr}.squad+.squad{border-left:0;border-top:1px solid var(--line)}.info-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="top"><div class="topin"><a class="brand" href="/">PREET <em>FANTASY AI</em></a><a class="back" href="/#matches">← All Matches</a></div></header>
+<main>
+ <section class="hero">
+  <div class="eyebrow">Cricket match centre • {{FORMAT}}</div>
+  <h1>{{MATCH_TITLE}}</h1>
+  <div class="series">{{SERIES}}</div>
+  <div class="meta"><span class="chip status {{STATUS_CLASS}}">{{STATUS_LABEL}}</span><span class="chip">{{KICKOFF}}</span><span class="chip">📍 {{VENUE}}</span><span class="chip">Match ID: {{MATCH_ID}}</span></div>
+  <div class="teams">
+   <div class="side">{{TEAM_A_LOGO}}<div><div class="teamname">{{TEAM_A}}</div><div class="teamfull">{{TEAM_A_FULL}}</div></div></div>
+   <div class="vs">VS</div>
+   <div class="side right"><div><div class="teamname">{{TEAM_B}}</div><div class="teamfull">{{TEAM_B_FULL}}</div></div>{{TEAM_B_LOGO}}</div>
+  </div>
+ </section>
+
+ <section class="section">
+  <div class="section-head"><h2>Match overview</h2><small>{{UPDATED}}</small></div>
+  <div class="stats">
+   <div class="stat"><small>Format</small><strong>{{FORMAT}}</strong></div>
+   <div class="stat"><small>Players imported</small><strong>{{PLAYER_COUNT}}</strong></div>
+   <div class="stat"><small>Playing XI</small><strong>{{XI_STATUS}}</strong></div>
+   <div class="stat"><small>Credits verified</small><strong>{{CREDIT_COUNT}}</strong></div>
+  </div>
+  <div class="notice {{IMPORT_NOTICE_CLASS}}">{{IMPORT_NOTICE}}</div>
+ </section>
+
+ <section class="section">
+  <div class="section-head"><h2>Squads & player information</h2><small>Source: Team Generation</small></div>
+  {{SQUAD_CONTENT}}
+ </section>
+
+ <section class="section">
+  <div class="section-head"><h2>Venue & match information</h2><small>Only available source data is shown</small></div>
+  <div class="info-grid">
+   <div class="info"><small>Venue</small><strong>{{VENUE}}</strong></div>
+   <div class="info"><small>Pitch report</small><strong>{{PITCH}}</strong></div>
+   <div class="info"><small>Toss</small><strong>{{TOSS}}</strong></div>
+  </div>
+  <div class="notice">{{DATA_NOTE}}</div>
+ </section>
+ <div class="footer">Preet Fantasy AI • Independent cricket information and fantasy analysis • Not an official broadcast</div>
+</main>
+</body>
+</html>
