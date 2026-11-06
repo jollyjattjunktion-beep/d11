@@ -156,7 +156,7 @@ async function loadWizard(){
  state.match=d.match;state.players=d.players||[];state.intelligence=d.intelligence||{};state.lineupConfirmed=!!d.lineup_confirmed;
  state.lineupSelected=new Set(d.selected_player_ids||state.players.filter(p=>p.status==='playing').map(p=>p.player_id));
  state.fixed=new Set((state.intelligence.fixed_player_ids||[]).filter(pid=>{const p=(d.players||[]).find(x=>x.player_id===pid);return p&&Number(p.selection_pct)>=80;} ).slice(0,5));
- state.pitch=state.intelligence.pitch_type||'balanced';state.strongTeam=state.intelligence.strong_team||'equal';state.tossCompleted=!!state.intelligence.toss_completed;state.tossWinner=state.intelligence.toss_winner||'';state.tossDecision=state.intelligence.toss_decision||'';
+ state.venueAnalysis=state.intelligence.auto_venue_analysis||null;state.teamStrengthAnalysis=state.intelligence.team_strength_analysis||null;state.pitch=state.venueAnalysis?.pitch_type||state.intelligence.pitch_type||'balanced';state.strongTeam=state.teamStrengthAnalysis?.strong_team||state.intelligence.strong_team||'equal';
  $('workspaceStatus').textContent=state.match.team_a+' vs '+state.match.team_b;
  $('matchSummary').style.display='block';
  $('matchStats').innerHTML=[['PLAYERS',state.players.length],['FORMAT',state.match.format||'—'],['VENUE',state.match.venue||'Not provided'],['LINEUP',state.lineupConfirmed?'Confirmed':'Not confirmed']].map(x=>'<div class="stat"><small>'+esc(x[0])+'</small><b style="font-size:'+(x[0]==='VENUE'?'14':'19')+'px">'+esc(x[1])+'</b></div>').join('');
@@ -266,20 +266,22 @@ async function saveContext(extra={}){
 function renderFixed(){renderRoleFilters('fixedFilters','fixed');const root=$('fixedTeams');root.innerHTML='';for(const g of grouped()){const box=document.createElement('div');box.className='team-box';const title=document.createElement('div');title.className='team-title';title.textContent=g.team;const list=document.createElement('div');list.className='player-list';g.players.filter(p=>!state.lineupConfirmed||p.status==='playing').filter(p=>state.roleFilter==='ALL'||p.role===state.roleFilter).forEach(p=>list.append(playerRow(p,'fixed')));box.append(title,list);root.append(box);} $('fixedCount').textContent=state.fixed.size+' / 5 fixed';}
 function reportValue(value,suffix=''){return value===null||value===undefined||value===''?'—':String(value)+suffix;}
 function renderVenueReport(){
- const root=$('crexReportPanel');root.innerHTML='';const r=state.venueReport;if(!r){root.style.display='none';return;}root.style.display='block';
- const cells=[['Matches',reportValue(r.venue_matches)],['Bat first wins',reportValue(r.win_bat_first_pct,'%')],['Bowl first wins',reportValue(r.win_bowl_first_pct,'%')],['Avg 1st innings',reportValue(r.average_first_innings)],['Avg 2nd innings',reportValue(r.average_second_innings)],['Pace wickets',reportValue(r.pace_wickets)],['Pace share',reportValue(r.pace_wicket_pct,'%')],['Spin wickets',reportValue(r.spin_wickets)],['Spin share',reportValue(r.spin_wicket_pct,'%')]];
+ const root=$('crexReportPanel');root.innerHTML='';const r=state.venueReport;
+ if(!r){root.style.display='none';return;}root.style.display='block';
+ const fmt=(state.match.format||'ODI').toUpperCase();const key=['T20','T20I','WT20','WT20I'].includes(fmt)?'T20':['TEST','WTEST'].includes(fmt)?'TEST':'ODI';
+ const stats=(r.formats||{})[key];
+ if(!stats){root.textContent='No '+key+' statistics were supplied by Cricbuzz for this ground.';return;}
+ const cells=[['Format',key],['Total matches',reportValue(stats.total_matches)],['Bat first wins',reportValue(stats.matches_won_batting_first)],['Bowl first wins',reportValue(stats.matches_won_bowling_first)],['Avg 1st innings',reportValue(stats.average_first_innings_score)],['Avg 2nd innings',reportValue(stats.average_second_innings_score)]];
  const grid=document.createElement('div');grid.className='venue-report-grid';
  cells.forEach(([label,value])=>{const card=document.createElement('div');card.className='venue-report-card';const small=document.createElement('small');small.textContent=label;const strong=document.createElement('b');strong.textContent=value;card.append(small,strong);grid.append(card);});root.append(grid);
- const w=r.weather||{};const sub=document.createElement('div');sub.className='venue-subgrid';
- const weather=document.createElement('div');weather.className='team-box';const wh=document.createElement('div');wh.className='team-title';wh.textContent='Weather report';const wb=document.createElement('div');wb.className='player-list';[['Condition',reportValue(w.condition)],['Temperature',reportValue(w.temperature_c,'°C')],['Humidity',reportValue(w.humidity_pct,'%')],['Rain chance',reportValue(w.rain_probability_pct,'%')]].forEach(([a,b])=>{const line=document.createElement('div');line.className='venue-stat-line';const l=document.createElement('span');l.textContent=a;const v=document.createElement('b');v.textContent=b;line.append(l,v);wb.append(line);});weather.append(wh,wb);
- const records=document.createElement('div');records.className='team-box';const rh=document.createElement('div');rh.className='team-title';rh.textContent='Ground records';const rb=document.createElement('div');rb.className='player-list';[['Highest total',reportValue(r.highest_total)],['Lowest total',reportValue(r.lowest_total)],['Highest chased',reportValue(r.highest_chased)],['Lowest defended',reportValue(r.lowest_defended)]].forEach(([a,b])=>{const line=document.createElement('div');line.className='venue-stat-line';const l=document.createElement('span');l.textContent=a;const v=document.createElement('b');v.textContent=b;line.append(l,v);rb.append(line);});records.append(rh,rb);sub.append(weather,records);root.append(sub);
- if(r.pitch_report){const pitch=document.createElement('div');pitch.className='notice';pitch.style.marginTop='12px';pitch.textContent='Pitch report: '+r.pitch_report;root.append(pitch);}
- const source=document.createElement('div');source.className='helper';source.style.marginTop='8px';source.textContent='Source: CREX • '+(r.source_title||'Venue report')+' • '+(r.fetched_at||'');root.append(source);
+ const records=document.createElement('div');records.className='venue-subgrid';
+ [['Highest total',stats.highest_total_recorded],['Lowest total',stats.lowest_total_recorded],['Highest chased',stats.highest_score_chased],['Lowest defended',stats.lowest_score_defended]].forEach(([label,value])=>{const card=document.createElement('div');card.className='venue-report-card';const small=document.createElement('small');small.textContent=label;const strong=document.createElement('b');strong.style.fontSize='13px';strong.textContent=reportValue(value);card.append(small,strong);records.append(card);});root.append(records);
+ const profile=document.createElement('div');profile.className='helper';profile.style.marginTop='10px';profile.textContent=(r.city_country||'')+' • Opened '+(r.facts?.opened||'—')+' • Capacity '+(r.facts?.capacity||'—')+' • Also known as '+(r.aliases||[]).join(', ');root.append(profile);
 }
 function renderTeamVenueAnalysis(){
  const root=$('venueTeamAnalysis');root.innerHTML='';
  const rows=state.teamVenueAnalysis||[];
- if(!rows.length){root.innerHTML='<div class="notice warn">No team venue analysis returned. Import a CREX report and match-by-match player history to compare players from both squads at this ground.</div>';return;}
+ if(!rows.length){root.innerHTML='<div class="notice warn">No venue player records found yet. Import match-by-match scorecards with venue names to compare both squads at this ground.</div>';return;}
  rows.forEach(t=>{
   const box=document.createElement('div');box.className='team-box';
   const title=document.createElement('div');title.className='team-title';title.textContent=t.team+' — venue record';
@@ -296,11 +298,13 @@ function renderTeamVenueAnalysis(){
 async function loadVenueSuggestions(){
  try{
   const d=await api('/api/v1/admin/matches/'+encodeURIComponent(state.matchId)+'/venue-suggestions');
-  state.venueSuggestions=d.high_selection_recommendations||d.suggestions||[];state.venueReport=d.venue_report||null;state.teamVenueAnalysis=d.team_analysis||[];
-  renderVenueReport();renderTeamVenueAnalysis();renderVenueSuggestions();
+  state.venueSuggestions=d.high_selection_recommendations||d.suggestions||[];
+  state.venueReport=d.venue_report||null;state.venueAnalysis=d.venue_analysis||null;state.teamStrengthAnalysis=d.team_strength_analysis||null;state.teamVenueAnalysis=d.team_analysis||[];
+  state.pitch=state.venueAnalysis?.pitch_type||state.pitch||'balanced';state.strongTeam=state.teamStrengthAnalysis?.strong_team||'equal';
+  renderVenueReport();renderTeamVenueAnalysis();renderVenueSuggestions();renderAutoVenueAnalysis();
   const eligible=d.eligible_over_80_count||0;
-  if(state.venueReport){notice('venueNotice','CREX venue report loaded: '+state.venueReport.venue+' • '+reportValue(state.venueReport.venue_matches)+' ground matches. '+eligible+' current-squad players meet the 80% selection threshold.','good');}
-  else{notice('venueNotice',d.reason||'Paste a CREX Info/Venue URL to fetch this stadium report. '+eligible+' current-squad players meet the 80% selection threshold.','warn');}
+  if(state.venueReport){notice('venueNotice','Cricbuzz profile loaded: '+(state.venueReport.name||state.venueReport.venue)+' • '+(state.venueAnalysis?.format||state.match.format)+' records. '+eligible+' current players meet the 80% selection threshold.','good');}
+  else{notice('venueNotice',d.reason||'Paste a Cricbuzz Info/Venue URL to fetch the stadium report. '+eligible+' current players meet the 80% selection threshold.','warn');}
  }catch(e){notice('venueNotice',e.message,'error');}
 }
 async function importCrexVenue(){
@@ -360,7 +364,7 @@ $('saveFixed').onclick=async()=>{
   await saveContext();renderFinalSummary();setStep(5);
  }catch(e){alert(e.message)}
 };
-function renderFinalSummary(){const s=[['MATCH',state.match.name],['PITCH',state.pitch],['STRONG TEAM',state.strongTeam],['FIXED PLAYERS',state.fixed.size],['PLAYING XI',state.lineupConfirmed?'Confirmed':'Provisional']];$('finalSummary').innerHTML=s.map(x=>'<div class="stat"><small>'+esc(x[0])+'</small><b style="font-size:14px">'+esc(x[1])+'</b></div>').join('');}
+function renderFinalSummary(){const s=[['MATCH',state.match.name],['PITCH',state.venueAnalysis?.pitch_recommendation||'Not analysed'],['TOSS EDGE',state.venueAnalysis?.toss_recommendation||'Not analysed'],['STRONG TEAM',state.teamStrengthAnalysis?.strong_team||'Insufficient evidence'],['FIXED PLAYERS',state.fixed.size],['PLAYING XI',state.lineupConfirmed?'Confirmed':'Provisional']];$('finalSummary').innerHTML=s.map(x=>'<div class="stat"><small>'+esc(x[0])+'</small><b style="font-size:14px">'+esc(x[1])+'</b></div>').join('');}
 $('generateTeams').onclick=async()=>{const out=$('teamResults'),err=$('generationError');err.style.display='none';out.innerHTML='';$('generateTeams').disabled=true;$('generateTeams').textContent='Generating…';try{
  const strategy=$('strategy').value;const strategies=strategy==='all'?['safe','balanced','grand_league']:[strategy];const split=$('teamSplit').value;let team_a_count=null;if(split!=='auto'){const [a,b]=split.split('-').map(Number);team_a_count=a;}else if(state.strongTeam===state.match.team_a)team_a_count=6;else if(state.strongTeam===state.match.team_b)team_a_count=5;
  const req={strategies,teams_per_strategy:Number($('teamCount').value),rules:{team_size:11,max_from_one_team:7,max_credits:100,min_role:{WK:1,BAT:3,AR:1,BOWL:3},max_role:{WK:4,BAT:6,AR:4,BOWL:6},playing_xi_only:state.lineupConfirmed,team_a_count},scenario:state.pitch==='batting'?'batting_friendly':state.pitch==='bowling'?'bowling_friendly':'neutral',locked_player_ids:[...state.fixed],excluded_player_ids:[],captain_pool:[],vice_captain_pool:[],team_mode:'automatic',generation_mode:'both'};
