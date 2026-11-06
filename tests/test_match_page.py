@@ -11,7 +11,8 @@ TEMPLATE = """
 <p>{{UPDATED}} {{PLAYER_COUNT}} {{XI_STATUS}} {{CREDIT_COUNT}}</p>
 <div>{{IMPORT_NOTICE_CLASS}} {{IMPORT_NOTICE}}</div>
 <div>{{SQUAD_CONTENT}}</div><div>{{SCORECARD_CONTENT}}</div>
-<div>{{PITCH}} {{TOSS}} {{DATA_NOTE}}</div>
+<div>{{PITCH}} {{TOSS}} {{DATA_NOTE}} {{VENUE_GUIDANCE}}</div>
+<div data-pitch="{{RECOMMENDED_PITCH}}" data-score-mode="{{RECOMMENDED_SCORE_MODE}}" data-score-team="{{RECOMMENDED_SCORE_TEAM}}" data-score="{{RECOMMENDED_SCORE_VALUE}}" data-venue="{{VENUE_HAS_DATA}}"></div>
 """
 
 
@@ -82,3 +83,44 @@ def test_smart_picker_respects_confirmed_playing_xi():
     markup = _fixed_player_picker(players, lineup_confirmed=True)
     assert "Confirmed Player" in markup
     assert "Outside XI" not in markup
+
+
+def test_match_page_shows_format_matched_venue_evidence_and_recommendations():
+    match = {
+        "id": "venue-odi-1", "name": "A vs B ODI", "format": "ODI",
+        "team_a": "A", "team_b": "B", "status": "upcoming",
+    }
+    analysis = {
+        "available": True, "format": "ODI", "pitch_type": "batting",
+        "pitch_recommendation": "Batting-friendly",
+        "recommended_innings_mode": "first_innings",
+        "recommended_innings_label": "Bat first — venue history favours teams batting first",
+        "batting_first_win_pct": 65.0, "bowling_first_win_pct": 35.0,
+        "first_innings_average": 280, "second_innings_average": 245,
+        "total_matches": 40, "confidence": "medium",
+    }
+    rendered = render_match_detail(
+        TEMPLATE, match, {}, [], [], "https://fantasy.example",
+        "Squads unavailable.", False, analysis,
+        {"name": "Hnry Stadium", "formats": {"ODI": {"total_matches": 40}}},
+    )
+    assert "Automatic venue analysis" in rendered
+    assert "Batting-friendly" in rendered
+    assert "65.0%" in rendered
+    assert "280" in rendered
+    assert 'data-pitch="batting"' in rendered
+    assert 'data-score-mode="first_innings"' in rendered
+    assert 'data-venue="true"' in rendered
+
+
+def test_match_page_does_not_claim_a_pitch_or_toss_recommendation_without_venue_data():
+    match = {"id": "no-ground", "name": "A vs B", "format": "T20",
+             "team_a": "A", "team_b": "B", "status": "upcoming"}
+    rendered = render_match_detail(
+        TEMPLATE, match, {}, [], [], "https://fantasy.example",
+        "No squad.", False,
+    )
+    assert "Venue history is not linked" in rendered
+    assert 'data-pitch="balanced"' in rendered
+    assert 'data-score-mode="manual"' in rendered
+    assert 'data-venue="false"' in rendered
