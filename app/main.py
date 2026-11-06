@@ -757,6 +757,7 @@ def admin_page():
     <p>Paste one AI11 match URL (Fantasy or Analysis). The matching page is detected automatically.</p>
     <input id="url" type="url" placeholder="Paste AI11 match URL">
     <button id="go">Fetch match data</button><pre id="out">Ready.</pre>
+    </section>
     <section id="credits" hidden><h3>Missing player credits</h3>
       <p>Enter only a value checked against a reliable source. The source URL is saved with the correction.</p>
       <div id="creditRows"></div><pre id="creditStatus"></pre>
@@ -810,7 +811,6 @@ def admin_page():
     };
     async function ensureAdminToken(){if(!adminToken)adminToken=prompt('Enter Preet Fantasy AI admin token:')||'';return !!adminToken;}
     </script>
-    </section>
     <section style="background:white;padding:16px;border-radius:12px;margin:18px 0">
       <h3>Source 2 — Team Generation</h3>
       <p>Uses the authorized Team Generation access token configured privately as TG_API_TOKEN in Render. No source token is entered into this page.</p>
