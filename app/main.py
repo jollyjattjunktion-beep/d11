@@ -355,9 +355,13 @@ def admin_page():
       const url=document.getElementById('url').value.trim();
       const out=document.getElementById('out');out.textContent='Fetching match data…';
       try{
+        if(!url){out.textContent='Please paste an AI11 match URL first.';return;}
         const r=await fetch('/api/v1/admin/import/ai11',{method:'POST',headers:{'Content-Type':'application/json','X-Admin-Token':adminToken},body:JSON.stringify({analysis_url:url})});
-        const data=await r.json();out.textContent=JSON.stringify(data,null,2);
+        const raw=await r.text();
+        let data;
+        try{data=JSON.parse(raw);}catch(_){data={message:'Server returned a non-JSON response',http_status:r.status,response:raw.slice(0,4000)};}
+        out.textContent=JSON.stringify({http_status:r.status,...(data&&typeof data==='object'?data:{response:data})},null,2);
         if(r.status===401)adminToken='';
-      }catch(e){out.textContent=e.message;}
+      }catch(e){out.textContent='Network/request error: '+e.message;}
     };
     </script></body></html>"""
