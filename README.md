@@ -210,6 +210,18 @@ Check dataset coverage with `GET /api/v1/admin/history/coverage` and source play
 Only the second category trains historical fantasy-point prediction. The first and third enrich pre-match features. Do not train on future match information or post-match facts when simulating a pre-match prediction.
 
 
+### CREX venue report import
+
+In Step 4 of `/admin`, paste an HTTPS CREX match Info/Venue URL such as:
+
+`https://crex.com/cricket-live-score/{match-slug}-match-updates-{id}`
+
+The protected endpoint `POST /api/v1/admin/matches/{match_id}/venue/import` fetches and stores the visible CREX venue report (match count, bat-first/bowl-first win percentages, innings averages, ground score records, pace/spin wicket shares, and available weather/pitch text). It accepts only CREX cricket match URLs. Missing values remain null.
+
+The companion `GET /api/v1/admin/matches/{match_id}/venue-suggestions` compares imported historical player-match records at the same normalized venue for current squad members, grouped by both teams. These team panels are player-sample summaries, not team win rates. Venue-specific player statistics require historical scorecards and venue metadata to have been imported first.
+
+The fixed-player shortlist is limited to five and accepts only players with provider selection percentage of at least 80%. The admin workspace recommends selecting four or five such players. Venue performance is a separate supporting metric and is not used to pretend a player has ground history when records are missing.
+
 ### AI11 rate-limit protection
 
 The AI11 importer caches successful page responses in the running application process for 10 minutes. A repeated import of the same URL during that window reuses the cached HTML rather than requesting AI11 again. Cache entries expire automatically; a Render restart clears this in-memory cache.
