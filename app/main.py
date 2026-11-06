@@ -287,10 +287,16 @@ def _load_public_match_detail(match_id: str, db: Session) -> dict:
     last_detail_attempt = parse_source_datetime(intel.get("public_detail_attempt_at"))
     now = datetime.now(timezone.utc)
     detail_stale = last_detail_sync is None or (now - last_detail_sync) >= timedelta(minutes=15)
-    retry_allowed = last_detail_attempt is None or (now - last_detail_attempt) >= timedelta(minutes=5)
+    failed_last_attempt = intel.get("public_detail_import_status") == "failed"
+    retry_minutes = 5 if failed_last_attempt else 15
+    retry_allowed = last_detail_attempt is None or (now - last_detail_attempt) >= timedelta(minutes=retry_minutes)
     should_import_detail = bool(retry_allowed and (not existing_squads or detail_stale))
-    import_note = "Squad data is loaded from the connected Team Generation match source."
-    import_ok = True
+    import_ok = not failed_last_attempt
+    import_note = (
+        "The latest squad refresh was unsuccessful. Saved SQL data is shown, and another source retry will be allowed shortly."
+        if failed_last_attempt else
+        "Squad data is loaded from the connected Team Generation match source."
+    )
 
     if match.source == "Team Generation" and should_import_detail:
         try:
@@ -453,7 +459,30 @@ def public_match_detail_page(match_id: str, request: Request, db: Session = Depe
 @app.get("/api/v1/public/matches/{match_id}")
 def public_match_detail_api(match_id: str, db: Session = Depends(get_db)):
     detail = _load_public_match_detail(match_id, db)
-    return detail
+    intelligence = detail.get("intelligence") or {}
+    public_feed = intelligence.get("public_feed") or {}
+    return {
+        "match": detail["match"],
+        "players": detail["players"],
+        "scorecards": detail["scorecards"],
+        "lineup": {
+            "status": intelligence.get("lineup_status"),
+            "confirmed": bool(intelligence.get("lineup_confirmed")),
+            "selected_player_count": len(intelligence.get("lineup_selected_player_ids") or []),
+        },
+        "venue": {
+            "pitch_type": intelligence.get("pitch_type"),
+            "analysis": intelligence.get("auto_venue_analysis"),
+            "toss": intelligence.get("toss") or intelligence.get("toss_winner"),
+        },
+        "source": {
+            "name": "Team Generation",
+            "synced_at": public_feed.get("synced_at"),
+            "detail_imported_at": detail.get("last_detail_sync"),
+            "import_ok": detail["import_ok"],
+            "note": detail["import_note"],
+        },
+    }
 
 
 @app.get("/api/v1/public/matches")
