@@ -1,4 +1,5 @@
 import email.utils
+import json
 import re
 import threading
 import time
@@ -119,13 +120,23 @@ def _player_id(name):
 
 def parse_analysis(html: str):
     soup = BeautifulSoup(html, "html.parser")
-    title = soup.title.get_text(" ", strip=True) if soup.title else "AI11 match"
+    page_title = soup.title.get_text(" ", strip=True) if soup.title else "AI11 match"
+    heading = soup.find("h1")
+    heading_text = heading.get_text(" ", strip=True) if heading else page_title
     text = soup.get_text(" ", strip=True)
-    fmt = "TEST" if re.search(r"\btest\b", title + " " + text[:500], re.I) else "T20" if re.search(r"\bT20\b", title + " " + text[:500], re.I) else "ODI"
+    fmt = "TEST" if re.search(r"\btest\b", page_title + " " + heading_text, re.I) else "T20" if re.search(r"\bT20\b", page_title + " " + heading_text, re.I) else "ODI"
     venue = None
-    m = re.search(r"(?:Pitch Report:\s*[^ ]+\s*)?([A-Z][A-Za-z .'-]+ Stadium)", text)
-    if m:
-        venue = m.group(1).strip()
+    # Prefer the explicit Pitch Report heading; broad Stadium regexes can capture article-card text.
+    for node in soup.find_all(["h1", "h2", "h3", "h4", "strong"]):
+        heading_value = node.get_text(" ", strip=True)
+        venue_match = re.search(r"Pitch Report\s*:\s*(.+)$", heading_value, re.I)
+        if venue_match:
+            venue = re.sub(r"\s+", " ", venue_match.group(1)).strip(" -,:")
+            break
+    if not venue:
+        venue_match = re.search(r"Pitch Report\s*:\s*([A-Z][A-Za-z .'-]+? Stadium)", text, re.I)
+        if venue_match:
+            venue = venue_match.group(1).strip()
     teams = []
     for node in soup.select("img[alt]"):
         alt = node.get("alt", "").strip()
@@ -136,7 +147,15 @@ def parse_analysis(html: str):
         if m:
             teams = [m.group(1).strip(), m.group(2).strip()]
     team_a, team_b = (teams[0], teams[1]) if len(teams) >= 2 else ("TEAM_A", "TEAM_B")
-    match_name = re.sub(r"\s*\|\s*AI11.*$", "", title).strip()
+    match_name = re.sub(r"\s*\|\s*AI11.*$", "", page_title, flags=re.I).strip()
+    match_name = re.sub(r"\s*[:–-]\s*(?:Fantasy Preview|Pitch Report|Player Stats).*$", "", match_name, flags=re.I).strip()
+    match_name = re.sub(r"\s+", " ", match_name).strip(" -,:")
+    if not match_name or match_name.lower() == "ai11 match":
+        match_name = heading_text
+    if team_a not in match_name or team_b not in match_name:
+        fixture_round = re.search(r"\b(\d+(?:st|nd|rd|th)\s+ODI|\d+(?:st|nd|rd|th)\s+T20I|Test)\b", page_title + " " + heading_text, re.I)
+        if fixture_round:
+            match_name = f"{team_a} vs {team_b}, {fixture_round.group(1)}"
     match_id = _player_id(match_name) or "ai11-match"
     players = []
     profiles = []
@@ -220,16 +239,58 @@ def parse_analysis(html: str):
 def parse_fantasy(html: str):
     soup = BeautifulSoup(html, "html.parser")
     credits = {}
-    for node in soup.select("[data-credit], [data-credits]"):
-        name = node.get("data-player-name") or node.get("data-name")
-        value = _number(node.get("data-credit") or node.get("data-credits"))
-        if name and value is not None:
-            credits[_player_id(name)] = value
+    evidence = []
+
+    def add_credit(name, raw_value, source):
+        value = _number(str(raw_value) if raw_value is not None else "")
+        if not name or value is None or not 0 < value <= 20:
+            return
+        pid = _player_id(str(name))
+        if pid:
+            credits[pid] = value
+            evidence.append({"player_id": pid, "credit": value, "source": source})
+
+    # Read only explicit credit values actually embedded in the fetched page.
+    for node in soup.find_all(True):
+        attrs = node.attrs or {}
+        credit_key = next((k for k in attrs if re.search(r"(?:^|[-_])credits?$", k, re.I)), None)
+        if credit_key:
+            name = next((attrs.get(k) for k in ("data-player-name", "data-name", "data-player", "aria-label", "title") if attrs.get(k)), None)
+            add_credit(name, attrs.get(credit_key), "html_attribute")
+
+    def walk_json(value):
+        if isinstance(value, dict):
+            name = next((value.get(k) for k in ("name", "playerName", "player_name", "fullName") if isinstance(value.get(k), str)), None)
+            credit_value = next((value.get(k) for k in ("credits", "credit", "dream11Credits", "dream11_credit", "fantasyCredits") if value.get(k) is not None), None)
+            if name and credit_value is not None:
+                add_credit(name, credit_value, "embedded_json")
+            for child in value.values():
+                walk_json(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk_json(child)
+
     for script in soup.find_all("script"):
         raw = script.string or script.get_text()
         if not raw or len(raw) > 2_000_000:
             continue
-        for match in re.finditer(r'"(?:name|playerName)"\s*:\s*"([^"]+)"[^{}]{0,500}?"(?:credits|credit)\s*:\s*([0-9]+(?:\.[0-9]+)?)', raw, re.I):
-            credits[_player_id(match.group(1))] = float(match.group(2))
+        try:
+            walk_json(json.loads(raw.strip()))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+        # Fallback for serialized JS objects; support either key order.
+        patterns = [
+            (r'"(?:name|playerName|player_name)"\s*:\s*"([^"]+)"[^{}]{0,1000}?"(?:credits|credit|dream11Credits|fantasyCredits)"\s*:\s*"?([0-9]+(?:\.[0-9]+)?)', True),
+            (r'"(?:credits|credit|dream11Credits|fantasyCredits)"\s*:\s*"?([0-9]+(?:\.[0-9]+)?)"?[^{}]{0,1000}?"(?:name|playerName|player_name)"\s*:\s*"([^"]+)"', False),
+        ]
+        for pattern, name_first in patterns:
+            for match in re.finditer(pattern, raw, re.I):
+                add_credit(match.group(1) if name_first else match.group(2),
+                           match.group(2) if name_first else match.group(1),
+                           "embedded_script")
+
     return {"credits": credits, "credits_found": len(credits),
-            "dynamic_content_may_require_browser": len(credits) == 0}
+            "credit_evidence": evidence,
+            "dynamic_content_may_require_browser": len(credits) == 0,
+            "credits_status": "found" if credits else "not_present_in_fetched_html"}
+
