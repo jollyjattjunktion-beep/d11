@@ -76,6 +76,29 @@
 }
 
 @media(max-width:760px){.venue-report-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.venue-subgrid{grid-template-columns:1fr}.topbar{align-items:flex-start;flex-direction:column}.auth{width:100%}.auth input{flex:1}.stepper{grid-template-columns:repeat(2,1fr)}.step:last-child{grid-column:span 2}.match-grid{grid-template-columns:repeat(2,1fr)}.fixtures,.team-columns,.suggestions{grid-template-columns:1fr}.choice-grid{grid-template-columns:1fr}.panelbody{padding:15px}.panelhead{padding:15px}.intro{align-items:flex-start;flex-direction:column}.urlbox{flex-direction:column}.urlbox input{min-width:0}.controls{align-items:stretch}.controls .row{justify-content:flex-end}.result-player{grid-template-columns:34px 1fr 55px 55px}}
+
+.match-library{background:#fff;border:1px solid var(--line);border-radius:15px;box-shadow:0 8px 24px #1b25400a;margin:0 0 18px;overflow:hidden}
+.match-library-head{padding:16px 19px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.match-library-head h2{font-size:17px;margin:0}.match-library-head p{font-size:11px;color:var(--muted);margin:4px 0 0}
+.match-library-tools{display:grid;grid-template-columns:minmax(180px,1fr) 160px auto auto;gap:8px;padding:13px 17px;background:#fafbfe;border-bottom:1px solid var(--line)}
+.match-library-tools input,.match-library-tools select,.match-edit-grid input,.match-edit-grid select{width:100%;font:inherit;padding:10px 11px;border:1px solid #d4dae5;border-radius:8px;background:#fff;color:var(--ink)}
+.match-library-list{display:grid;gap:8px;padding:13px 17px;max-height:520px;overflow:auto}
+.admin-match-row{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(130px,1fr) auto;gap:12px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+.admin-match-row strong{font-size:12px}.admin-match-row small{display:block;font-size:10px;color:var(--muted);margin-top:3px}
+.admin-match-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.admin-match-status{display:inline-flex;align-items:center;border-radius:20px;padding:3px 7px;font-size:9px;font-weight:850;background:#eee8fb;color:var(--purple)}
+.admin-match-status.live{background:#fff0f1;color:#b82d45}.admin-match-status.completed{background:#edf0f5;color:#667085}
+.match-editor{border-top:1px solid var(--line);padding:17px;background:#fbfbfe}
+.match-editor[hidden]{display:none}
+.match-editor-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
+.match-editor-head strong{font-size:14px}
+.match-edit-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px}
+.match-edit-field label{display:block;font-size:10px;font-weight:850;color:#566174;margin-bottom:5px}
+.match-edit-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:13px}
+.match-library-empty{padding:22px;text-align:center;color:var(--muted);font-size:12px}
+@media(max-width:760px){.match-library-tools{grid-template-columns:1fr 1fr}.admin-match-row{grid-template-columns:1fr}.admin-match-actions{justify-content:flex-start}.match-edit-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){.match-edit-grid{grid-template-columns:1fr}.match-library-tools{grid-template-columns:1fr}}
+
 </style>
 </head>
 <body>
@@ -85,6 +108,37 @@
 </header>
 <main class="wrap">
   <div class="intro"><div><h1>Fantasy Team Workspace</h1><div class="muted">Import the match, confirm availability and build teams with venue context.</div></div><span class="pill" id="workspaceStatus">No match loaded</span></div>
+
+  <section class="match-library">
+    <div class="match-library-head">
+      <div><h2>Saved Match Library</h2><p>Search, edit, assign a stadium and open any imported match in the team workspace.</p></div>
+      <div class="row"><span class="pill" id="adminMatchCount">Not loaded</span><button class="btn outline" id="loadAdminMatches" type="button">Load saved matches</button></div>
+    </div>
+    <div class="match-library-tools">
+      <input id="adminMatchSearch" placeholder="Search team, match ID, series or venue">
+      <select id="adminMatchStatus"><option value="">All statuses</option><option value="upcoming">Upcoming</option><option value="live">Live</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option><option value="postponed">Postponed</option></select>
+      <button class="btn secondary" id="searchAdminMatches" type="button">Search</button>
+      <button class="btn outline" id="refreshAdminMatches" type="button">Refresh</button>
+    </div>
+    <div id="adminMatchNotice" class="notice" style="display:none;margin:12px 17px"></div>
+    <div id="adminMatchList" class="match-library-list"><div class="match-library-empty">Enter your admin token and click “Load saved matches” to browse matches already stored in SQL.</div></div>
+    <div class="match-editor" id="adminMatchEditor" hidden>
+      <div class="match-editor-head"><strong id="adminMatchEditorTitle">Edit saved match</strong><button class="btn secondary" id="closeAdminMatchEditor" type="button">Close</button></div>
+      <div class="match-edit-grid">
+        <div class="match-edit-field"><label for="editMatchId">Match ID</label><input id="editMatchId" readonly></div>
+        <div class="match-edit-field"><label for="editMatchName">Match / series name</label><input id="editMatchName"></div>
+        <div class="match-edit-field"><label for="editMatchFormat">Format</label><select id="editMatchFormat"><option>T20</option><option>ODI</option><option>TEST</option></select></div>
+        <div class="match-edit-field"><label for="editTeamA">Team A</label><input id="editTeamA"></div>
+        <div class="match-edit-field"><label for="editTeamB">Team B</label><input id="editTeamB"></div>
+        <div class="match-edit-field"><label for="editMatchStatus">Status</label><select id="editMatchStatus"><option>upcoming</option><option>live</option><option>completed</option><option>cancelled</option><option>postponed</option></select></div>
+        <div class="match-edit-field"><label for="editMatchStart">Start time (local or ISO)</label><input id="editMatchStart" type="text" placeholder="2026-11-07T02:00:00Z"></div>
+        <div class="match-edit-field"><label for="editMatchVenue">Venue name</label><input id="editMatchVenue" placeholder="Ground, city"></div>
+        <div class="match-edit-field"><label for="editVenueCatalogue">Link to saved stadium</label><select id="editVenueCatalogue"><option value="__auto__">Auto-match by venue name</option></select></div>
+      </div>
+      <div class="match-edit-actions"><button class="btn green" id="saveAdminMatch" type="button">Save match changes</button><button class="btn secondary" id="openAdminMatch" type="button">Open in team workspace</button><span class="helper">When you link a stadium, pitch and first-innings/chase recommendations are recalculated from that format's saved records.</span></div>
+      <div id="adminMatchEditNotice" class="notice" style="display:none"></div>
+    </div>
+  </section>
   <nav class="stepper" id="stepper">
     <div class="step active" data-step="1"><span class="num">1</span><span><strong>Match Import</strong><small>Fetch squads & credits</small></span></div>
     <div class="step" data-step="2"><span class="num">2</span><span><strong>Playing XI</strong><small>Confirm both teams</small></span></div>
