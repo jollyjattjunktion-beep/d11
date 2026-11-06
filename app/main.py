@@ -11,14 +11,15 @@ from pathlib import Path
 from app.database import Base, engine, get_db
 from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
-                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest)
+                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, VenueEnrichRequest)
 from app.predictor import predict_match
 from app.optimizer import build_teams
 from app.config import MODEL_VERSION, ADMIN_TOKEN, TG_API_TOKEN
 from app.importers.ai11 import (fetch_page, parse_analysis, parse_fantasy, AI11RateLimitError)
 from app.importers.crex import fetch_crex_page, parse_crex_venue_report
 from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_series_page,
-    parse_cricbuzz_venue, parse_cricbuzz_series_venues)
+    fetch_cricbuzz_series_index, parse_cricbuzz_venue, parse_cricbuzz_series_venues,
+    parse_cricbuzz_series_index)
 from app.venue_analysis import analyse_venue, compare_squad_strength, analysis_context_fields
 
 Base.metadata.create_all(bind=engine)
@@ -1088,6 +1089,110 @@ def import_cricbuzz_series_venues(payload: CricbuzzSeriesImportRequest,
         "skipped": skipped,
         "errors": errors[:20],
         "note": "The venue catalogue grows as you import Cricbuzz series Venues pages from different countries and competitions. This does not claim to be a complete world-stadium census."
+    }
+
+
+
+@app.post("/api/v1/admin/venues/discover-series")
+def discover_cricbuzz_series_and_venues(payload: CricbuzzSeriesIndexImportRequest,
+                                        _admin: bool = Depends(require_admin),
+                                        db: Session = Depends(get_db)):
+    try:
+        page = fetch_cricbuzz_series_index(payload.url)
+        series = parse_cricbuzz_series_index(page, payload.url)
+    except ValueError as exc:
+        raise HTTPException(422, "Cricbuzz series discovery rejected: " + str(exc)[:400])
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(502, detail={"message": "Cricbuzz schedule/archive request failed.", "upstream_status": exc.response.status_code})
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Could not fetch Cricbuzz series index: " + type(exc).__name__)
+
+    series = series[:payload.max_series]
+    discovered = []
+    failures = []
+    for series_item in series:
+        try:
+            venues_html = fetch_cricbuzz_series_page(series_item["venues_url"])
+            venue_items = parse_cricbuzz_series_venues(venues_html, series_item["venues_url"])
+            for item in venue_items:
+                basic_report = {
+                    "provider_venue_id": str(item["provider_venue_id"]),
+                    "name": item.get("name") or ("Venue " + str(item["provider_venue_id"])),
+                    "city_country": None,
+                    "aliases": [],
+                    "facts": {},
+                    "formats": {},
+                    "source_url": item["source_url"],
+                }
+                _save_cricbuzz_venue(db, basic_report)
+                discovered.append({
+                    "series": series_item["name"],
+                    "venue_id": "CRICBUZZ:" + str(item["provider_venue_id"]),
+                    "name": basic_report["name"],
+                    "source_url": item["source_url"],
+                    "stats_pending": True,
+                })
+        except Exception as exc:
+            failures.append({"series": series_item["name"], "error": type(exc).__name__})
+    db.commit()
+    return {
+        "provider": "CRICBUZZ",
+        "index_url": payload.url,
+        "series_seen": len(series),
+        "series_with_venues_or_attempts": len(series) - len(failures),
+        "venues_discovered": len(discovered),
+        "venues_saved_or_updated": len(discovered),
+        "venues": discovered,
+        "failed_series": failures,
+        "note": "Stadiums are saved to SQL as soon as they are discovered. This is a progressively growing catalogue from the series listed on the supplied schedule/archive page, not a guaranteed complete census of every ground worldwide."
+    }
+
+
+@app.post("/api/v1/admin/venues/enrich")
+def enrich_pending_cricbuzz_venues(payload: VenueEnrichRequest,
+                                   _admin: bool = Depends(require_admin),
+                                   db: Session = Depends(get_db)):
+    rows = db.scalars(
+        select(Venue)
+        .where(Venue.provider == "CRICBUZZ")
+        .order_by(Venue.updated_at.asc())
+    ).all()
+    pending = [row for row in rows if not (row.formats or {}) and row.source_urls]
+    pending = pending[:payload.limit]
+    enriched, pending_failed, errors = [], [], []
+    for row in pending:
+        source_url = (row.source_urls or [None])[0]
+        if not source_url:
+            continue
+        try:
+            page = fetch_cricbuzz_venue_page(source_url)
+            report = parse_cricbuzz_venue(page, source_url)
+            saved = _save_cricbuzz_venue(db, report)
+            enriched.append({
+                "venue_id": saved.provider_key,
+                "name": saved.name,
+                "city_country": saved.city_country,
+                "formats_available": sorted((saved.formats or {}).keys()),
+            })
+        except Exception as exc:
+            pending_failed.append(row.name)
+            profile = dict(row.profile or {})
+            profile["last_enrichment_attempt"] = datetime.now(timezone.utc).isoformat()
+            profile["last_enrichment_error"] = type(exc).__name__
+            row.profile = profile
+            errors.append({"venue": row.name, "error": type(exc).__name__})
+    db.commit()
+    remaining = db.scalars(select(Venue).where(Venue.provider == "CRICBUZZ")).all()
+    still_pending = sum(1 for row in remaining if not (row.formats or {}) and row.source_urls)
+    return {
+        "provider": "CRICBUZZ",
+        "attempted": len(pending),
+        "enriched": len(enriched),
+        "failed_this_batch": len(pending_failed),
+        "remaining_pending": still_pending,
+        "enriched_venues": enriched,
+        "errors": errors[:20],
+        "note": "Enrichment is deliberately batched to limit upstream requests. Repeat until remaining_pending is zero or Cricbuzz has no extractable format statistics for the remaining grounds."
     }
 
 
