@@ -155,6 +155,41 @@ def _scorecard_markup(scorecards: list[dict]) -> str:
     )
 
 
+def _venue_guidance_markup(analysis: dict | None, report: dict | None) -> str:
+    if not analysis or not analysis.get("available"):
+        return (
+            '<div class="venue-guidance empty-guidance"><strong>Venue history is not linked for this match.</strong>'
+            '<p>Pitch and batting-first/chase choices remain manual until a stadium with matching-format Cricbuzz records is assigned in the admin Match Library.</p>'
+            '</div>'
+        )
+    fmt = html.escape(str(analysis.get("format") or ""))
+    pitch = html.escape(str(analysis.get("pitch_recommendation") or "No pitch recommendation"))
+    innings = html.escape(str(analysis.get("recommended_innings_label") or "No innings recommendation"))
+    batting = analysis.get("batting_first_win_pct")
+    bowling = analysis.get("bowling_first_win_pct")
+    first_avg = analysis.get("first_innings_average")
+    second_avg = analysis.get("second_innings_average")
+    total = analysis.get("total_matches")
+    confidence = html.escape(str(analysis.get("confidence") or "low").title())
+    def value(v, suffix=""):
+        return html.escape((f"{float(v):g}{suffix}" if v is not None else "—"))
+    return (
+        '<div class="venue-guidance">'
+        '<div class="venue-guidance-title"><span>Automatic venue analysis</span>'
+        f'<span class="venue-confidence">{confidence} confidence • {value(total)} {fmt} matches</span></div>'
+        '<div class="venue-evidence-grid">'
+        f'<div><small>Pitch behaviour</small><strong>{pitch}</strong></div>'
+        f'<div><small>1st innings wins</small><strong>{value(batting, "%")}</strong></div>'
+        f'<div><small>Chasing / bowling-first wins</small><strong>{value(bowling, "%")}</strong></div>'
+        f'<div><small>Avg 1st innings</small><strong>{value(first_avg)}</strong></div>'
+        f'<div><small>Avg 2nd innings</small><strong>{value(second_avg)}</strong></div>'
+        f'<div><small>Innings recommendation</small><strong>{innings}</strong></div>'
+        '</div>'
+        '<p class="venue-guidance-note">Recommendations use this ground\'s matching-format historical results. A minimum sample is required for a first-innings or chase preference. These are venue tendencies, not guaranteed match outcomes.</p>'
+        '</div>'
+    )
+
+
 def render_match_detail(
     template: str,
     match: dict,
@@ -164,6 +199,8 @@ def render_match_detail(
     base_url: str,
     import_note: str,
     import_ok: bool,
+    venue_analysis: dict | None = None,
+    venue_report: dict | None = None,
 ) -> str:
     start = parse_source_datetime(match.get("start_time"))
     kickoff = start.astimezone(IST).strftime("%a, %d %b %Y • %I:%M %p IST") if start else "Time to be confirmed"
@@ -179,8 +216,26 @@ def render_match_detail(
     parsed_update = parse_source_datetime(last_update)
     updated = parsed_update.astimezone(IST).strftime("Updated %d %b, %I:%M %p IST") if parsed_update else "Match information"
     venue = str(match.get("venue") or "To be confirmed")
-    analysis = intelligence.get("auto_venue_analysis") or {}
+    analysis = venue_analysis or intelligence.get("auto_venue_analysis") or {}
+    venue_report = venue_report or intelligence.get("cricbuzz_venue_report") or {}
     pitch = intelligence.get("pitch_type") or analysis.get("pitch_type") or analysis.get("surface") or "Venue analysis not available"
+    recommended_pitch = analysis.get("pitch_type") if analysis.get("available") else "balanced"
+    recommended_score_mode = analysis.get("recommended_innings_mode") if analysis.get("available") else "manual"
+    recommended_score_value = analysis.get("first_innings_average")
+    toss_completed = bool(intelligence.get("toss_completed"))
+    toss_winner = intelligence.get("toss_winner") or ""
+    toss_decision = intelligence.get("toss_decision") or ""
+    recommended_score_team = ""
+    if toss_completed and toss_winner in {match.get("team_a"), match.get("team_b")} and toss_decision in {"bat", "bowl"}:
+        other = match.get("team_b") if toss_winner == match.get("team_a") else match.get("team_a")
+        if toss_decision == "bat":
+            recommended_score_mode = "first_innings"
+            recommended_score_team = toss_winner
+        else:
+            recommended_score_mode = "chasing"
+            recommended_score_team = other
+    elif recommended_score_mode == "first_innings" and analysis.get("toss_decision") == "bat":
+        recommended_score_mode = "first_innings"
     toss = intelligence.get("toss") or intelligence.get("toss_winner") or "Not announced"
     title = f"{match.get('team_a_name') or match.get('team_a')} vs {match.get('team_b_name') or match.get('team_b')} {fmt} Match | Preet Fantasy AI"
     description = (
@@ -205,6 +260,12 @@ def render_match_detail(
         "{{VENUE}}": html.escape(venue),
         "{{MATCH_ID}}": html.escape(str(match.get("id"))),
         "{{LINEUP_CONFIRMED}}": "true" if lineup_confirmed else "false",
+        "{{RECOMMENDED_PITCH}}": html.escape(str(recommended_pitch)),
+        "{{RECOMMENDED_SCORE_MODE}}": html.escape(str(recommended_score_mode)),
+        "{{RECOMMENDED_SCORE_TEAM}}": html.escape(str(recommended_score_team)),
+        "{{RECOMMENDED_SCORE_VALUE}}": html.escape(str(int(round(float(recommended_score_value)))) if recommended_score_value is not None else ""),
+        "{{VENUE_HAS_DATA}}": "true" if analysis.get("available") else "false",
+        "{{VENUE_GUIDANCE}}": _venue_guidance_markup(analysis, venue_report),
         "{{TEAM_A}}": html.escape(str(match.get("team_a") or "")),
         "{{TEAM_B}}": html.escape(str(match.get("team_b") or "")),
         "{{TEAM_A_FULL}}": html.escape(str(match.get("team_a_name") or match.get("team_a") or "")),
