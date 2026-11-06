@@ -254,3 +254,21 @@ Use **Refresh source / toss update** after the toss or official lineup announcem
 AI11 remains a separate provider import under **Other provider — AI11 import**. The two providers do not overwrite one another's source profiles. Missing player credits can be corrected in the Match Import step, with optional source URL evidence.
 
 Venue recommendations require historical match rows with the same normalized venue name and non-null, verified fantasy points. Import accurate match-level scorecards and venue metadata before expecting stadium-specific suggestions.
+
+
+### Dedicated Stadium Database Manager
+
+Open `/admin/stadiums` independently of a match wizard. It accepts individual Cricbuzz venue pages, imports the three supplied venues (W.A.C.A. Ground, Tribhuvan University International Cricket Ground and Junction Oval), imports a competition's Venues page, discovers series from Cricbuzz schedule/archive pages in batches, and enriches pending venue profiles in batches of ten.
+
+Protected endpoints:
+
+- `POST /api/v1/admin/venues/import` — fetch and save one stadium.
+- `POST /api/v1/admin/venues/import-featured` — fetch and save the three supplied stadiums.
+- `POST /api/v1/admin/venues/import-series` — save grounds listed on one series Venues page.
+- `POST /api/v1/admin/venues/discover-series` — discover series and grounds from an all-series or archive page. Supports `series_offset` and `max_series`.
+- `POST /api/v1/admin/venues/enrich` — enrich up to twenty saved grounds with available format-specific data.
+- `GET /api/v1/admin/venues?q=...` — search the SQL catalogue.
+
+### Dream-team preview and team splits
+
+The final wizard step now renders portrait cricket-ground cards for each generated team, including player photos, role groups, C/VC labels, credits, and a clear provisional-vs-estimated-points label. Use **Print / Save PDF** to export the cards. Exact Team A:Team B options are 6:5, 5:6, 7:4 and 4:7. The fixed-player step only locks eligible players with provider selection at least 80%; it does not block the wizard when fewer than four qualify.
