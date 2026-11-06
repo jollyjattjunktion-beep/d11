@@ -474,9 +474,12 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
         vcands = [p for p in chosen if not vice_captain_pool or p["player_id"] in vice_captain_pool]
         captain_key = lambda p: _captain_score(p, strategy, scenario, *score_args)
         vice_key = lambda p: _vice_score(p, strategy, scenario, *score_args)
+        # Treat captain and vice-captain as one leadership pool so a player is
+        # not repeatedly recycled from C to VC (or vice versa) in every lineup.
+        leadership_usage = captain_usage + vice_usage
 
         captain_rank = lambda p: _portfolio_exposure_score(
-            captain_key(p), p["player_id"], captain_usage, strategy, "captain"
+            captain_key(p), p["player_id"], leadership_usage, strategy, "captain"
         )
         captain = (
             next((p for p in cands if p["player_id"] == manual_captain_id), None)
@@ -485,10 +488,11 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
 
         def vice_rank(p):
             base = _portfolio_exposure_score(
-                vice_key(p), p["player_id"], vice_usage, strategy, "vice"
+                vice_key(p), p["player_id"], leadership_usage, strategy, "vice"
             )
             if captain is not None:
-                pair_count = pair_usage.get((captain["player_id"], p["player_id"]), 0)
+                pair_key = tuple(sorted((captain["player_id"], p["player_id"]), key=lambda value: str(value)))
+                pair_count = pair_usage.get(pair_key, 0)
                 base *= 1.0 - min(0.24, captain_pair_weight * pair_count)
             return base
 
@@ -529,7 +533,8 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
             usage[player["player_id"]] += 1
         captain_usage[captain["player_id"]] += 1
         vice_usage[vice["player_id"]] += 1
-        pair_usage[(captain["player_id"], vice["player_id"])] += 1
+        pair_key = tuple(sorted((captain["player_id"], vice["player_id"]), key=lambda value: str(value)))
+        pair_usage[pair_key] += 1
 
         made.append({
             "generation_mode": mode,
