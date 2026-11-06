@@ -544,7 +544,11 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
         "name": left_name + " vs " + right_name + " - " + series,
         "format": match_format,
         "start_time": match_data.get("startTime"),
-        "venue": None,
+        "venue": (
+            (match_data.get("venue") or match_data.get("ground") or {}).get("name")
+            if isinstance(match_data.get("venue") or match_data.get("ground"), dict)
+            else (match_data.get("venue") or match_data.get("ground") or match_data.get("venueName"))
+        ),
         "team_a": left_name,
         "team_b": right_name,
         "status": str(match_data.get("status") or "upcoming"),
@@ -560,6 +564,12 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
 
     role_map = {0: "WK", 1: "BAT", 2: "AR", 3: "BOWL"}
     lineup_status = str(detail.get("lineupStatus") or match_data.get("lineupStatus") or "unknown").lower()
+    lineup_not_announced = any(marker in lineup_status for marker in ("not_announced", "not announced", "unannounced", "pending"))
+    lineup_confirmed = (
+        any(marker in lineup_status for marker in ("announc", "confirmed", "complete", "final"))
+        and not lineup_not_announced
+    )
+    imported_playing_ids = []
     saved = 0
     credits_saved = 0
     missing_credits = []
@@ -605,9 +615,10 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
             playing_flag = int(item.get("playing") or 0)
         except (TypeError, ValueError):
             playing_flag = 0
-        if playing_flag == 1:
+        if playing_flag == 1 and lineup_confirmed:
             player_status = "playing"
-        elif "announc" in lineup_status:
+            imported_playing_ids.append(player_id)
+        elif not lineup_confirmed:
             player_status = "not_announced"
         else:
             player_status = "not_playing"
@@ -672,7 +683,10 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
         "source": "Team Generation",
         "source_match_id": match_id,
         "lineup_status": lineup_status,
+        "lineup_confirmed": lineup_confirmed,
+        "lineup_selected_player_ids": imported_playing_ids,
         "toss": detail.get("toss"),
+        "toss_completed": bool(detail.get("toss") or match_data.get("toss")),
         "imported_player_count": saved,
         "teamgeneration_updated_at": detail.get("updatedAt"),
         "team_images": {"left": left.get("image"), "right": right.get("image")},
@@ -680,7 +694,20 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
     if intel is None:
         db.add(MatchIntelligence(match_id=match_id, data=intel_data))
     else:
-        intel.data = {**(intel.data or {}), **intel_data}
+        # Keep admin-selected pitch/toss/fixed-player preferences when refreshing source data.
+        existing_intel = dict(intel.data or {})
+        for key in ("pitch_type", "pitch_notes", "batting_friendly", "pace_friendly",
+                    "spin_friendly", "strong_team", "toss_completed", "toss_winner",
+                    "toss_decision", "fixed_player_ids", "lineup_admin_source",
+                    "lineup_admin_updated_at"):
+            if key in existing_intel and key not in intel_data:
+                intel_data[key] = existing_intel[key]
+        # An explicit admin XI confirmation is preserved only if provider still says unannounced;
+        # once provider announces the XI, provider flags become authoritative.
+        if existing_intel.get("lineup_admin_source") == "admin_confirmed" and not lineup_confirmed:
+            intel_data["lineup_confirmed"] = True
+            intel_data["lineup_selected_player_ids"] = existing_intel.get("lineup_selected_player_ids", [])
+        intel.data = {**existing_intel, **intel_data}
     db.commit()
 
     rows = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match_id)).all()
