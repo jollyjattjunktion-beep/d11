@@ -1049,8 +1049,15 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
             team_entry["runs"].append(int(stats.runs or 0))
             team_entry["wickets"].append(int(stats.wickets or 0))
 
+    intel_row = db.get(MatchIntelligence, match_id)
+    intel = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+    lineup_confirmed = bool(intel.get("lineup_confirmed"))
+    confirmed_ids = set(intel.get("lineup_selected_player_ids") or [])
+
     candidates = []
     for squad in squads:
+        if lineup_confirmed and (squad.status != "playing" or (confirmed_ids and squad.player_id not in confirmed_ids)):
+            continue
         player = db.get(Player, squad.player_id)
         profile = profile_map.get(squad.player_id, {})
         selection_pct = squad.selection_pct
@@ -1119,8 +1126,6 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
             "sample_note": "Only imported match-by-match records for current squad members at this venue; this is not the team's win rate."
         })
 
-    intel_row = db.get(MatchIntelligence, match_id)
-    intel = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
     venue_report = intel.get("crex_venue_report")
     venue_available = bool(venue_report or player_history)
     return {
