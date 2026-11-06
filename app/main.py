@@ -934,6 +934,11 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
     target = normalize(match.venue)
     squads = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match_id)).all()
     squad_by_id = {s.player_id: s for s in squads}
+    squad_player_ids_by_name = {}
+    for squad in squads:
+        current_player = db.get(Player, squad.player_id)
+        if current_player:
+            squad_player_ids_by_name.setdefault(normalize(current_player.name), squad.player_id)
     history_rows = db.execute(
         select(PlayerMatchStats, Match)
         .join(Match, PlayerMatchStats.match_id == Match.id)
@@ -943,9 +948,13 @@ def get_venue_suggestions(match_id: str, _admin: bool = Depends(require_admin),
     for stats, historical_match in history_rows:
         if normalize(historical_match.venue) != target:
             continue
-        if stats.player_id not in squad_by_id:
+        player_id = stats.player_id
+        if player_id not in squad_by_id:
+            historical_player = db.get(Player, stats.player_id)
+            player_id = squad_player_ids_by_name.get(normalize(historical_player.name)) if historical_player else None
+        if player_id not in squad_by_id:
             continue
-        entry = aggregates.setdefault(stats.player_id, {
+        entry = aggregates.setdefault(player_id, {
             "matches": 0, "points": [], "runs": [], "wickets": []
         })
         entry["matches"] += 1
