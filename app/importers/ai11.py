@@ -165,8 +165,8 @@ def _parse_ai11_stat_value(value: str):
     if not value or value in {"-", "—", "N/A"}:
         return None
     # Preserve cricket notation such as 5/37 and 2/27 as text.
-    if re.fullmatch(r"\\d+\\s*/\\s*\\d+", value):
-        return re.sub(r"\\s+", "", value)
+    if re.fullmatch(r"\d+\s*/\s*\d+", value):
+        return re.sub(r"\s+", "", value)
     if re.fullmatch(r"[0-9,.]+", value):
         return _number(value)
     return value[:80]
