@@ -1,129 +1,140 @@
-# Preet Fantasy AI — T20 Prediction API
+# Preet Fantasy AI — Match Intelligence API
 
-Independent prediction service for the Crickfan / Dream11-style workflow. This repository is the first API milestone; it does not modify the existing Crickfan application.
+FastAPI service for format-aware cricket fantasy estimates and constrained team generation. It supports manual squad corrections, match-condition intelligence and explainable player predictions.
 
-## Current features
+## Current capabilities
 
-- FastAPI service with interactive docs at `/docs`
-- SQLite for local development; PostgreSQL supported through `DATABASE_URL`
-- Match and squad import endpoints
-- Historical player-match fantasy-points import
-- T20 recent-form baseline predictions (last 10 imported matches, recency weighted)
-- Expected points, estimated floor/ceiling, consistency, upside and confidence
-- Safe, Balanced, Grand League and Scenario team-generation modes
-- Configurable team size, credit cap, role limits, team-player limit and playing-XI filter
+- FastAPI API and Swagger UI at `/docs`
+- SQLite locally; PostgreSQL through `DATABASE_URL`
+- Match and squad import; player credits, role, selection percentage and playing status can be corrected
+- Historical player-match imports, separated by format (T20, ODI, TEST)
+- Match intelligence storage: pitch suitability, venue average, weather, rain, humidity, wind, dew, head-to-head and recent team form
+- Player estimates include expected points, estimated floor/median/ceiling, confidence score, risk, sample size, reasons and warnings
+- Safe, Balanced, Grand League and scenario team construction
+- 100-credit default, 11-player default, max seven from one side, configurable role limits and exact team-A split (e.g. 6-5, 7-4, 5-6, 4-7)
+- Manual controls: lock players, exclude players, captain/vice-captain pools and manually fixed captain/vice-captain
 
-## Important limitations
+## Prediction integrity and current limitations
 
-This is **version 0.1.0**, a transparent baseline, not a trained AI model and not a guarantee of winning. It currently predicts from imported historical fantasy points. It does not automatically fetch live cricket data, infer missing credits, verify playing XIs, or know the current official scoring rules of any fantasy platform.
+The current prediction path is an **explainable format-specific statistical baseline with conservative match-context adjustments**. It is not yet a trained CatBoost/LightGBM model. The API reports this accurately at `/api/v1/model/status`.
 
-The starter scoring table in `app/config.py` is illustrative and must be checked against the exact contest rules before using calculated fantasy points. The current history importer accepts already-calculated `fantasy_points`; raw scorecard fields are retained for future scoring/backtesting work.
+Predictions require imported historical fantasy-point records for the same format. With no history, expected points are returned as null and the optimizer will not invent a score or select that player. Pitch and weather adjustments are applied only when supplied; venue, head-to-head, matchup and player opportunity are stored as match context but are not yet fully modelled as learned effects. Do not treat illustrative weights or confidence scores as a probability of winning.
 
-## Run locally (Windows)
+A true hybrid ML release still requires multi-source historical scorecards, verified fantasy scoring rules, feature engineering, chronological backtesting, calibration and model monitoring. No current endpoint silently scrapes or fabricates AI11 credits or historical data.
 
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
+## Deploy
+
+Build command:
+```bash
 pip install -r requirements.txt
-Copy-Item .env.example .env
-uvicorn app.main:app --reload
 ```
 
-Open:
-- http://127.0.0.1:8000/health
-- http://127.0.0.1:8000/docs
+Start command:
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
 
-## Render deployment
-
-1. Create a new Web Service from this GitHub repository.
-2. Build command: `pip install -r requirements.txt`
-3. Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-4. Add `DATABASE_URL` as a secret environment variable using a managed PostgreSQL connection string.
-5. If using SQLite instead, attach a persistent disk and set the database path to the mounted disk, for example `sqlite:////var/data/preet_fantasy.db`. Ephemeral filesystem data can be lost on redeploy.
+Configure a persistent PostgreSQL `DATABASE_URL` on Render. SQLite on an ephemeral filesystem can lose data after restart/redeploy.
 
 ## API workflow
 
-### 1. Create a match
-
+### 1. Create match
 ```json
 POST /api/v1/matches
 {
-  "id": "ind-nz-odi-2026-1",
-  "name": "India vs New Zealand",
-  "format": "T20",
-  "team_a": "India",
-  "team_b": "New Zealand",
-  "status": "upcoming"
+  "id":"ind-nz-odi-2026-2",
+  "name":"New Zealand vs India 2nd ODI",
+  "format":"ODI",
+  "team_a":"New Zealand",
+  "team_b":"India",
+  "venue":"Hnry Stadium, Wellington"
 }
 ```
 
-### 2. Import the match squad
-
+### 2. Import squad
 ```json
-POST /api/v1/matches/ind-nz-odi-2026-1/squad
+POST /api/v1/matches/ind-nz-odi-2026-2/squad
 {
-  "players": [
-    {"id":"p1","name":"Player One","team":"India","role":"BAT","credits":9.0,"selection_pct":72,"status":"confirmed"},
-    {"id":"p2","name":"Player Two","team":"New Zealand","role":"BOWL","credits":8.5,"selection_pct":35,"status":"probable"}
+  "players":[
+    {"id":"player-a","name":"Player A","team":"New Zealand","role":"BAT","credits":9.0,"selection_pct":72,"status":"confirmed"},
+    {"id":"player-b","name":"Player B","team":"India","role":"BOWL","credits":8.5,"selection_pct":35,"status":"probable"}
   ]
 }
 ```
 
-Allowed roles: `WK`, `BAT`, `AR`, `BOWL`. Use verified player IDs, credits and status. Unknown credits remain null and team generation will refuse to guess them.
-
-### 3. Register historical player identities
-
-Before importing past scorecards, register each player once. Player IDs are global identities; match-specific team, role, credits and availability are stored separately for each match.
-
+### 3. Correct a player's match details
 ```json
-POST /api/v1/players
-{"id":"p1","name":"Player One"}
+PATCH /api/v1/matches/ind-nz-odi-2026-2/players/player-a
+{"credits":9.5,"status":"confirmed","role":"BAT"}
 ```
 
-### 4. Import historical records
+### 4. Save sourced match intelligence
+```json
+PUT /api/v1/matches/ind-nz-odi-2026-2/intelligence
+{
+  "pitch_type":"balanced",
+  "batting_friendly":0.55,
+  "pace_friendly":0.75,
+  "spin_friendly":0.35,
+  "average_first_innings":252,
+  "rain_probability":20,
+  "humidity":65,
+  "wind_kmh":12,
+  "dew_likely":false,
+  "h2h_summary":"Source-backed summary",
+  "source_urls":["https://example.com/source"]
+}
+```
+Use verified source values only. Suitability fields are 0-1 inputs; do not guess them from prose without an explicit conversion process.
 
+### 5. Import historical fantasy points
+Register player identities with `POST /api/v1/players`, then:
 ```json
 POST /api/v1/history/import
 {
-  "records": [
-    {"match_id":"old-match-1","player_id":"p1","format":"T20","fantasy_points":64,"runs":42,"balls":28,"match_date":"2026-10-10"}
+  "records":[
+    {"match_id":"past-match-1","player_id":"player-a","format":"ODI","fantasy_points":64,"runs":42,"balls":51,"match_date":"2026-10-10","source":"verified-scorecard"}
   ]
 }
 ```
+History must use the exact contest scoring system and correct format.
 
-For the baseline predictor, provide historical `fantasy_points`. The raw statistics are also stored for later scoring and model development. Records for players not yet in the player table are skipped.
+### 6. Read player estimates
+`GET /api/v1/matches/ind-nz-odi-2026-2/predictions`
 
-### 5. Get predictions
-
-`GET /api/v1/matches/ind-nz-odi-2026-1/predictions`
-
-### 6. Generate teams
-
+### 7. Generate a balanced 6-5 team with manual locks
 ```json
-POST /api/v1/matches/ind-nz-odi-2026-1/teams
+POST /api/v1/matches/ind-nz-odi-2026-2/teams
 {
-  "strategies": ["safe","balanced","grand_league","scenario"],
-  "teams_per_strategy": 2,
-  "scenario": "neutral",
-  "rules": {
-    "team_size": 11,
-    "max_from_one_team": 7,
-    "max_credits": 100,
-    "playing_xi_only": false,
-    "min_role": {"WK":1,"BAT":3,"AR":1,"BOWL":3},
-    "max_role": {"WK":4,"BAT":6,"AR":4,"BOWL":6}
-  }
+  "strategies":["balanced"],
+  "teams_per_strategy":5,
+  "rules":{
+    "team_size":11,
+    "max_from_one_team":7,
+    "max_credits":100,
+    "team_a_count":6,
+    "playing_xi_only":true,
+    "min_role":{"WK":1,"BAT":3,"AR":1,"BOWL":3},
+    "max_role":{"WK":4,"BAT":6,"AR":4,"BOWL":6}
+  },
+  "locked_player_ids":["player-a"],
+  "excluded_player_ids":["player-b"],
+  "captain_pool":["player-a","player-c","player-d"],
+  "vice_captain_pool":["player-c","player-d","player-e"]
 }
 ```
+The team-A count is measured against the match's `team_a` value. Omit it for any legal split up to the maximum-per-side rule. For a fully manual XI, lock all 11 selected players and set the manual captain and vice-captain IDs.
 
-These are example rules only. Supply the exact constraints for the contest being entered.
+### 8. Model status
+`GET /api/v1/model/status`
 
-## Roadmap
+## Important next milestones
 
-1. Reliable multi-source ingestion adapters and player identity/alias matching.
-2. Historical T20 scorecard collection and chronological backtesting.
-3. Better role/opportunity, batting-position, expected-overs, venue and matchup features.
-4. Calibrated statistical/ML models and prediction monitoring.
-5. Admin dashboard and Crickfan integration after independent validation.
+1. AI11 analysis/fantasy URL importer with source attribution and verified credit extraction.
+2. Additional permitted cricket-statistics source adapters and player alias matching.
+3. Venue, matchup, batting-position and expected-overs features from historical scorecards.
+4. Format-specific ML training (ODI, T20, Test separately) with chronological backtests.
+5. Calibrated uncertainty and model monitoring before presenting ML confidence.
+6. Authenticated admin UI and a manual visual team editor.
 
-Never expose API keys in frontend code. Respect the terms and access rules of every cricket data provider.
+Respect each data provider's terms and access controls. This project does not guarantee fantasy contest results.
