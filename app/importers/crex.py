@@ -108,7 +108,7 @@ def parse_crex_venue_report(html: str, source_url: str | None = None) -> dict:
     spin_pct = _number(r"Pace\s+\d+\s+Wkt\s+\d+(?:\.\d+)?\s*%\s+(\d+(?:\.\d+)?)\s*%\s+Spin", pace_text)
 
     temperature = _number(r"(\d+(?:\.\d+)?)\s*[˚°]\s*C", text)
-    humidity = _number(r"(\d+(?:\.\d+)?)\s*%\s*\(Humidity\)", text)
+    humidity = _number(r"(\d+(?:\.\d+)?)\s*%\s*(?:\(\s*Humidity\s*\)|Humidity)", text)
     rain = _number(r"(\d+(?:\.\d+)?)\s*%\s*Chance", text)
     weather_condition = None
     weather_match = re.search(
