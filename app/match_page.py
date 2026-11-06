@@ -74,7 +74,11 @@ def _detail_schema(base_url: str, match: dict) -> str:
         "@type": "SportsEvent",
         "name": match.get("name"),
         "sport": "Cricket",
-        "eventStatus": "https://schema.org/EventScheduled",
+        "eventStatus": (
+            "https://schema.org/EventInProgress" if match.get("status") == "live"
+            else "https://schema.org/EventCompleted" if match.get("status") == "completed"
+            else "https://schema.org/EventScheduled"
+        ),
         "homeTeam": {"@type": "SportsTeam", "name": match.get("team_a_name") or match.get("team_a")},
         "awayTeam": {"@type": "SportsTeam", "name": match.get("team_b_name") or match.get("team_b")},
         "url": base_url.rstrip("/") + "/match/" + str(match.get("id")),
