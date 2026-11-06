@@ -9,7 +9,7 @@ import httpx
 import os
 import time
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from app.database import Base, engine, get_db, SessionLocal
 from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue
@@ -26,6 +26,7 @@ from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_se
 from app.venue_analysis import analyse_venue, compare_squad_strength, analysis_context_fields
 from app.public_feed import normalize_fixture, sort_fixture_key, classify_fixture_status
 from app.public_page import render_home, render_sitemap
+from app.match_page import render_match_detail
 
 Base.metadata.create_all(bind=engine)
 app = FastAPI(
@@ -269,6 +270,168 @@ def root(request: Request, db: Session = Depends(get_db)):
         render_home(template_path.read_text(encoding="utf-8"), matches, base_url, _last_public_sync_at),
         headers={"Cache-Control": "public, max-age=60"},
     )
+
+
+
+def _load_public_match_detail(match_id: str, db: Session) -> dict:
+    match = db.get(Match, match_id)
+    if match is None:
+        raise HTTPException(404, "Match not found.")
+
+    intel_row = db.get(MatchIntelligence, match_id)
+    intel = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+    existing_squads = db.scalars(
+        select(MatchSquad).where(MatchSquad.match_id == match_id)
+    ).all()
+    last_detail_sync = parse_source_datetime(intel.get("public_detail_imported_at"))
+    now = datetime.now(timezone.utc)
+    detail_stale = last_detail_sync is None or (now - last_detail_sync) >= timedelta(minutes=15)
+    import_note = "Squad data is loaded from the connected Team Generation match source."
+    import_ok = True
+
+    if match.source == "Team Generation" and (not existing_squads or detail_stale):
+        try:
+            # Reuse the already-tested importer so the detail page stores the
+            # same player IDs, roles, photos, credits, XI flags and trends
+            # used by the admin team builder.
+            import_result = import_teamgeneration_match(match_id, _admin=True, db=db)
+            source_status = (import_result.get("match") or {}).get("status")
+            normalized_status = classify_fixture_status(source_status, match.start_time, match.format)
+            if normalized_status in {"upcoming", "live", "completed", "cancelled", "postponed"}:
+                match.status = normalized_status
+
+            fresh_intel_row = db.get(MatchIntelligence, match_id)
+            fresh_intel = dict(fresh_intel_row.data or {}) if fresh_intel_row and isinstance(fresh_intel_row.data, dict) else {}
+            fresh_intel["public_detail_imported_at"] = now.isoformat()
+            fresh_intel["public_detail_import_status"] = "success"
+            fresh_intel["public_detail_imported_players"] = import_result.get("players_imported", 0)
+            if fresh_intel_row is None:
+                db.add(MatchIntelligence(match_id=match_id, data=fresh_intel))
+            else:
+                fresh_intel_row.data = fresh_intel
+            db.commit()
+            import_note = (
+                f"Player squad refreshed from Team Generation: "
+                f"{import_result.get('players_imported', 0)} players imported; "
+                f"{import_result.get('credits_verified_count', 0)} credits verified."
+            )
+            intel = fresh_intel
+        except HTTPException as exc:
+            db.rollback()
+            import_ok = False
+            detail = exc.detail
+            import_note = (
+                str(detail) if isinstance(detail, str)
+                else "The fixture is saved, but the source could not provide its full player data right now."
+            )
+        except Exception as exc:
+            db.rollback()
+            import_ok = False
+            import_note = "The fixture is saved, but player details could not be refreshed (" + type(exc).__name__ + ")."
+
+    # Refresh ORM state after the importer may have updated the fixture and squads.
+    match = db.get(Match, match_id)
+    intel_row = db.get(MatchIntelligence, match_id)
+    intel = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+    squad_rows = db.scalars(
+        select(MatchSquad).where(MatchSquad.match_id == match_id)
+    ).all()
+
+    profiles = db.scalars(
+        select(PlayerSourceProfile).where(PlayerSourceProfile.match_id == match_id)
+    ).all()
+    profile_map: dict[str, dict] = {}
+    for profile in profiles:
+        profile_map.setdefault(profile.player_id, {}).update(profile.data or {})
+
+    players = []
+    for squad in squad_rows:
+        player = db.get(Player, squad.player_id)
+        profile = profile_map.get(squad.player_id, {})
+        players.append({
+            "player_id": squad.player_id,
+            "player_name": player.name if player else squad.player_id,
+            "team": squad.team,
+            "role": squad.role,
+            "credits": squad.credits,
+            "selection_pct": squad.selection_pct,
+            "status": squad.status,
+            "image": profile.get("image"),
+            "captain_pct": profile.get("captain_pct", profile.get("ai11_captain_pct")),
+            "vice_captain_pct": profile.get("vice_captain_pct", profile.get("ai11_vice_captain_pct")),
+        })
+
+    stat_rows = db.scalars(
+        select(PlayerMatchStats).where(PlayerMatchStats.match_id == match_id)
+    ).all()
+    scorecards = []
+    for row in stat_rows:
+        player = db.get(Player, row.player_id)
+        squad = next((item for item in squad_rows if item.player_id == row.player_id), None)
+        scorecards.append({
+            "player_name": player.name if player else row.player_id,
+            "team": squad.team if squad else None,
+            "runs": row.runs,
+            "balls": row.balls,
+            "fours": row.fours,
+            "sixes": row.sixes,
+            "wickets": row.wickets,
+            "fantasy_points": row.fantasy_points,
+        })
+
+    feed = intel.get("public_feed") or {}
+    match_data = {
+        "id": match.id,
+        "name": match.name,
+        "format": match.format,
+        "start_time": match.start_time,
+        "venue": match.venue,
+        "team_a": match.team_a,
+        "team_b": match.team_b,
+        "status": match.status,
+        "team_a_name": feed.get("team_a_name") or match.team_a,
+        "team_b_name": feed.get("team_b_name") or match.team_b,
+        "series": feed.get("series") or match.name,
+    }
+    if not players and import_ok:
+        import_note = "The match fixture is saved, but the provider has not supplied a player squad for this match yet."
+    return {
+        "match": match_data,
+        "intelligence": intel,
+        "players": players,
+        "scorecards": scorecards,
+        "import_ok": import_ok,
+        "import_note": import_note,
+        "last_detail_sync": intel.get("public_detail_imported_at"),
+    }
+
+
+@app.get("/match/{match_id}", response_class=HTMLResponse)
+def public_match_detail_page(match_id: str, request: Request, db: Session = Depends(get_db)):
+    detail = _load_public_match_detail(match_id, db)
+    template_path = Path(__file__).with_name("match.html")
+    if not template_path.is_file():
+        raise HTTPException(500, "Public match detail template is missing.")
+    base_url = _public_site_base(request)
+    return HTMLResponse(
+        render_match_detail(
+            template_path.read_text(encoding="utf-8"),
+            detail["match"],
+            detail["intelligence"],
+            detail["players"],
+            detail["scorecards"],
+            base_url,
+            detail["import_note"],
+            detail["import_ok"],
+        ),
+        headers={"Cache-Control": "public, max-age=60"},
+    )
+
+
+@app.get("/api/v1/public/matches/{match_id}")
+def public_match_detail_api(match_id: str, db: Session = Depends(get_db)):
+    detail = _load_public_match_detail(match_id, db)
+    return detail
 
 
 @app.get("/api/v1/public/matches")
