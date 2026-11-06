@@ -234,8 +234,6 @@ def render_match_detail(
         else:
             recommended_score_mode = "chasing"
             recommended_score_team = other
-    elif recommended_score_mode == "first_innings" and analysis.get("toss_decision") == "bat":
-        recommended_score_mode = "first_innings"
     toss = intelligence.get("toss") or intelligence.get("toss_winner") or "Not announced"
     title = f"{match.get('team_a_name') or match.get('team_a')} vs {match.get('team_b_name') or match.get('team_b')} {fmt} Match | Preet Fantasy AI"
     description = (
@@ -266,7 +264,6 @@ def render_match_detail(
         "{{RECOMMENDED_SCORE_TEAM}}": html.escape(str(recommended_score_team)),
         "{{RECOMMENDED_SCORE_VALUE}}": html.escape(str(int(round(float(recommended_score_value)))) if recommended_score_value is not None else ""),
         "{{VENUE_HAS_DATA}}": "true" if analysis.get("available") else "false",
-        "{{VENUE_GUIDANCE}}": _venue_guidance_markup(analysis, venue_report),
         "{{TEAM_A}}": html.escape(str(match.get("team_a") or "")),
         "{{TEAM_B}}": html.escape(str(match.get("team_b") or "")),
         "{{TEAM_A_FULL}}": html.escape(str(match.get("team_a_name") or match.get("team_a") or "")),
