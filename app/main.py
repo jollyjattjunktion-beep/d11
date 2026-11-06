@@ -181,7 +181,16 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
     combined=[]
     for prediction in predictions:
         s=squad_by_id[prediction["player_id"]]
-        combined.append({**prediction,"credits":s.credits,"selection_pct":s.selection_pct,"status":s.status})
+        tg_profile=db.get(PlayerSourceProfile,(match_id,s.player_id,"TEAM_GENERATION"))
+        ai11_profile=db.get(PlayerSourceProfile,(match_id,s.player_id,"AI11"))
+        tg_data=tg_profile.data if tg_profile and isinstance(tg_profile.data,dict) else {}
+        ai11_data=ai11_profile.data if ai11_profile and isinstance(ai11_profile.data,dict) else {}
+        captain_pct=tg_data.get("captain_pct",ai11_data.get("captain_pct",ai11_data.get("captain")))
+        vice_pct=tg_data.get("vice_captain_pct",ai11_data.get("vice_captain_pct",ai11_data.get("vice_captain")))
+        combined.append({**prediction,"credits":s.credits,"selection_pct":s.selection_pct,"status":s.status,
+                         "captain_pct":captain_pct,"vice_captain_pct":vice_pct,
+                         "team_generation_image":tg_data.get("image"),
+                         "team_generation_fantasy_ids":tg_data.get("fantasy_ids")})
     history_ready=bool(combined) and all(p.get("expected_points") is not None for p in combined)
     requested=payload.generation_mode
     modes=(["ai_prediction","provisional"] if requested=="both" else [requested])
@@ -449,6 +458,252 @@ def history_coverage(_admin: bool = Depends(require_admin), db: Session = Depend
             "note":"Training readiness requires enough clean, chronological records and verified scoring rules; record count alone is not a quality guarantee."}
 
 
+
+
+def _teamgeneration_request(url: str):
+    if not TG_API_TOKEN:
+        raise HTTPException(503, "Team Generation importer is not configured. Add a fresh TG_API_TOKEN in Render.")
+    try:
+        response = httpx.get(
+            url,
+            headers={
+                "Authorization": "Bearer " + TG_API_TOKEN,
+                "Accept": "application/json",
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
+            },
+            timeout=25.0,
+            follow_redirects=False,
+            trust_env=False,
+        )
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Could not reach Team Generation API: " + type(exc).__name__)
+    if response.status_code == 401:
+        raise HTTPException(502, "Team Generation rejected TG_API_TOKEN (401). Sign in again and replace the expired or invalid token in Render.")
+    if response.status_code == 304:
+        raise HTTPException(502, "Team Generation returned 304 without a response body. Retry with browser cache disabled or refresh the source data.")
+    if response.status_code >= 400:
+        raise HTTPException(502, detail={
+            "message": "Team Generation upstream request failed.",
+            "upstream_status": response.status_code,
+            "response": response.text[:2000],
+        })
+    try:
+        return response.json()
+    except ValueError:
+        raise HTTPException(502, "Team Generation returned a non-JSON response.")
+
+
+@app.get("/api/v1/admin/teamgeneration/fixtures")
+def list_teamgeneration_fixtures(_admin: bool = Depends(require_admin)):
+    payload = _teamgeneration_request("https://v2.tgsoftware-api.online/matches?sport=cricket")
+    if not isinstance(payload, list):
+        raise HTTPException(502, "Unexpected Team Generation fixture response; expected a JSON list.")
+    matches = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        left = item.get("left") or {}
+        right = item.get("right") or {}
+        matches.append({
+            "id": str(item.get("id") or ""),
+            "series": item.get("series"),
+            "startTime": item.get("startTime"),
+            "status": item.get("status"),
+            "lineupStatus": item.get("lineupStatus"),
+            "left": {"name": left.get("name"), "code": left.get("code"), "image": left.get("image")},
+            "right": {"name": right.get("name"), "code": right.get("code"), "image": right.get("image")},
+            "transferTargets": item.get("transferTargets") or [],
+        })
+    return {"source": "Team Generation", "count": len(matches), "matches": matches}
+
+
+@app.post("/api/v1/admin/import/teamgeneration/{match_id}")
+def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_admin),
+                                db: Session = Depends(get_db)):
+    if not match_id or len(match_id) > 50 or any(
+        ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for ch in match_id
+    ):
+        raise HTTPException(422, "Invalid Team Generation match ID.")
+    payload = _teamgeneration_request("https://v2.tgsoftware-api.online/matches/" + match_id)
+    match_data = payload.get("match") if isinstance(payload, dict) else None
+    detail = payload.get("detail") if isinstance(payload, dict) else None
+    if not isinstance(match_data, dict) or not isinstance(detail, dict) or not isinstance(detail.get("players"), list):
+        raise HTTPException(422, "Team Generation response does not contain match details and a players list.")
+    if str(match_data.get("id")) != match_id:
+        raise HTTPException(422, "Team Generation returned a different match ID.")
+    left = match_data.get("left") or {}
+    right = match_data.get("right") or {}
+    left_name = str(left.get("code") or left.get("name") or "TEAM_A")
+    right_name = str(right.get("code") or right.get("name") or "TEAM_B")
+    series = str(match_data.get("series") or "Cricket")
+    match_format = "ODI" if "ODI" in series.upper() else ("T20I" if "T20I" in series.upper() else "T20")
+    match_values = {
+        "name": left_name + " vs " + right_name + " - " + series,
+        "format": match_format,
+        "start_time": match_data.get("startTime"),
+        "venue": None,
+        "team_a": left_name,
+        "team_b": right_name,
+        "status": str(match_data.get("status") or "upcoming"),
+        "source": "Team Generation",
+    }
+    match = db.get(Match, match_id)
+    if match is None:
+        match = Match(id=match_id, **match_values)
+        db.add(match)
+    else:
+        for key, value in match_values.items():
+            setattr(match, key, value)
+
+    role_map = {0: "WK", 1: "BAT", 2: "AR", 3: "BOWL"}
+    lineup_status = str(detail.get("lineupStatus") or match_data.get("lineupStatus") or "unknown").lower()
+    saved = 0
+    credits_saved = 0
+    missing_credits = []
+    profile_source = "TEAM_GENERATION"
+
+    for item in detail["players"]:
+        if not isinstance(item, dict) or item.get("playerId") is None or not item.get("name"):
+            continue
+        source_player_id = str(item["playerId"])
+        player_id = "TG-" + source_player_id
+        name = str(item["name"]).strip()
+        role_value = item.get("role")
+        try:
+            role_code = int(role_value)
+        except (TypeError, ValueError):
+            role_code = -1
+        role = role_map.get(role_code, "BAT")
+
+        team_value = item.get("team")
+        try:
+            team_code = int(team_value)
+        except (TypeError, ValueError):
+            team_code = -1
+        team = left_name if team_code == 0 else right_name if team_code == 1 else "UNKNOWN"
+
+        raw_credit = item.get("credits")
+        try:
+            credit = float(raw_credit) if raw_credit is not None else None
+        except (TypeError, ValueError):
+            credit = None
+        if credit is not None and not (0 < credit <= 20):
+            credit = None
+
+        raw_ownership = item.get("ownership")
+        try:
+            selection_pct = float(raw_ownership) if raw_ownership is not None else None
+        except (TypeError, ValueError):
+            selection_pct = None
+        if selection_pct is not None and not (0 <= selection_pct <= 100):
+            selection_pct = None
+
+        try:
+            playing_flag = int(item.get("playing") or 0)
+        except (TypeError, ValueError):
+            playing_flag = 0
+        if playing_flag == 1:
+            player_status = "playing"
+        elif "announc" in lineup_status:
+            player_status = "not_announced"
+        else:
+            player_status = "not_playing"
+
+        player = db.get(Player, player_id)
+        if player is None:
+            db.add(Player(id=player_id, name=name))
+        else:
+            player.name = name
+
+        squad = db.get(MatchSquad, (match_id, player_id))
+        # Preserve an admin-verified correction when this match is re-imported.
+        final_credit = squad.credits if squad and squad.source == "manual_verified" else credit
+        if final_credit is not None:
+            credits_saved += 1
+        else:
+            missing_credits.append(name)
+        squad_values = {
+            "team": team,
+            "role": role,
+            "credits": final_credit,
+            "selection_pct": selection_pct,
+            "status": player_status,
+            "source": "manual_verified" if squad and squad.source == "manual_verified" else profile_source,
+        }
+        if squad is None:
+            db.add(MatchSquad(match_id=match_id, player_id=player_id, **squad_values))
+        else:
+            for key, value in squad_values.items():
+                setattr(squad, key, value)
+
+        profile_data = {
+            "source_player_id": source_player_id,
+            "image": item.get("image"),
+            "role_code": role_code,
+            "team_code": team_code,
+            "player_type": item.get("playerType"),
+            "batting_order": item.get("battingOrder"),
+            "lineup_order": item.get("lineupOrder"),
+            "playing": item.get("playing"),
+            "last_play": item.get("lastPlay"),
+            "in_dream_team": item.get("inDreamTeam"),
+            "ownership": item.get("ownership"),
+            "captain_pct": item.get("captainPct"),
+            "vice_captain_pct": item.get("viceCaptainPct"),
+            "fantasy_ids": item.get("fantasyIds") or {},
+        }
+        profile = db.get(PlayerSourceProfile, (match_id, player_id, profile_source))
+        if profile is None:
+            db.add(PlayerSourceProfile(match_id=match_id, player_id=player_id,
+                                       source=profile_source, data=profile_data))
+        else:
+            profile.data = profile_data
+        saved += 1
+
+    if saved == 0:
+        db.rollback()
+        raise HTTPException(422, "No valid player records were found in the Team Generation response.")
+
+    intel = db.get(MatchIntelligence, match_id)
+    intel_data = {
+        "source": "Team Generation",
+        "source_match_id": match_id,
+        "lineup_status": lineup_status,
+        "toss": detail.get("toss"),
+        "imported_player_count": saved,
+        "teamgeneration_updated_at": detail.get("updatedAt"),
+        "team_images": {"left": left.get("image"), "right": right.get("image")},
+    }
+    if intel is None:
+        db.add(MatchIntelligence(match_id=match_id, data=intel_data))
+    else:
+        intel.data = {**(intel.data or {}), **intel_data}
+    db.commit()
+
+    rows = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match_id)).all()
+    missing = []
+    for row in rows:
+        if row.credits is None:
+            player = db.get(Player, row.player_id)
+            missing.append(player.name if player else row.player_id)
+    return {
+        "imported": True,
+        "source": "Team Generation",
+        "match_id": match_id,
+        "match": match_values,
+        "players_imported": saved,
+        "credits_verified_count": len(rows) - len(missing),
+        "credits_missing_count": len(missing),
+        "credits_missing_players": missing,
+        "credits_ready_for_team_builder": bool(rows) and not missing,
+        "source_profiles_saved": saved,
+        "team_mapping": {"0": left_name, "1": right_name},
+        "role_mapping": {"0": "WK", "1": "BAT", "2": "AR", "3": "BOWL"},
+        "note": "Lineup-not-announced players are not marked unavailable. Player IDs are namespaced with TG- to avoid collisions with other import sources.",
+    }
+
+
 @app.get("/api/v1/admin/teamgeneration/matches/{match_id}/inspect")
 def inspect_teamgeneration_match(match_id: str, _admin: bool = Depends(require_admin)):
     """Fetch one Team Generation match using a server-side token; never return or log credentials."""
@@ -496,7 +751,9 @@ def inspect_teamgeneration_match(match_id: str, _admin: bool = Depends(require_a
 def admin_page():
     return """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>Preet Fantasy AI Import</title><style>body{font:16px system-ui;max-width:650px;margin:40px auto;padding:20px;background:#f5f7f8}input,button{width:100%;padding:14px;box-sizing:border-box;margin-top:12px}button{background:#16a878;color:white;border:0;border-radius:8px;font-weight:700}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#17212b;color:#e8fff4;padding:14px;border-radius:8px}</style></head>
-    <body><h2>Preet Fantasy AI — AI11 Import</h2>
+    <body><h2>Preet Fantasy AI — Import Centre</h2>
+    <section style="background:white;padding:16px;border-radius:12px;margin-bottom:18px">
+      <h3>Source 1 — AI11</h3>
     <p>Paste one AI11 match URL (Fantasy or Analysis). The matching page is detected automatically.</p>
     <input id="url" type="url" placeholder="Paste AI11 match URL">
     <button id="go">Fetch match data</button><pre id="out">Ready.</pre>
@@ -551,4 +808,47 @@ def admin_page():
         if(r.status===401)adminToken='';
       }catch(e){out.textContent='Network/request error: '+e.message;}
     };
+    async function ensureAdminToken(){if(!adminToken)adminToken=prompt('Enter Preet Fantasy AI admin token:')||'';return !!adminToken;}
+    </script>
+    </section>
+    <section style="background:white;padding:16px;border-radius:12px;margin:18px 0">
+      <h3>Source 2 — Team Generation</h3>
+      <p>Uses the authorized Team Generation access token configured privately as TG_API_TOKEN in Render. No source token is entered into this page.</p>
+      <button id="tgLoad">Load upcoming cricket matches</button>
+      <div id="tgMatches"></div><pre id="tgOut">Ready.</pre>
+    </section>
+    <script>
+    async function loadTgMatches(){
+      if(!await ensureAdminToken())return;
+      const box=document.getElementById('tgMatches'),out=document.getElementById('tgOut');
+      box.textContent='Loading fixtures…';out.textContent='Connecting to Team Generation…';
+      try{
+        const r=await fetch('/api/v1/admin/teamgeneration/fixtures',{headers:headers()});
+        const data=await r.json();
+        if(!r.ok){box.textContent='Could not load fixtures.';out.textContent=JSON.stringify(data,null,2);if(r.status===401)adminToken='';return;}
+        box.innerHTML='';
+        (data.matches||[]).forEach(m=>{
+          const card=document.createElement('div');
+          card.style='border:1px solid #ccd3d8;border-radius:8px;padding:12px;margin:10px 0;background:#fafafa';
+          const title=document.createElement('strong');
+          title.textContent=(m.left.code||m.left.name)+' vs '+(m.right.code||m.right.name)+' — '+(m.series||'Cricket');
+          const meta=document.createElement('small');meta.style='display:block;margin:6px 0';
+          meta.textContent='ID: '+m.id+' | '+(m.startTime||'')+' | '+(m.lineupStatus||'lineup unknown');
+          const btn=document.createElement('button');btn.textContent='Import players and credits';
+          btn.onclick=async()=>{
+            btn.disabled=true;out.textContent='Importing '+m.id+'…';
+            try{
+              const response=await fetch('/api/v1/admin/import/teamgeneration/'+encodeURIComponent(m.id),{method:'POST',headers:headers()});
+              const result=await response.json();out.textContent=JSON.stringify({http_status:response.status,...result},null,2);
+              if(response.ok&&result.match_id){currentMatchId=result.match_id;await loadCredits(currentMatchId);}
+              if(response.status===401)adminToken='';
+            }catch(e){out.textContent='Import failed: '+e.message;}
+            finally{btn.disabled=false;}
+          };
+          card.append(title,meta,btn);box.append(card);
+        });
+        out.textContent='Loaded '+(data.count||0)+' fixtures.';
+      }catch(e){box.textContent='Request failed.';out.textContent=e.message;}
+    }
+    document.getElementById('tgLoad').onclick=loadTgMatches;
     </script></body></html>"""
