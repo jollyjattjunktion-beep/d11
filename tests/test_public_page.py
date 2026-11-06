@@ -61,3 +61,4 @@ def test_sitemap_contains_canonical_homepage_url():
     sitemap = render_sitemap("https://fantasy.example", [sample_match()])
     assert "<urlset" in sitemap
     assert "<loc>https://fantasy.example/</loc>" in sitemap
+    assert "<loc>https://fantasy.example/match/fixture-1</loc>" in sitemap
