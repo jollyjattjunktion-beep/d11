@@ -112,6 +112,20 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
 .generated-copy{border:1px solid #d8cbed;border-radius:7px;background:#fff;color:var(--purple);padding:6px 9px;font-size:9px;font-weight:800;cursor:pointer}
 @media(max-width:650px){.mode-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.option-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.builder-common{grid-template-columns:1fr}.fixed-picker{grid-template-columns:1fr}.generated-player-groups{grid-template-columns:1fr}.generated-role:nth-child(odd){border-right:0}}
 
+
+.venue-guidance{margin:0 0 14px;padding:13px 14px;border:1px solid #ded6ef;border-radius:11px;background:linear-gradient(110deg,#f7f3ff,#fbfaff)}
+.venue-guidance.empty-guidance{background:#fff8e9;border-color:#f0dfb8;color:#805b17}
+.venue-guidance-title{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;font-weight:900;color:#4f347e}
+.venue-confidence{font-size:9px;font-weight:800;padding:4px 8px;background:#eae2f8;color:#6541a5;border-radius:20px}
+.venue-evidence-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
+.venue-evidence-grid>div{background:#fff;border:1px solid #e7e1f1;border-radius:8px;padding:9px}
+.venue-evidence-grid small{display:block;font-size:9px;color:var(--muted);margin-bottom:3px}
+.venue-evidence-grid strong{font-size:11px}
+.venue-guidance-note,.venue-guidance p{font-size:10px;line-height:1.55;color:var(--muted);margin:9px 0 0}
+.recommend-tag{display:inline-flex;margin-left:5px;vertical-align:middle;background:#e5f6ee;color:#146d4b;padding:3px 6px;border-radius:20px;font-size:8px;font-weight:900}
+.mode-panel-recommendation{font-size:10px;color:#5a4782;margin:0 0 11px;padding:8px 10px;background:#f4f0fb;border-radius:8px}
+@media(max-width:650px){.venue-evidence-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.venue-guidance{padding:11px}}
+
 </style>
 </head>
 <body>
@@ -143,8 +157,9 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
 
  <section class="section" id="fantasy-builder">
   <div class="section-head"><h2>Create your fantasy team</h2><small>Four strategy paths • Rule-checked combinations</small></div>
-  <div class="builder-section" id="teamBuilder" data-match-id="{{MATCH_ID}}" data-team-a="{{TEAM_A}}" data-team-b="{{TEAM_B}}" data-format="{{FORMAT}}" data-lineup-confirmed="{{LINEUP_CONFIRMED}}">
+  <div class="builder-section" id="teamBuilder" data-match-id="{{MATCH_ID}}" data-team-a="{{TEAM_A}}" data-team-b="{{TEAM_B}}" data-format="{{FORMAT}}" data-lineup-confirmed="{{LINEUP_CONFIRMED}}" data-recommended-pitch="{{RECOMMENDED_PITCH}}" data-recommended-score-mode="{{RECOMMENDED_SCORE_MODE}}" data-recommended-score-team="{{RECOMMENDED_SCORE_TEAM}}" data-recommended-score-value="{{RECOMMENDED_SCORE_VALUE}}" data-venue-has-data="{{VENUE_HAS_DATA}}">
    <p class="builder-intro">Build teams using match conditions, an innings score scenario, multiple strategies or high-selection fixed players. The score scenario and pitch choices influence player-selection preferences; they are not guaranteed score or fantasy-point predictions.</p>
+   <div id="venueAutoGuidance">{{VENUE_GUIDANCE}}</div>
    <div class="mode-tabs" role="tablist" aria-label="Team generation method">
     <button class="mode-tab active" type="button" data-mode="pitch" role="tab" aria-selected="true"><strong>Pitch based</strong><small>Batting • Pace • Spin • Balanced</small></button>
     <button class="mode-tab" type="button" data-mode="score" role="tab" aria-selected="false"><strong>Score based</strong><small>First innings • Chasing</small></button>
@@ -153,6 +168,7 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
    </div>
 
    <div class="mode-panel" id="panel-pitch" role="tabpanel">
+    <div class="mode-panel-recommendation" id="pitchRecommendation">Checking venue recommendation…</div>
     <strong style="font-size:12px">Choose pitch conditions</strong>
     <div class="option-grid" style="margin-top:10px">
      <button class="scenario-choice selected" type="button" data-scenario="neutral"><strong>⚖ Balanced</strong><small>Neutral surface</small></button>
@@ -164,16 +180,17 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
    </div>
 
    <div class="mode-panel" id="panel-score" role="tabpanel" hidden>
+    <div class="mode-panel-recommendation" id="scoreRecommendation">Checking first-innings / chase history…</div>
     <strong style="font-size:12px">Select innings scenario</strong>
     <div class="option-grid" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:10px">
      <button class="scenario-choice selected" type="button" data-score-mode="first_innings"><strong>1st innings</strong><small>Batting-first scenario</small></button>
      <button class="scenario-choice" type="button" data-score-mode="chasing"><strong>2nd innings</strong><small>Chasing scenario</small></button>
     </div>
     <div class="field-row">
-     <div class="builder-field"><label for="scoreTeam">Batting-first / chasing team</label><select id="scoreTeam"><option value="{{TEAM_A}}">{{TEAM_A}}</option><option value="{{TEAM_B}}">{{TEAM_B}}</option></select></div>
-     <div class="builder-field"><label for="scenarioScore">Scenario score / target</label><input id="scenarioScore" type="number" min="1" max="600" placeholder="Enter score e.g. 180"></div>
+     <div class="builder-field"><label for="scoreTeam">Batting-first / chasing team</label><select id="scoreTeam"><option value="">Choose team</option><option value="{{TEAM_A}}">{{TEAM_A}}</option><option value="{{TEAM_B}}">{{TEAM_B}}</option></select></div>
+     <div class="builder-field"><label for="scenarioScore">Venue average / target assumption</label><input id="scenarioScore" type="number" min="1" max="600" value="{{RECOMMENDED_SCORE_VALUE}}" placeholder="Enter score e.g. 180"></div>
     </div>
-    <p class="builder-help">Enter your own score assumption. In 1st innings mode, choose the batting-first team. In chasing mode, choose the chasing team and enter the target. The score is a small selection preference only, not an AI-predicted total.</p>
+    <p class="builder-help" id="scoreScenarioHint">When venue records exist, the first-innings average is prefilled as a starting assumption. Change it to your own score/target. In 1st innings mode choose the batting-first team; in chasing mode choose the chasing team. This is a selection input, not a score prediction.</p>
    </div>
 
    <div class="mode-panel" id="panel-combo" role="tabpanel" hidden>
@@ -233,8 +250,42 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
  const matchId=root.dataset.matchId,teamA=root.dataset.teamA,teamB=root.dataset.teamB,format=root.dataset.format;
  const lineupConfirmed=root.dataset.lineupConfirmed==='true';
  const $=id=>document.getElementById(id);
- let activeMode='pitch',pitchScenario='neutral',scoreMode='first_innings',lastTeams=[];
+ const venueHasData=root.dataset.venueHasData==='true';
+ const recommendedPitch=root.dataset.recommendedPitch||'balanced';
+ const recommendedScoreMode=root.dataset.recommendedScoreMode||'manual';
+ const recommendedScoreTeam=root.dataset.recommendedScoreTeam||'';
+ const recommendedScoreValue=root.dataset.recommendedScoreValue||'';
+ let activeMode='pitch',pitchScenario=({batting:'batting_friendly',bowling:'bowling_friendly',balanced:'neutral'})[recommendedPitch]||'neutral';
+ let scoreMode=['first_innings','chasing'].includes(recommendedScoreMode)?recommendedScoreMode:'first_innings',lastTeams=[];
  const alertBox=$('builderAlert'),results=$('generatedTeams'),generate=$('generateMatchTeams');
+ function paintPitchRecommendation(){
+  document.querySelectorAll('[data-scenario]').forEach(b=>{
+   const selected=b.dataset.scenario===pitchScenario;b.classList.toggle('selected',selected);
+   const title=b.querySelector('strong');if(!title)return;
+   const old=title.querySelector('.recommend-tag');if(old)old.remove();
+   if(selected&&venueHasData){const tag=document.createElement('span');tag.className='recommend-tag';tag.textContent='VENUE PICK';title.append(tag);}
+  });
+  $('pitchRecommendation').textContent=venueHasData
+   ? 'Venue-data recommendation: '+(recommendedPitch==='batting'?'Batting-friendly surface':recommendedPitch==='bowling'?'Bowling-friendly surface':'Balanced surface')+'. Selected automatically from '+format+' ground records.'
+   : 'No linked venue records for this ground and format. Balanced is only a neutral starting point; choose a pitch condition manually.';
+ }
+ function paintScoreRecommendation(){
+  document.querySelectorAll('[data-score-mode]').forEach(b=>{
+   const selected=b.dataset.scoreMode===scoreMode;b.classList.toggle('selected',selected);
+   const title=b.querySelector('strong');if(!title)return;
+   const old=title.querySelector('.recommend-tag');if(old)old.remove();
+   if(selected&&venueHasData&&recommendedScoreMode===scoreMode){const tag=document.createElement('span');tag.className='recommend-tag';tag.textContent='VENUE PICK';title.append(tag);}
+  });
+  if(!venueHasData){
+   $('scoreRecommendation').textContent='No matching-format venue score history is linked. First innings / chase choice is manual.';
+   return;
+  }
+  $('scoreRecommendation').textContent=recommendedScoreMode==='first_innings'
+   ? 'Venue recommendation: batting first. Historical results show a stronger first-innings record. Choose the likely batting-first team.'
+   : recommendedScoreMode==='chasing'
+   ? 'Venue recommendation: chasing. Historical results show a stronger bowling-first / chase record. Choose the team expected to chase.'
+   : 'Venue history does not show a strong first-innings or chase edge. Select the innings scenario manually.';
+ }
  function showAlert(msg,kind='info'){alertBox.textContent=msg;alertBox.className='builder-alert '+kind;}
  function clearAlert(){alertBox.textContent='';alertBox.className='builder-alert';}
  function switchMode(mode){
@@ -245,14 +296,16 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
  }
  document.querySelectorAll('.mode-tab').forEach(b=>b.addEventListener('click',()=>switchMode(b.dataset.mode)));
  document.querySelectorAll('[data-scenario]').forEach(b=>b.addEventListener('click',()=>{
-  pitchScenario=b.dataset.scenario;
-  document.querySelectorAll('[data-scenario]').forEach(x=>x.classList.toggle('selected',x===b));
+  pitchScenario=b.dataset.scenario;paintPitchRecommendation();
  }));
  document.querySelectorAll('[data-score-mode]').forEach(b=>b.addEventListener('click',()=>{
-  scoreMode=b.dataset.scoreMode;
-  document.querySelectorAll('[data-score-mode]').forEach(x=>x.classList.toggle('selected',x===b));
-  $('scoreTeam').previousElementSibling.textContent=scoreMode==='first_innings'?'Batting-first team':'Chasing team';
+  scoreMode=b.dataset.scoreMode;paintScoreRecommendation();
+  $('scoreTeam').parentElement.querySelector('label').textContent=scoreMode==='first_innings'?'Batting-first team':'Chasing team';
  }));
+ if(recommendedScoreTeam&&[teamA,teamB].includes(recommendedScoreTeam))$('scoreTeam').value=recommendedScoreTeam;
+ if(recommendedScoreValue&&Number(recommendedScoreValue)>0)$('scenarioScore').value=recommendedScoreValue;
+ paintPitchRecommendation();paintScoreRecommendation();
+ $('scoreTeam').parentElement.querySelector('label').textContent=scoreMode==='first_innings'?'Batting-first team':'Chasing team';
  function selectedFixed(){return [...document.querySelectorAll('.fixed-choice:checked')].map(x=>x.value);}
  function updateFixedCount(){const n=selectedFixed().length;$('fixedCount').textContent=n+' / 5 selected'+(n>=4?' • ready':' • choose 4–5');}
  document.querySelectorAll('.fixed-choice').forEach(x=>x.addEventListener('change',()=>{
@@ -309,6 +362,7 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
   if(activeMode==='pitch'){scenario=pitchScenario;strategies=['balanced'];}
   if(activeMode==='score'){
    strategies=['balanced'];score_mode=scoreMode;score_team=$('scoreTeam').value;scenario_score=Number($('scenarioScore').value);
+   if(!score_team){showAlert('Select the batting-first or chasing team. Venue history cannot identify which team will bat or chase before the toss.','error');return;}
    if(!Number.isInteger(scenario_score)||scenario_score<1||scenario_score>600){showAlert('Enter a valid scenario score between 1 and 600.','error');return;}
   }
   if(activeMode==='combo'){
