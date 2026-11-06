@@ -159,7 +159,7 @@ def _venue_guidance_markup(analysis: dict | None, report: dict | None) -> str:
     if not analysis or not analysis.get("available"):
         return (
             '<div class="venue-guidance empty-guidance"><strong>Venue history is not linked for this match.</strong>'
-            '<p>Pitch and batting-first/chase choices remain manual until a stadium with matching-format Cricbuzz records is assigned in the admin Match Library.</p>'
+            '<p>Pitch and batting-first/chase choices remain manual until a stadium with matching-format Cricbuzz records is assigned in the <a href="/admin" rel="nofollow">admin Match Library</a>.</p>'
             '</div>'
         )
     fmt = html.escape(str(analysis.get("format") or ""))
