@@ -144,6 +144,17 @@ def analyse_venue(report: dict, match_format: str) -> dict:
         "manual": "No strong first-innings / chasing edge from this sample",
     }[recommended_innings_mode]
 
+    # Optional role-specific venue profile inputs, when a provider/admin has supplied them.
+    pace_friendly = _safe_float(stats.get("pace_assistance"))
+    spin_friendly = _safe_float(stats.get("spin_assistance"))
+    batting_friendly = _safe_float(stats.get("batting_friendly"))
+    if pace_friendly is not None:
+        reasons.append(f"Imported pace-assistance index: {pace_friendly:g}.")
+    if spin_friendly is not None:
+        reasons.append(f"Imported spin-assistance index: {spin_friendly:g}.")
+    if batting_friendly is not None:
+        reasons.append(f"Imported batting-suitability index: {batting_friendly:g}.")
+
     return {
         "format": fmt,
         "available": True,
@@ -154,6 +165,9 @@ def analyse_venue(report: dict, match_format: str) -> dict:
         "toss_recommendation": toss,
         "toss_decision": toss_key,
         "confidence": confidence,
+        "pace_friendly": pace_friendly,
+        "spin_friendly": spin_friendly,
+        "batting_friendly": batting_friendly,
         "confidence_note": "Confidence reflects the available format-specific sample and agreement among venue signals; it is not a match-win probability.",
         "batting_first_win_pct": round(bat_rate * 100, 1) if bat_rate is not None else None,
         "bowling_first_win_pct": round(bowl_rate * 100, 1) if bowl_rate is not None else None,
