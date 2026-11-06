@@ -144,6 +144,8 @@
 </main>
 <script>
 const state={matchId:null,match:null,players:[],intelligence:{},step:1,lineupSelected:new Set(),lineupConfirmed:false,fixed:new Set(),pitch:'balanced',strongTeam:'equal',tossCompleted:false,tossWinner:'',tossDecision:'',venueSuggestions:[],venueReport:null,venueAnalysis:null,teamStrengthAnalysis:null,teamVenueAnalysis:[],roleFilter:'ALL',importRoleFilter:'ALL',suggestedFixed:new Set()};
+let seriesDiscoveryOffset=0;
+let seriesIndexLastUrl='';
 const $=id=>document.getElementById(id);
 const token=()=> $('adminToken').value.trim();
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -244,6 +246,7 @@ async function discoverSeriesVenues(){
  }catch(e){$('catalogueImportNotice').textContent=e.message;}
  finally{btn.disabled=false;btn.textContent='Discover series & grounds';}
 }
+$('seriesIndexUrl').addEventListener('change',()=>{seriesIndexLastUrl='';seriesDiscoveryOffset=0;});
 async function importSeriesVenues(){
  const url=$('seriesVenuesUrl').value.trim();if(!url){$('catalogueImportNotice').textContent='Paste a Cricbuzz series Venues page URL.';return;}
  const btn=$('importSeriesVenues');btn.disabled=true;btn.textContent='Importing…';
