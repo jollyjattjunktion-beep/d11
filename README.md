@@ -210,17 +210,25 @@ Check dataset coverage with `GET /api/v1/admin/history/coverage` and source play
 Only the second category trains historical fantasy-point prediction. The first and third enrich pre-match features. Do not train on future match information or post-match facts when simulating a pre-match prediction.
 
 
-### CREX venue report import
+### Cricbuzz venue statistics and global catalogue
 
-In Step 4 of `/admin`, paste an HTTPS CREX match Info/Venue URL such as:
+The admin wizard's Step 3 accepts a Cricbuzz venue page URL such as:
 
-`https://crex.com/cricket-live-score/{match-slug}-match-updates-{id}`
+`https://www.cricbuzz.com/cricket-series/12543/india-tour-of-new-zealand-2026/venues/42/hnry-stadium`
 
-The protected endpoint `POST /api/v1/admin/matches/{match_id}/venue/import` fetches and stores the visible CREX venue report (match count, bat-first/bowl-first win percentages, innings averages, ground score records, pace/spin wicket shares, and available weather/pitch text). It accepts only CREX cricket match URLs. Missing values remain null.
+The protected endpoint `POST /api/v1/admin/matches/{match_id}/venue/import` saves the venue in the SQL `venues` table, preserving ODI, T20 and Test statistics separately. It extracts total matches, bat-first/bowl-first wins, first- and second-innings averages, highest/lowest totals, highest chase and lowest defended, plus venue profile/facts where exposed.
 
-The companion `GET /api/v1/admin/matches/{match_id}/venue-suggestions` compares imported historical player-match records at the same normalized venue for current squad members, grouped by both teams. These team panels are player-sample summaries, not team win rates. Venue-specific player statistics require historical scorecards and venue metadata to have been imported first.
+The automatic analysis uses only the fixture's format. It explains batting/bowling surface and toss preference from venue profile, innings averages and historical win splits. The stronger squad is assessed separately using format-matched player expected fantasy points; it is not a match-winner probability. When both sides lack adequate player data, it returns "insufficient evidence" rather than inventing a stronger team.
 
-The fixed-player shortlist is limited to five and accepts only players with provider selection percentage of at least 80%. The admin workspace recommends selecting four or five such players. Venue performance is a separate supporting metric and is not used to pretend a player has ground history when records are missing.
+The Step 4 stadium catalogue can grow automatically:
+
+- **Discover series & grounds** accepts the public Cricbuzz all-series schedule page (`https://www.cricbuzz.com/cricket-schedule/series/all`) or a year archive page (`https://www.cricbuzz.com/cricket-scorecard-archives/2026`). It discovers series, opens their Venues pages and stores linked stadium entries.
+- **Enrich next 10 stadiums** fetches detailed venue profiles and format stats in small batches.
+- A separate one-series import remains available for a direct `/cricket-series/{id}/{slug}/venues` URL.
+- `GET /api/v1/admin/venues?q=...` searches the SQL catalogue.
+
+Repeat discovery with different archive-year URLs to broaden historical and worldwide ground coverage. The catalogue is progressive, not a claim that every stadium in the world has been indexed. Venue player-history comparisons require historical match-by-match scorecards with venue names to have been imported separately. The fixed-player shortlist remains limited to 4–5 selected players with provider selection percentage of at least 80%.
+
 
 ### AI11 rate-limit protection
 
