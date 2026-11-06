@@ -272,3 +272,18 @@ Protected endpoints:
 ### Dream-team preview and team splits
 
 The final wizard step now renders portrait cricket-ground cards for each generated team, including player photos, role groups, C/VC labels, credits, and a clear provisional-vs-estimated-points label. Use **Print / Save PDF** to export the cards. Exact Team A:Team B options are 6:5, 5:6, 7:4 and 4:7. The fixed-player step only locks eligible players with provider selection at least 80%; it does not block the wizard when fewer than four qualify.
+
+
+### Public cricket fixture homepage
+
+The root route `/` serves an SEO-friendly public cricket match centre. It uses the same authenticated Team Generation fixture endpoint already used by the admin importer.
+
+- `app/public_feed.py` normalizes fixtures, detects ODI/T20/Test formats, derives live/upcoming/completed/cancelled state and applies format-aware stale-match cutoffs when the provider omits status.
+- `app/main.py` upserts lightweight match rows into `matches` and stores series/team labels/logos/provider status in the `match_intelligence.data.public_feed` JSON object. It does not import full player squads from the public homepage.
+- A background sync runs every five minutes while the web service is awake. The homepage, sitemap and public feed API also trigger a throttled sync, so the first visit after a cold start refreshes the database.
+- Completed/cancelled fixtures, and records omitted by a later full provider fixture list, are hidden from the public page. Their match, squad, scorecard and player-history records are retained in SQL.
+- `GET /api/v1/public/matches` returns the visible fixture feed and sync status.
+- `POST /api/v1/admin/public-matches/sync` forces a manual sync and requires `X-Admin-Token`.
+- `/robots.txt` and `/sitemap.xml` are served for search-engine discovery. Set `PUBLIC_SITE_URL` in Render when a custom canonical domain is configured; otherwise the request host is used.
+
+The homepage is server-rendered from SQL, with canonical/meta description, Open Graph/Twitter metadata, SportsEvent/ItemList JSON-LD, mobile-responsive fixture cards and FAQ content. Fixture coverage and status are limited to what the connected Team Generation provider exposes. The service must have a valid `TG_API_TOKEN` and persistent PostgreSQL `DATABASE_URL` for reliable scheduled updates and long-term SQL retention.
