@@ -1,5 +1,4 @@
 import email.utils
-import json
 import re
 import threading
 import time
@@ -122,9 +121,9 @@ def parse_analysis(html: str):
     soup = BeautifulSoup(html, "html.parser")
     title = soup.title.get_text(" ", strip=True) if soup.title else "AI11 match"
     text = soup.get_text(" ", strip=True)
-    fmt = "TEST" if re.search(r"\\btest\\b", title + " " + text[:500], re.I) else "T20" if re.search(r"\\bT20\\b", title + " " + text[:500], re.I) else "ODI"
+    fmt = "TEST" if re.search(r"\btest\b", title + " " + text[:500], re.I) else "T20" if re.search(r"\bT20\b", title + " " + text[:500], re.I) else "ODI"
     venue = None
-    m = re.search(r"(?:Pitch Report:\\s*[^ ]+\\s*)?([A-Z][A-Za-z .'-]+ Stadium)", text)
+    m = re.search(r"(?:Pitch Report:\s*[^ ]+\s*)?([A-Z][A-Za-z .'-]+ Stadium)", text)
     if m:
         venue = m.group(1).strip()
     teams = []
@@ -133,11 +132,11 @@ def parse_analysis(html: str):
         if alt and alt.lower() not in {"image", "logo"} and alt not in teams:
             teams.append(alt)
     if len(teams) < 2:
-        m = re.search(r"([A-Za-z ]+)\\s+vs\\s+([A-Za-z ]+)", title, re.I)
+        m = re.search(r"([A-Za-z ]+)\s+vs\s+([A-Za-z ]+)", title, re.I)
         if m:
             teams = [m.group(1).strip(), m.group(2).strip()]
     team_a, team_b = (teams[0], teams[1]) if len(teams) >= 2 else ("TEAM_A", "TEAM_B")
-    match_name = re.sub(r"\\s*\\|\\s*AI11.*$", "", title).strip()
+    match_name = re.sub(r"\s*\|\s*AI11.*$", "", title).strip()
     match_id = _player_id(match_name) or "ai11-match"
     players = []
     profiles = []
@@ -177,10 +176,10 @@ def parse_analysis(html: str):
         match = re.search(pattern, text, re.I)
         return _number(match.group(1)) if match else None
 
-    intelligence["average_first_innings"] = find_num(r"average first[- ]innings score[^0-9]{0,50}(\\d{2,3})")
-    intelligence["rain_probability"] = find_num(r"Chance of rain\\s*(\\d+(?:\\.\\d+)?)\\s*%?")
-    intelligence["humidity"] = find_num(r"Humidity\\s*(\\d+(?:\\.\\d+)?)\\s*%?")
-    intelligence["wind_kmh"] = find_num(r"Wind\\s*(\\d+(?:\\.\\d+)?)\\s*km/h")
+    intelligence["average_first_innings"] = find_num(r"average first[- ]innings score[^0-9]{0,50}(\d{2,3})")
+    intelligence["rain_probability"] = find_num(r"Chance of rain\s*(\d+(?:\.\d+)?)\s*%?")
+    intelligence["humidity"] = find_num(r"Humidity\s*(\d+(?:\.\d+)?)\s*%?")
+    intelligence["wind_kmh"] = find_num(r"Wind\s*(\d+(?:\.\d+)?)\s*km/h")
     if venue:
         intelligence["venue_name"] = venue
     pitch_match = re.search(r"pitch (?:favou?rs?|is) ([^.]+)", text, re.I)
@@ -189,10 +188,10 @@ def parse_analysis(html: str):
     form_match = re.search(r"Recent Form(.*?)(?:Head to Head|Pitch Report)", text, re.I)
     if form_match:
         intelligence["recent_form_source_text"] = form_match.group(1).strip()[:500]
-    h2h_match = re.search(r"Head to Head \\(last 5\\)(.*?)(?:Pitch Report|Weather)", text, re.I)
+    h2h_match = re.search(r"Head to Head \(last 5\)(.*?)(?:Pitch Report|Weather)", text, re.I)
     if h2h_match:
         intelligence["h2h_source_text"] = h2h_match.group(1).strip()[:500]
-    weather_match = re.search(r"Weather:.*?(?:Dew is likely[^.]*\\.)?", text, re.I)
+    weather_match = re.search(r"Weather:.*?(?:Dew is likely[^.]*\.)?", text, re.I)
     if weather_match:
         intelligence["weather_summary"] = weather_match.group(0)[:500]
     return {"title": match_name, "format": fmt, "team_a": team_a, "team_b": team_b,
@@ -212,7 +211,7 @@ def parse_fantasy(html: str):
         raw = script.string or script.get_text()
         if not raw or len(raw) > 2_000_000:
             continue
-        for match in re.finditer(r'"(?:name|playerName)"\\s*:\\s*"([^"]+)"[^{}]{0,500}?"(?:credits|credit)\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)', raw, re.I):
+        for match in re.finditer(r'"(?:name|playerName)"\s*:\s*"([^"]+)"[^{}]{0,500}?"(?:credits|credit)\s*:\s*([0-9]+(?:\.[0-9]+)?)', raw, re.I):
             credits[_player_id(match.group(1))] = float(match.group(2))
     return {"credits": credits, "credits_found": len(credits),
             "dynamic_content_may_require_browser": len(credits) == 0}
