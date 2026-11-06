@@ -3,6 +3,8 @@ import pytest
 from app.importers.cricbuzz import (
     parse_cricbuzz_venue,
     parse_cricbuzz_series_venues,
+    parse_cricbuzz_series_index,
+    validate_cricbuzz_series_index_url,
     validate_cricbuzz_venue_url,
 )
 from app.venue_analysis import analyse_venue, compare_squad_strength
@@ -118,3 +120,39 @@ def test_compare_squad_strength_does_not_guess_without_history():
     result = compare_squad_strength("NZ", "IND", [])
     assert result["strong_team"] is None
     assert result["confidence"] == "low"
+
+
+def test_cricbuzz_schedule_index_discovers_series_venues_pages():
+    html = """
+    <html><body>
+      <a href="/cricket-series/12543/india-tour-of-new-zealand-2026/matches">India tour of New Zealand 2026</a>
+      <a href="/cricket-series/12400/big-bash-2026/matches">Big Bash 2026</a>
+      <a href="https://example.com/cricket-series/999/invalid/matches">Ignore</a>
+    </body></html>
+    """
+    series = parse_cricbuzz_series_index(
+        html,
+        "https://www.cricbuzz.com/cricket-schedule/series/all",
+    )
+    assert len(series) == 2
+    nz = next(x for x in series if x["series_id"] == "12543")
+    assert nz["name"] == "India tour of New Zealand 2026"
+    assert nz["venues_url"].endswith("/cricket-series/12543/india-tour-of-new-zealand-2026/venues")
+
+
+@pytest.mark.parametrize("url", [
+    "https://www.cricbuzz.com/cricket-schedule/series/all",
+    "https://www.cricbuzz.com/cricket-scorecard-archives/2026",
+])
+def test_accept_cricbuzz_series_index_urls(url):
+    assert validate_cricbuzz_series_index_url(url) == url
+
+
+@pytest.mark.parametrize("url", [
+    "http://www.cricbuzz.com/cricket-schedule/series/all",
+    "https://evil.example/cricket-schedule/series/all",
+    "https://www.cricbuzz.com/cricket-series/12543/series/matches",
+])
+def test_reject_non_index_cricbuzz_urls(url):
+    with pytest.raises(ValueError):
+        validate_cricbuzz_series_index_url(url)
