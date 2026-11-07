@@ -680,7 +680,8 @@ function renderDreamTeamPreview(t,strategy,mode,index){
  const vice=(t.players||[]).find(p=>p.player_id===t.vice_captain_id);
  const c=document.createElement('div');c.innerHTML='<strong>C:</strong> '+esc(captain?.player_name||'—')+' &nbsp; <strong>VC:</strong> '+esc(vice?.player_name||'—');
  const score=document.createElement('div');score.textContent=t.points_available&&t.projected_points!=null?'Estimated fantasy points: '+t.projected_points:'Provisional selection build • fantasy points not available';
- foot.append(c,score);field.append(foot);wrap.append(field);\n if(t.captain_reason||t.vice_captain_reason){const leadership=document.createElement('div');leadership.className='helper';leadership.style.padding='10px 14px';leadership.textContent='Captain: '+(t.captain_reason||'')+' Vice-captain: '+(t.vice_captain_reason||'');wrap.append(leadership);}
+ foot.append(c,score);field.append(foot);wrap.append(field);
+ if(t.captain_reason||t.vice_captain_reason){const leadership=document.createElement('div');leadership.className='helper';leadership.style.padding='10px 14px';leadership.textContent='Captain: '+(t.captain_reason||'')+' Vice-captain: '+(t.vice_captain_reason||'');wrap.append(leadership);}
  const detail=document.createElement('details');detail.className='team-details';const summary=document.createElement('summary');summary.textContent='View player list and selection percentages';detail.append(summary);
  const list=document.createElement('div');list.className='result-list';
  (t.players||[]).forEach(p=>{
