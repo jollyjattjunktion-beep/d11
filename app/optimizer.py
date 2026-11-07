@@ -356,6 +356,7 @@ def _score(p, strategy, scenario, innings_mode="none", score_team=None,
     a,b,c = STRATEGY_WEIGHTS[strategy]
     value = a*exp + b*consistency*exp + c*upside
     risk = p.get("risk","unknown")
+    if strategy == "strongest" and risk == "high": value *= 0.97
     if strategy == "safe" and risk == "high": value *= 0.88
     if strategy == "balanced" and risk == "high": value *= 0.95
     if scenario == "batting_friendly" and p.get("role") in {"BAT","WK"}: value *= 1.04
