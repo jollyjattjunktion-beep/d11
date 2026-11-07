@@ -219,8 +219,8 @@
         <div class="section-label">Both teams — analysis at this venue</div>
         <div class="helper" style="margin-bottom:10px">Historical stats are matched to the current squad by player name. Team figures below are current-squad player records at this venue, not team win percentages.</div>
         <div id="venueTeamAnalysis" class="team-columns"></div>
-        <div class="section-label" style="margin-top:22px">Fixed players — include in every generated team</div>
-        <div class="helper">Choose exactly 4–5 players with provider selection percentage of 80% or higher. Venue history is a supporting signal when records exist.</div>
+        <div class="section-label" style="margin-top:22px">Saved high-selection picks — optional locks</div>
+        <div class="helper">Saved high-selection picks are optional locks. Strongest ranks the full squad using performance, series form and role opportunity; it does not force popular picks by default.</div>
         <div class="row" style="justify-content:space-between;margin:12px 0">
           <button class="btn outline" id="autoPickHighSelection">Auto-pick top 5 (80%+)</button>
           <button class="btn" id="openSuggestions">Review suggested fixed players</button>
@@ -229,25 +229,42 @@
         <div class="section-label" style="margin-top:20px">Full squad — select eligible fixed players</div>
         <div class="inline-options" id="fixedFilters" style="margin:10px 0"></div>
         <div class="team-columns" id="fixedTeams"></div>
-        <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn green" id="saveFixed">Save eligible fixed players & continue</button></div>
+        <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn green" id="saveFixed">Save preferred picks & continue</button></div>
       </section>
       <section class="step-view" id="view5">
         <div class="match-grid" id="finalSummary"></div>
         <div class="section-label">Team generation settings</div>
         <div class="row">
           <label style="flex:1;min-width:150px">Teams per strategy<select class="field" id="teamCount"><option>1</option><option>2</option><option>3</option><option>5</option></select></label>
-          <label style="flex:1;min-width:150px">Strategy<select class="field" id="strategy"><option value="safe">Safe</option><option value="balanced">Balanced</option><option value="grand_league">Grand League</option><option value="all">All strategies</option></select></label>
+          <label style="flex:1;min-width:150px">Strategy<select class="field" id="strategy"><option value="strongest" selected>Strongest — Performance first</option><option value="safe">Safe — Higher floor</option><option value="balanced">Balanced</option><option value="grand_league">Grand League — Differential upside</option><option value="all">All strategies</option></select></label>
           <label style="flex:1;min-width:190px">Team A : Team B split<select class="field" id="teamSplit"><option value="auto">Automatic / flexible</option><option value="6-5">Team A 6 — Team B 5</option><option value="5-6">Team A 5 — Team B 6</option><option value="7-4">Team A 7 — Team B 4</option><option value="4-7">Team A 4 — Team B 7</option></select></label>
         </div>
-        <div class="notice warn" id="generationModeNotice">Historical fantasy point coverage will be checked at generation time. If history is missing, only provisional selection-score teams can be created.</div>
-        <div class="row" style="margin-top:18px"><button class="btn green" id="generateTeams">Generate fantasy teams</button><button class="btn secondary" id="printTeams" disabled>Print / Save PDF</button><span class="helper">Fixed players are locked into every generated team. Each team is previewed as a Dream11-style ground card.</span></div>
+        <div class="panel" style="box-shadow:none;margin-top:12px">
+          <div class="panelhead"><div><h2>AI11 match scenario intelligence</h2><div class="helper">Use source-backed pitch, toss, innings averages and player performance signals to create separate team portfolios.</div></div><span class="pill">MATCH ANALYSIS</span></div>
+          <div class="panelbody">
+            <div class="row">
+              <label style="flex:1;min-width:180px">Pitch / conditions<select class="field" id="ai11PitchScenario"><option value="auto">Automatic from match data</option><option value="batting_friendly">Batting-friendly</option><option value="pace_friendly">Pace-friendly</option><option value="spin_friendly">Spin-friendly</option><option value="bowling_friendly">Bowling-friendly</option><option value="neutral">Balanced / neutral</option></select></label>
+              <label style="flex:1;min-width:180px">Innings scenario<select class="field" id="inningsScenario"><option value="both" selected>Generate both scenarios</option><option value="none">Match conditions / no innings split</option><option value="first_innings">Batting first</option><option value="chasing">Chasing second</option></select></label>
+              <label style="flex:1;min-width:180px">Scenario team<select class="field" id="scenarioTeam"><option value="auto">Auto from toss / AI11</option></select></label>
+              <label style="flex:1;min-width:160px">Score assumption (optional)<input class="field" type="number" id="scenarioScore" min="1" max="600" placeholder="Auto from innings average"></label>
+            </div>
+            <div class="helper" id="scenarioHelp">Automatic mode uses AI11 pitch notes and the imported match venue report. “Both” creates separate batting-first and chasing portfolios. Without toss data, select the batting-first team.</div>
+          </div>
+        </div>
+        <label class="row" style="align-items:center;gap:8px;margin-top:12px">
+          <input type="checkbox" id="lockFixedPlayers" style="width:17px;height:17px">
+          <span><strong>Force saved fixed players into every team</strong><span class="helper" style="display:block;margin:0">Leave unchecked for the pure strongest XI. Saved 80%+ picks are suggestions unless you explicitly lock them.</span></span>
+        </label>
+        <div class="notice warn" id="generationModeNotice">Historical fantasy point coverage will be checked at generation time. AI11 batting, bowling, series and selection data improve provisional selection ranking but are not fantasy-point projections.</div>
+        <div class="row" style="margin-top:18px"><button class="btn green" id="generateTeams">Generate fantasy teams</button><button class="btn secondary" id="printTeams" disabled>Print / Save PDF</button><span class="helper">Strongest mode uses a performance-first ranking, caps all-rounders at 3 and targets at least 4 specialist bowlers. Other strategies keep broader role limits. Saved picks are only forced when you enable the lock option.</span></div>
         <div id="generationError" class="notice error" style="display:none"></div>
+        <div id="ai11AnalysisPanel" style="display:none;margin-top:16px"></div>
         <div id="teamResults" class="results" style="margin-top:18px"></div>
         <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn outline" id="restart">Start another match</button></div>
       </section>
     </div>
   </section>
-  <details style="margin-top:16px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px"><summary style="cursor:pointer;font-weight:800">Other provider — AI11 import</summary><p class="helper">AI11 remains separate from Team Generation. Paste the AI11 analysis or fantasy URL to import its player profiles.</p><div class="urlbox"><input class="field" id="ai11Url" type="url" placeholder="https://www.ai11.in/..."><button class="btn secondary" id="ai11Import">Import AI11</button></div><pre id="ai11Out" style="white-space:pre-wrap;background:#17212b;color:#e8fff4;padding:12px;border-radius:8px;display:none"></pre></details>
+  <details style="margin-top:16px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px"><summary style="cursor:pointer;font-weight:800">Other provider — AI11 import</summary><p class="helper">With a D11 match already open, AI11 profiles will be matched by player name and attached to that same match. Existing Team Generation credits, roles and confirmed Playing XI status are preserved. Without an open match, the importer creates a separate AI11 match.</p><div class="urlbox"><input class="field" id="ai11Url" type="url" placeholder="https://www.ai11.in/..."><button class="btn secondary" id="ai11Import">Import & link AI11</button></div><pre id="ai11Out" style="white-space:pre-wrap;background:#17212b;color:#e8fff4;padding:12px;border-radius:8px;display:none"></pre></details>
 <div class="footer">PREET FANTASY AI • Source-backed cricket data • No guaranteed fantasy points or outcomes</div>
 </main>
 <div class="suggest-modal" id="suggestModal">
@@ -401,7 +418,7 @@ async function loadWizard(){
  state.match=d.match;state.players=d.players||[];state.intelligence=d.intelligence||{};state.lineupConfirmed=!!d.lineup_confirmed;
  state.lineupSelected=new Set(d.selected_player_ids||state.players.filter(p=>p.status==='playing').map(p=>p.player_id));
  state.fixed=new Set((state.intelligence.fixed_player_ids||[]).filter(pid=>{const p=(d.players||[]).find(x=>x.player_id===pid);return p&&Number(p.selection_pct)>=80;} ).slice(0,5));
- state.venueAnalysis=state.intelligence.auto_venue_analysis||null;state.teamStrengthAnalysis=state.intelligence.team_strength_analysis||null;state.pitch=state.venueAnalysis?.pitch_type||state.intelligence.pitch_type||'balanced';state.strongTeam=state.teamStrengthAnalysis?.strong_team||state.intelligence.strong_team||'equal';
+ state.venueAnalysis=state.intelligence.auto_venue_analysis||null;state.teamStrengthAnalysis=state.intelligence.team_strength_analysis||null;state.pitch=state.venueAnalysis?.pitch_type||state.intelligence.pitch_type||'balanced';state.strongTeam=state.teamStrengthAnalysis?.strong_team||state.intelligence.strong_team||'equal';updateScenarioTeamOptions();
  $('workspaceStatus').textContent=state.match.team_a+' vs '+state.match.team_b;
  $('matchSummary').style.display='block';
  $('matchStats').innerHTML=[['PLAYERS',state.players.length],['FORMAT',state.match.format||'—'],['VENUE',state.match.venue||'Not provided'],['LINEUP',state.lineupConfirmed?'Confirmed':'Not confirmed']].map(x=>'<div class="stat"><small>'+esc(x[0])+'</small><b style="font-size:'+(x[0]==='VENUE'?'14':'19')+'px">'+esc(x[1])+'</b></div>').join('');
@@ -623,7 +640,7 @@ $('saveFixed').onclick=async()=>{
   await saveContext();renderFinalSummary();setStep(5);
  }catch(e){alert(e.message)}
 };
-function renderFinalSummary(){const s=[['MATCH',state.match.name],['PITCH',state.venueAnalysis?.pitch_recommendation||'Not analysed'],['TOSS EDGE',state.venueAnalysis?.toss_recommendation||'Not analysed'],['STRONG TEAM',state.teamStrengthAnalysis?.strong_team||'Insufficient evidence'],['FIXED PLAYERS',state.fixed.size],['PLAYING XI',state.lineupConfirmed?'Confirmed':'Provisional']];$('finalSummary').innerHTML=s.map(x=>'<div class="stat"><small>'+esc(x[0])+'</small><b style="font-size:14px">'+esc(x[1])+'</b></div>').join('');}
+function renderFinalSummary(){const s=[['MATCH',state.match.name],['PITCH',state.venueAnalysis?.pitch_recommendation||'Not analysed'],['TOSS EDGE',state.venueAnalysis?.toss_recommendation||'Not analysed'],['STRONG TEAM',state.teamStrengthAnalysis?.strong_team||'Insufficient evidence'],['SAVED PICKS',state.fixed.size],['PLAYING XI',state.lineupConfirmed?'Confirmed':'Provisional']];$('finalSummary').innerHTML=s.map(x=>'<div class="stat"><small>'+esc(x[0])+'</small><b style="font-size:14px">'+esc(x[1])+'</b></div>').join('');}
 function addPitchPlayer(row,p,t){
  const card=document.createElement('div');card.className='pitch-player';
  const isCaptain=p.player_id===t.captain_id,isVice=p.player_id===t.vice_captain_id;
@@ -639,7 +656,8 @@ function addPitchPlayer(row,p,t){
 function renderDreamTeamPreview(t,strategy,mode,index){
  const wrap=document.createElement('article');wrap.className='dream-team-result';
  const top=document.createElement('div');top.className='result-card-head';
- const title=document.createElement('strong');title.textContent=strategy.toUpperCase().replaceAll('_',' ')+' • '+mode.toUpperCase()+' • TEAM '+(index+1);
+ const rankLabel=(t.portfolio_rank||index+1)===1?'BEST RANKED XI':'ALTERNATIVE XI '+(t.portfolio_rank||index+1);
+ const title=document.createElement('strong');title.textContent=rankLabel+' • '+strategy.toUpperCase().replaceAll('_',' ')+' • '+mode.toUpperCase()+(t.scenario_label?' • '+t.scenario_label:'');
  const actions=document.createElement('div');actions.className='result-card-actions';
  const copy=document.createElement('button');copy.className='btn outline';copy.textContent='Copy team';copy.onclick=()=>{const lines=(t.players||[]).map(p=>p.player_name+' ('+p.role+', '+p.team+', '+p.credits+' cr)'+(p.player_id===t.captain_id?' — C':p.player_id===t.vice_captain_id?' — VC':''));const textOut=lines.join('\n')+'\nTotal credits: '+t.total_credits;if(navigator.clipboard?.writeText)navigator.clipboard.writeText(textOut).then(()=>{copy.textContent='Copied';setTimeout(()=>copy.textContent='Copy team',1400)}).catch(()=>alert(textOut));else alert(textOut);};
  actions.append(copy);top.append(title,actions);wrap.append(top);
@@ -666,38 +684,198 @@ function renderDreamTeamPreview(t,strategy,mode,index){
  const captain=(t.players||[]).find(p=>p.player_id===t.captain_id);
  const vice=(t.players||[]).find(p=>p.player_id===t.vice_captain_id);
  const c=document.createElement('div');c.innerHTML='<strong>C:</strong> '+esc(captain?.player_name||'—')+' &nbsp; <strong>VC:</strong> '+esc(vice?.player_name||'—');
- const score=document.createElement('div');score.textContent=t.points_available&&t.projected_points!=null?'Estimated fantasy points: '+t.projected_points:'Provisional selection build • fantasy points not available';
+ const score=document.createElement('div');score.textContent=t.points_available&&t.projected_points!=null?'Modelled fantasy-point estimate (not a guarantee): '+t.projected_points:'AI11 / role / pitch selection index: '+(t.selection_score==null?'—':Number(t.selection_score).toFixed(1))+' • verified fantasy-point history unavailable';
  foot.append(c,score);field.append(foot);wrap.append(field);
+ if(t.captain_reason||t.vice_captain_reason){const leadership=document.createElement('div');leadership.className='helper';leadership.style.padding='10px 14px';leadership.textContent='Captain: '+(t.captain_reason||'')+' Vice-captain: '+(t.vice_captain_reason||'');wrap.append(leadership);}
+ const diagnostic=t.pre_generation_diagnostic;
+ if(diagnostic){
+  const panel=document.createElement('details');panel.className='team-details';panel.open=true;
+  const head=document.createElement('summary');head.textContent='Pre-generation diagnostic • '+(diagnostic.pitch_scenario||'match conditions');panel.append(head);
+  const body=document.createElement('div');body.className='result-list';
+  const roles=document.createElement('div');roles.className='helper';
+  roles.textContent='Role balance — WK '+(diagnostic.role_counts?.WK||0)+' • BAT '+(diagnostic.role_counts?.BAT||0)+' • AR '+(diagnostic.role_counts?.AR||0)+' • BOWL '+(diagnostic.role_counts?.BOWL||0);
+  body.append(roles);
+  (diagnostic.warnings||[]).forEach(message=>{const row=document.createElement('div');row.className='notice warn';row.textContent='⚠ '+message;body.append(row);});
+  const cap=diagnostic.captaincy_check||{};
+  const capRow=document.createElement('div');capRow.className='helper';
+  capRow.textContent='Captain ceiling check: '+(cap.captain||'—')+' • rank '+(cap.captain_rank_in_xi||'—')+'/'+(t.players||[]).length+' in this XI • '+(cap.is_provisional_index?'provisional ranking index, not fantasy points':'historical estimate based');
+  body.append(capRow);
+  const selectedTitle=document.createElement('strong');selectedTitle.textContent='Why these players were selected';body.append(selectedTitle);
+  (diagnostic.selected_players||[]).forEach(p=>{const row=document.createElement('div');row.className='helper';row.textContent=p.player_name+' ('+p.role+') — '+p.reason+(p.opportunity_profile?' • opportunity index '+p.opportunity_profile.score+'/100 • evidence confidence '+Math.round(p.opportunity_profile.confidence*100)+'%':'');body.append(row);});
+  const rejectedTitle=document.createElement('strong');rejectedTitle.textContent='High-potential players not selected';body.append(rejectedTitle);
+  (diagnostic.high_potential_rejections||[]).forEach(p=>{const row=document.createElement('div');row.className='helper';row.textContent=p.player_name+' ('+p.role+') — '+p.reason;body.append(row);});
+  const note=document.createElement('div');note.className='helper';note.textContent=diagnostic.interpretation||'';body.append(note);
+  panel.append(body);wrap.append(panel);
+ }
  const detail=document.createElement('details');detail.className='team-details';const summary=document.createElement('summary');summary.textContent='View player list and selection percentages';detail.append(summary);
  const list=document.createElement('div');list.className='result-list';
  (t.players||[]).forEach(p=>{
   const row=document.createElement('div');row.className='result-player';
   const img=document.createElement('img');img.className='mini';img.src=p.team_generation_image||p.image||'';img.alt=p.player_name||'';
-  const name=document.createElement('div');const b=document.createElement('b');b.textContent=p.player_name;const role=document.createElement('span');role.className='role';role.textContent=p.role+' • '+p.team;name.append(b,role);
+  const name=document.createElement('div');const b=document.createElement('b');b.textContent=p.player_name;const role=document.createElement('span');role.className='role';role.textContent=p.role+' • '+p.team+(p.ai11_role_score!=null?' • AI11 profile '+Number(p.ai11_role_score).toFixed(0)+'/100':'');name.append(b,role);
   if(p.player_id===t.captain_id||p.player_id===t.vice_captain_id){const tag=document.createElement('span');tag.className='cvc'+(p.player_id===t.vice_captain_id?' vc':'');tag.textContent=p.player_id===t.captain_id?'C':'VC';name.append(tag);}
   const cr=document.createElement('div');cr.textContent=p.credits+' cr';cr.style.textAlign='right';
   const pct=document.createElement('div');pct.textContent=p.selection_pct==null?'—':Number(p.selection_pct).toFixed(1)+'%';pct.style.textAlign='right';
   row.append(img,name,cr,pct);list.append(row);
  });detail.append(list);wrap.append(detail);return wrap;
 }
+function updateScenarioTeamOptions(){
+ const select=$('scenarioTeam');
+ if(!select||!state.match)return;
+ const previous=select.value;
+ const intelligence=state.intelligence||{};
+ const tossSide=intelligence.batting_first_team||
+   (intelligence.toss_completed&&intelligence.toss_winner&&intelligence.toss_decision
+    ? (intelligence.toss_decision==='bat'?intelligence.toss_winner:
+       intelligence.toss_winner===state.match.team_a?state.match.team_b:state.match.team_a)
+    : '');
+ select.innerHTML='';
+ const auto=document.createElement('option');auto.value='auto';
+ auto.textContent=tossSide?'Auto — '+tossSide+' bats first':'Auto from toss / AI11';select.append(auto);
+ [state.match.team_a,state.match.team_b].forEach(team=>{
+  const opt=document.createElement('option');opt.value=team;opt.textContent=team;select.append(opt);
+ });
+ if(previous&&[...select.options].some(o=>o.value===previous))select.value=previous;
+ const mode=$('inningsScenario').value;
+ const help={
+  none:'Uses match conditions and player intelligence without forcing a batting-first or chase assumption.',
+  first_innings:'Choose the team batting first. If the toss is recorded, Auto uses that team and the AI11 / venue first-innings average.',
+  chasing:'Choose the team batting second. If the toss is recorded, Auto uses the chasing side and the second-innings average.',
+  both:'With toss data, creates one batting-first and one chasing portfolio. Without a toss, creates both possible toss orders (four conditional portfolios) so you do not have to guess which team bats first.'
+ };
+ $('scenarioHelp').textContent=help[mode]||help.none;
+}
+$('inningsScenario').addEventListener('change',updateScenarioTeamOptions);
+$('scenarioTeam').addEventListener('change',()=>{});
+function renderAI11Analysis(data){
+ const root=$('ai11AnalysisPanel');
+ root.innerHTML='';
+ if(!data){root.style.display='none';return;}
+ root.style.display='block';
+ const outer=document.createElement('section');outer.className='panel';outer.style.boxShadow='none';
+ const head=document.createElement('div');head.className='panelhead';
+ const heading=document.createElement('div');const h=document.createElement('h2');h.textContent='AI11 player intelligence analysis';
+ const coverage=data.profile_coverage||{};
+ const sub=document.createElement('div');sub.className='helper';sub.textContent=(coverage.players_with_rankable_score??0)+' of '+(coverage.squad_players??0)+' players have usable AI11 performance scores ('+(coverage.coverage_pct??0)+'% coverage; '+(coverage.players_with_ai11_profiles??0)+' source profiles linked) • '+(data.format||state.match.format)+'';
+ heading.append(h,sub);const pill=document.createElement('span');pill.className='pill';pill.textContent='SOURCE-BASED';head.append(heading,pill);outer.append(head);
+ const body=document.createElement('div');body.className='panelbody';
+ const pitch=data.pitch||{},innings=data.innings||{},weather=data.weather||{};
+ const statGrid=document.createElement('div');statGrid.className='match-grid';
+ const stats=[
+  ['PITCH',pitch.recommendation||pitch.type||'Not supplied'],
+  ['1ST INNINGS AVG',innings.average_first_innings??'—'],
+  ['2ND INNINGS AVG',innings.average_second_innings??'—'],
+  ['VENUE SAMPLE',innings.venue_matches?innings.venue_matches+' matches':'Not supplied'],
+  ['BATTING FIRST',innings.batting_first_team||'Not confirmed'],
+  ['CHASING',innings.chasing_team||'Not confirmed'],
+  ['TOSS',innings.toss_winner?(innings.toss_winner+' • '+(innings.toss_decision||'')):'Not supplied'],
+  ['WEATHER',weather.summary||'Not supplied']
+ ];
+ stats.forEach(([label,value])=>{const cell=document.createElement('div');cell.className='stat';const small=document.createElement('small');small.textContent=label;const strong=document.createElement('b');strong.textContent=String(value);cell.append(small,strong);statGrid.append(cell);});
+ body.append(statGrid);
+ if(coverage.quality!=='complete'){
+  const warning=document.createElement('div');warning.className='notice warn';
+  const missing=(coverage.players_missing_ai11_profile||[]).map(p=>p.player_name).filter(Boolean);
+  warning.textContent='AI11 performance-score coverage is '+(coverage.quality||'incomplete')+'. '+missing.length+' player(s) have no usable role score: '+(missing.slice(0,10).join(', ')||'profile metrics were incomplete')+'. The Strongest strategy will have to use lower-confidence role defaults for these players.';
+  body.append(warning);
+ }
+ if(pitch.notes){const note=document.createElement('div');note.className='notice';note.textContent='Pitch evidence: '+pitch.notes;body.append(note);}
+ [['Recent form',data.recent_form],['Head to head',data.head_to_head]].forEach(([label,value])=>{
+  if(!value)return;
+  const note=document.createElement('div');note.className='notice';note.textContent=label+': '+value;body.append(note);
+ });
+ const matchPerformance=data.match_performance||{};
+ if(matchPerformance.completed){
+  const review=document.createElement('div');review.className='notice';review.style.marginTop='12px';
+  const title=document.createElement('strong');title.textContent='Completed match performance — retrospective learning data only';
+  const note=document.createElement('div');note.className='helper';note.textContent='Actual source PTS from this completed fixture. These scores are stored for future-match form and are excluded from predictions for this same match.';
+  review.append(title,note);
+  if(matchPerformance.available&&(matchPerformance.players||[]).length){
+   const table=document.createElement('div');table.className='result-list';table.style.marginTop='8px';
+   matchPerformance.players.slice(0,10).forEach(p=>{
+    const row=document.createElement('div');row.className='result-player';
+    const name=document.createElement('b');name.textContent=p.player_name||'Player';
+    const team=document.createElement('span');team.className='role';team.textContent=(p.team||'')+' • '+(p.role||'');
+    const pts=document.createElement('strong');pts.textContent=Number(p.actual_match_points||0).toFixed(1)+' PTS';
+    const details=document.createElement('span');details.className='helper';
+    details.textContent='Bat '+(p.batting_points??'—')+' • Bowl '+(p.bowling_points??'—')+' • Field '+(p.fielding_points??'—');
+    const info=document.createElement('div');info.append(name,team,details);row.append(info,pts);table.append(row);
+   });
+   review.append(table);
+  }else{
+   const noRows=document.createElement('div');noRows.className='helper';noRows.textContent='The source marks this match completed, but no numeric Match Performance PTS rows were available to import.';
+   review.append(noRows);
+  }
+  body.append(review);
+ }
+ const rec=data.recommendations||{};
+ const grid=document.createElement('div');grid.style.display='grid';grid.style.gridTemplateColumns='repeat(auto-fit,minmax(220px,1fr))';grid.style.gap='10px';grid.style.marginTop='12px';
+ const sections=[
+  ['Batting leaders',rec.batting,'ai11_batting_score'],
+  ['Bowling leaders',rec.bowling,'ai11_bowling_score'],
+  ['All-rounders',rec.all_rounders,'ai11_role_score'],
+  ['Current series form',rec.series_form,'ai11_series_score'],
+  ['AI11 projected points',rec.projected_points,'ai11_projection_score'],
+  ['Popular selection core',rec.popular_core,'ai11_role_score'],
+  ['Grand League differentials',rec.grand_league_differentials,'ai11_role_score'],
+  ['Captain / VC candidates',rec.captaincy_candidates,'ai11_role_score'],
+  ['Batting-first scenario',rec.first_innings?.suggestions,'ai11_role_score'],
+  ['Chasing scenario',rec.chasing?.suggestions,'ai11_role_score']
+ ];
+ sections.forEach(([title,rows,key])=>{
+  const card=document.createElement('div');card.className='team-box';card.style.padding='12px';
+  const label=document.createElement('strong');label.textContent=title;card.append(label);
+  const list=document.createElement('div');list.className='player-list';
+  if(!rows||!rows.length){const empty=document.createElement('div');empty.className='helper';empty.textContent='No source data for this section.';list.append(empty);}
+  else rows.slice(0,5).forEach(p=>{
+   const row=document.createElement('div');row.className='venue-stat-line';
+   const info=document.createElement('div');const name=document.createElement('b');name.textContent=p.player_name||p.name||'Player';
+   const meta=document.createElement('div');meta.className='helper';
+   const score=p.score??p.role_score??p[key]??'—';
+   const ownership=p.selection_pct??p.ai11_selection_pct;
+   meta.textContent=(p.team||'')+' • '+(p.role||'')+' • profile score '+score+'/100'+(p.ai11_projected_points==null?'':' • AI11 projection '+Number(p.ai11_projected_points).toFixed(1))+(ownership==null?'':' • selected '+Number(ownership).toFixed(1)+'%')+(p.captain_pct==null?'':' • C '+Number(p.captain_pct).toFixed(1)+'%')+(p.vice_captain_pct==null?'':' • VC '+Number(p.vice_captain_pct).toFixed(1)+'%');
+   info.append(name,meta);row.append(info);list.append(row);
+   if(p.reason){const why=document.createElement('div');why.className='helper';why.textContent=p.reason;list.append(why);}
+  });
+  card.append(list);grid.append(card);
+ });
+ body.append(grid);
+ const integrity=document.createElement('div');integrity.className='notice warn';
+ integrity.textContent=(data.data_integrity?.note||'AI11 career/series profile signals are not verified fantasy-point history.')+' AI11 analysis scores are comparative source-based profile scores, not fantasy points or guaranteed outcomes.';
+ body.append(integrity);outer.append(body);root.append(outer);
+}
 $('generateTeams').onclick=async()=>{
  const out=$('teamResults'),err=$('generationError');err.style.display='none';out.innerHTML='';$('printTeams').disabled=true;
  $('generateTeams').disabled=true;$('generateTeams').textContent='Generating teams…';
  try{
   const strategy=$('strategy').value;
-  const strategies=strategy==='all'?['safe','balanced','grand_league']:[strategy];
+  const strategies=strategy==='all'?['strongest','safe','balanced','grand_league']:[strategy];
   const split=$('teamSplit').value;let team_a_count=null;
+  // Automatic means genuinely flexible: do not impose an artificial 6–5 split
+  // from a generic team-strength flag. Let the XI optimizer choose 7–4/6–5/5–6.
   if(split!=='auto')team_a_count=Number(split.split('-')[0]);
-  else if(state.strongTeam===state.match.team_a)team_a_count=6;
-  else if(state.strongTeam===state.match.team_b)team_a_count=5;
+  const strongestOnly=strategy==='strongest';
   const req={
    strategies,teams_per_strategy:Number($('teamCount').value),
-   rules:{team_size:11,max_from_one_team:7,max_credits:100,min_role:{WK:1,BAT:3,AR:1,BOWL:3},max_role:{WK:4,BAT:6,AR:4,BOWL:6},playing_xi_only:state.lineupConfirmed,team_a_count},
-   scenario:state.pitch==='batting'?'batting_friendly':state.pitch==='bowling'?'bowling_friendly':'neutral',
-   locked_player_ids:[...state.fixed],excluded_player_ids:[],captain_pool:[],vice_captain_pool:[],
+   rules:{
+    team_size:11,max_from_one_team:7,max_credits:100,
+    min_role:{WK:1,BAT:3,AR:1,BOWL:strongestOnly?4:3},
+    max_role:{WK:4,BAT:6,AR:strongestOnly?3:4,BOWL:6},
+    playing_xi_only:state.lineupConfirmed,team_a_count
+   },
+   scenario:(()=>{
+    const choice=$('ai11PitchScenario').value;
+    if(choice!=='auto')return choice;
+    return ({batting:'batting_friendly',pace:'pace_friendly',spin:'spin_friendly',bowling:'bowling_friendly',balanced:'neutral'})[state.pitch]||'neutral';
+   })(),
+   score_mode:$('inningsScenario').value,
+   score_team:$('scenarioTeam').value==='auto'?null:$('scenarioTeam').value,
+   scenario_score:$('scenarioScore').value?Number($('scenarioScore').value):null,
+   locked_player_ids:$('lockFixedPlayers').checked?[...state.fixed]:[],excluded_player_ids:[],captain_pool:[],vice_captain_pool:[],
    team_mode:'automatic',generation_mode:'both'
   };
   const d=await api('/api/v1/matches/'+encodeURIComponent(state.matchId)+'/teams',{method:'POST',body:JSON.stringify(req)});
+  renderAI11Analysis(d.ai11_analysis);
   $('generationModeNotice').textContent='History status: '+d.history_status+'. Available modes: '+(d.available_modes||[]).join(', ')+'. '+(d.warnings||[]).join(' ');
   const teams=d.teams||{};let rendered=0;
   for(const [mode,strategiesOut] of Object.entries(teams)){
@@ -707,13 +885,28 @@ $('generateTeams').onclick=async()=>{
   }
   if(!rendered){out.textContent='The server returned no legal teams. Check the error or change the team split / fixed players.';throw new Error('No team combination was returned.');}
   $('printTeams').disabled=false;
-  const note=document.createElement('div');note.className='print-note';note.textContent=rendered+' team preview(s) generated. Use Print / Save PDF to export the Dream11-style line-up cards.';out.append(note);
+  const note=document.createElement('div');note.className='print-note';note.textContent=rendered+' team preview(s) generated. '+($('lockFixedPlayers').checked?'Saved fixed players were locked into every team. ':'No saved picks were forced. ')+'Use Print / Save PDF to export the Dream11-style line-up cards.';out.append(note);
  }catch(e){err.textContent=e.message;err.style.display='block';}
  finally{$('generateTeams').disabled=false;$('generateTeams').textContent='Generate fantasy teams';}
 };
 $('printTeams').onclick=()=>window.print();
 $('restart').onclick=()=>{location.reload()};
-$('ai11Import').onclick=async()=>{const out=$('ai11Out');out.style.display='block';try{const url=$('ai11Url').value.trim();if(!url)throw new Error('Paste an AI11 URL first.');$('ai11Import').disabled=true;const d=await api('/api/v1/admin/import/ai11',{method:'POST',body:JSON.stringify({analysis_url:url})});out.textContent=JSON.stringify(d,null,2);state.matchId=d.match_id;await loadWizard();setStep(1);}catch(e){out.textContent=e.message;}finally{$('ai11Import').disabled=false;}};
+$('ai11Import').onclick=async()=>{
+ const out=$('ai11Out');out.style.display='block';
+ try{
+  const url=$('ai11Url').value.trim();if(!url)throw new Error('Paste an AI11 URL first.');
+  const targetMatchId=state.matchId||null;const currentStep=state.step||1;
+  $('ai11Import').disabled=true;$('ai11Import').textContent='Importing & linking…';
+  const d=await api('/api/v1/admin/import/ai11',{method:'POST',body:JSON.stringify({analysis_url:url,target_match_id:targetMatchId})});
+  if(d.linked_to_existing_match){
+   state.matchId=targetMatchId;await loadWizard();setStep(currentStep);
+   out.textContent='AI11 linked to '+(d.match?.name||d.match_id)+'. Matched '+d.players_matched+' of '+d.players_in_ai11+' players. Unmatched: '+(d.players_unmatched||[]).join(', ')+'\nExisting D11 credits and confirmed lineup were preserved.\nCompleted-match PTS imported: '+(d.match_performance_records_imported||0)+' (updated '+(d.match_performance_records_updated||0)+', verified records preserved '+(d.existing_verified_match_records_preserved||0)+').\n'+JSON.stringify({match_completed:d.match_completed,match_context_fields_saved:d.match_context_fields_saved,credits_ready_for_team_builder:d.credits_ready_for_team_builder,credits_missing_players:d.credits_missing_players},null,2);
+  }else{
+   state.matchId=d.match_id;await loadWizard();setStep(1);out.textContent='Standalone AI11 match imported. '+JSON.stringify(d,null,2);
+  }
+ }catch(e){out.textContent=e.message;}
+ finally{$('ai11Import').disabled=false;$('ai11Import').textContent='Import & link AI11';}
+};
 </script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 from collections import Counter
 
 STRATEGY_WEIGHTS = {
+    "strongest": (0.76, 0.08, 0.16),
     "safe": (0.55, 0.35, 0.10),
     "balanced": (0.65, 0.20, 0.15),
     "grand_league": (0.45, 0.05, 0.50),
@@ -17,7 +18,7 @@ def _ownership(p):
 
 def _role_opportunity(p):
     """Modest role prior; source-backed batting position/overs override it."""
-    prior = {"WK": 0.62, "BAT": 0.58, "AR": 0.78, "BOWL": 0.55}.get(p.get("role"), 0.5)
+    prior = {"WK": 0.60, "BAT": 0.60, "AR": 0.60, "BOWL": 0.60}.get(p.get("role"), 0.5)
     try:
         if p.get("batting_position") is not None:
             prior += max(-0.18, min(0.18, (5 - int(p["batting_position"])) * 0.035))
@@ -29,6 +30,74 @@ def _role_opportunity(p):
     except (TypeError, ValueError):
         pass
     return max(0.25, min(1.0, prior))
+
+
+def _player_opportunity_profile(p, match_format="T20"):
+    """Source-aware batting/bowling involvement index (0-100), not fantasy points."""
+    role = p.get("role")
+    fmt = str(match_format or "T20").upper()
+    max_overs = {"T20": 4.0, "ODI": 10.0, "TEST": 20.0}.get(fmt, 4.0)
+    evidence = []
+    components = {}
+
+    position = p.get("batting_position")
+    try:
+        position = int(position) if position is not None else None
+    except (TypeError, ValueError):
+        position = None
+    if position is not None and position > 0:
+        batting_position_score = 100 if position <= 2 else 92 if position <= 3 else 78 if position <= 5 else 55 if position <= 7 else 30
+        components["batting_position"] = batting_position_score
+        evidence.append((batting_position_score, 0.40))
+
+    batting_skill = p.get("ai11_batting_score")
+    if batting_skill is not None:
+        try:
+            components["batting_skill"] = max(0.0, min(100.0, float(batting_skill)))
+            evidence.append((components["batting_skill"], 0.25))
+        except (TypeError, ValueError):
+            pass
+
+    overs = p.get("expected_overs")
+    if overs is not None:
+        try:
+            workload = max(0.0, min(1.0, float(overs) / max_overs)) * 100.0
+            components["bowling_workload"] = workload
+            evidence.append((workload, 0.35))
+        except (TypeError, ValueError):
+            pass
+
+    bowling_skill = p.get("ai11_bowling_score")
+    if bowling_skill is not None:
+        try:
+            components["bowling_skill"] = max(0.0, min(100.0, float(bowling_skill)))
+            evidence.append((components["bowling_skill"], 0.25))
+        except (TypeError, ValueError):
+            pass
+
+    if p.get("involvement_score") is not None:
+        try:
+            value = float(p["involvement_score"])
+            value = value * 100.0 if 0 <= value <= 1 else value
+            components["source_involvement"] = max(0.0, min(100.0, value))
+            evidence.append((components["source_involvement"], 0.30))
+        except (TypeError, ValueError):
+            pass
+
+    if evidence:
+        score = sum(value * weight for value, weight in evidence) / sum(weight for _, weight in evidence)
+        confidence = min(1.0, len(evidence) / 3.0)
+    else:
+        # Conservative fallback: role alone is not enough to claim high opportunity.
+        score = 55.0
+        confidence = 0.0
+
+    return {
+        "score": round(max(0.0, min(100.0, score)), 1),
+        "confidence": round(confidence, 2),
+        "components": components,
+        "evidence_count": len(evidence),
+    }
 
 
 def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
@@ -50,66 +119,129 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
         popularity = 50.0 if ownership is None else ownership
         source_c = float(p.get("captain_pct") or p.get("ai11_captain_pct") or 0.0)
         source_vc = float(p.get("vice_captain_pct") or p.get("ai11_vice_captain_pct") or 0.0)
-        # Provisional score is a selection-priority index, never fantasy points.
-        base = _role_opportunity(p) * 35.0 + popularity * 0.10 + min(source_c, 100) * 0.025 + min(source_vc, 100) * 0.015
-        # AI11's own projected-points field is a separate source signal. It is
-        # deliberately low-weight and is never copied into expected_points.
+        role_score = p.get("ai11_role_score")
+        recent_score = p.get("ai11_recent_form_score")
+        # Provisional scores are selection-priority indices, never fantasy points.
+        if strategy == "strongest":
+            # Performance-first: career role strength and current-series form
+            # drive selection. Ownership and provider C/VC are deliberately
+            # capped to a small tie-break contribution.
+            history_score = p.get("recent_history_score")
+            evidence = []
+            if role_score is not None:
+                evidence.append((float(role_score), 0.55))
+            if recent_score is not None:
+                evidence.append((float(recent_score), 0.25))
+            # One/two completed matches are a useful short-form signal, but
+            # must not unlock expected/floor/ceiling fantasy-point estimates.
+            if expected is None and history_score is not None:
+                evidence.append((float(history_score), 0.20))
+            if evidence:
+                performance = sum(value * weight for value, weight in evidence) / sum(
+                    weight for _, weight in evidence
+                )
+                base = 34.0 + performance * 0.66 + _role_opportunity(p) * 10.0
+            else:
+                # Do not invent a good performance profile when AI11 fields
+                # are missing. Keep a transparent lower-confidence role prior.
+                base = 34.0 + _role_opportunity(p) * 34.0
+            if ownership is not None:
+                base += max(0.0, min(100.0, popularity)) * 0.025
+            base += min(source_c, 100.0) * 0.006 + min(source_vc, 100.0) * 0.004
+        else:
+            # Other strategies retain a popularity-aware provisional prior.
+            base = _role_opportunity(p) * 35.0 + popularity * 0.10 + min(source_c, 100) * 0.025 + min(source_vc, 100) * 0.015
+        # A small profile factor supports profiles that have no component score.
         try:
-            ai11_projection = p.get("ai11_projected_points")
-            if ai11_projection is not None:
-                base += max(0.0, min(30.0, float(ai11_projection))) * 0.25
+            ai11_factor = max(0.97, min(1.03, float(p.get("ai11_profile_factor") or 1.0)))
+            base *= ai11_factor
         except (TypeError, ValueError):
             pass
-        # Career/series aggregates add only a small role-aware nudge when the
-        # source provides a usable sample; they do not create fantasy points.
-        metrics = p.get("ai11_metrics") if isinstance(p.get("ai11_metrics"), dict) else {}
-        try:
-            sample = float(metrics.get("career_matches") or 0)
-            profile_deltas = []
-            role = p.get("role")
-            if sample >= 3 and role in {"BAT", "WK", "AR"}:
-                avg = metrics.get("batting_average")
-                sr = metrics.get("batting_strike_rate")
-                if avg is not None:
-                    profile_deltas.append(max(-1.0, min(1.0, (float(avg) - 20.0) / 20.0)) * 0.025)
-                if sr is not None:
-                    baseline_sr = 110.0 if match_format == "T20" else 80.0
-                    profile_deltas.append(max(-1.0, min(1.0, (float(sr) - baseline_sr) / baseline_sr)) * 0.015)
-            if sample >= 3 and role in {"BOWL", "AR"}:
-                wickets = metrics.get("wickets")
-                bowling_innings = float(metrics.get("bowling_innings") or 0)
-                economy = metrics.get("economy")
-                if wickets is not None and bowling_innings > 0:
-                    rate = float(wickets) / bowling_innings
-                    profile_deltas.append(max(-1.0, min(1.0, (rate - 0.8) / 0.8)) * 0.025)
-                if economy is not None:
-                    baseline_eco = 8.5 if match_format == "T20" else 6.0
-                    profile_deltas.append(max(-1.0, min(1.0, (baseline_eco - float(economy)) / baseline_eco)) * 0.015)
-            if profile_deltas:
-                profile_factor = max(0.94, min(1.06, 1.0 + sum(profile_deltas)))
-                base *= profile_factor
-        except (TypeError, ValueError):
-            pass
-        floor_v, upside, consistency = base * 0.55, base * (1.18 if p.get("role") in {"AR", "WK"} else 1.08), 0.35
+        provisional_upside = (
+            1.12 if p.get("role") == "AR" and p.get("ai11_two_skill_profile")
+            else 1.08
+        )
+        floor_v, upside, consistency = base * 0.55, base * provisional_upside, 0.35
 
-    role = p.get("role")
-    opportunity = _role_opportunity(p)
+    # AI11 performance profiles influence selection in BOTH modes while
+    # never being converted into a fantasy-point estimate. Current-series form
+    # and the role-specific career score are intentionally more meaningful
+    # than public selection/C/VC percentages.
     try:
-        involvement = p.get("involvement_score")
-        if involvement is not None:
-            n = float(involvement)
-            opportunity = max(0.0, min(1.0, n / 100.0 if n > 1 else n))
+        role_score = p.get("ai11_role_score")
+        recent_score = p.get("ai11_recent_form_score")
+        profile_scores = []
+        if role_score is not None:
+            profile_scores.append((float(role_score), 0.56))
+        if recent_score is not None:
+            profile_scores.append((float(recent_score), 0.24))
+        history_score = p.get("recent_history_score")
+        if expected is None and history_score is not None:
+            profile_scores.append((float(history_score), 0.20))
+        if profile_scores:
+            profile_strength = sum(score * weight for score, weight in profile_scores) / sum(weight for _, weight in profile_scores)
+            profile_multiplier = max(0.80, min(1.20, 1.0 + (profile_strength - 50.0) * 0.004))
+            # With no match-history projection, the strongest strategy has
+            # already converted these profile scores into its base index. Do
+            # not count the same evidence twice. In history-backed mode, scale
+            # expected, floor and ceiling together so the range stays coherent.
+            if expected is not None or strategy != "strongest":
+                base *= profile_multiplier
+                floor_v *= profile_multiplier
+                upside *= profile_multiplier
+        if p.get("role") == "AR" and p.get("ai11_two_skill_profile"):
+            bat_score = p.get("ai11_batting_score")
+            bowl_score = p.get("ai11_bowling_score")
+            if bat_score is not None and bowl_score is not None:
+                if min(float(bat_score), float(bowl_score)) >= 70:
+                    base *= 1.04
+                    floor_v *= 1.04
+                    upside *= 1.04
+                elif min(float(bat_score), float(bowl_score)) >= 60:
+                    base *= 1.02
+                    floor_v *= 1.02
+                    upside *= 1.02
     except (TypeError, ValueError):
         pass
 
+    role = p.get("role")
+    opportunity_profile = _player_opportunity_profile(p, match_format)
+    opportunity = opportunity_profile["score"] / 100.0
+    # Opportunity is a bounded adjustment, not a substitute for role/form/history.
+    # With sparse inputs the fallback remains deliberately modest.
+
     condition = 1.0
+    # With no historical fantasy-point sample, retain the predictor's bounded
+    # venue/weather adjustment as a selection signal. Historical predictions
+    # already include this adjustment, so do not apply it twice.
+    if expected is None and p.get("condition_factor") is not None:
+        try:
+            condition *= max(0.82, min(1.18, float(p["condition_factor"])))
+        except (TypeError, ValueError):
+            pass
     try:
-        if role in {"BAT", "WK"} and p.get("batting_friendly") is not None:
+        if role in {"BAT", "WK", "AR"} and p.get("batting_friendly") is not None:
             condition += (float(p["batting_friendly"]) - 0.5) * 0.12
         if role in {"BOWL", "AR"} and p.get("pace_friendly") is not None:
             condition += (float(p["pace_friendly"]) - 0.5) * 0.08
         if role in {"BOWL", "AR"} and p.get("spin_friendly") is not None:
             condition += (float(p["spin_friendly"]) - 0.5) * 0.08
+        # When AI11 provides a source-described pitch but no numerical Cricbuzz
+        # pace/spin factor, use the player's imported discipline as a small fit.
+        if scenario == "batting_friendly" and role in {"BAT", "WK", "AR"}:
+            bat_score = p.get("ai11_batting_score")
+            if bat_score is not None:
+                condition *= max(0.96, min(1.04, 1.0 + (float(bat_score) - 50.0) * 0.0008))
+        if scenario in {"pace_friendly", "bowling_friendly"} and role in {"BOWL", "AR"}:
+            bowl_score = p.get("ai11_bowling_score")
+            if bowl_score is not None:
+                condition *= max(0.96, min(1.04, 1.0 + (float(bowl_score) - 50.0) * 0.0008))
+        if scenario == "spin_friendly" and role in {"BOWL", "AR"}:
+            bowl_score = p.get("ai11_bowling_score")
+            style = p.get("ai11_bowling_style_group")
+            if bowl_score is not None:
+                style_factor = 1.015 if style == "spin" else 0.99 if style == "pace" else 1.0
+                condition *= max(0.96, min(1.04, (1.0 + (float(bowl_score) - 50.0) * 0.0005) * style_factor))
         if p.get("dew_likely") is True and role in {"BOWL", "AR"}:
             condition *= 0.97
         if p.get("rain_probability") is not None and float(p["rain_probability"]) >= 50:
@@ -125,7 +257,13 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
     if p.get("toss_batting_team") and p.get("team") == p.get("toss_batting_team") and role in {"BAT", "WK"}:
         scenario_factor *= 1.015
 
-    if strategy == "safe":
+    if strategy == "strongest":
+        # Maximize the modelled contribution/role profile, retaining a small
+        # floor component while still valuing upside.
+        raw = 0.78 * base + 0.08 * floor_v + 0.14 * upside
+        if p.get("risk") == "high":
+            raw *= 0.97
+    elif strategy == "safe":
         raw = 0.72 * base + 0.22 * floor_v + 0.06 * upside
         raw *= 1.0 + 0.10 * consistency
         if p.get("risk") == "high":
@@ -158,15 +296,44 @@ def _captain_score(p, strategy, scenario, innings_mode, score_team, scenario_sco
     ceiling = p.get("ceiling_points") or p.get("upside")
     if expected is None:
         floor_component = signal * 0.82
-        ceiling_component = signal * (1.10 if p.get("role") in {"AR", "WK"} else 1.0)
+        ceiling_component = signal * (1.08 if p.get("role") == "AR" and p.get("ai11_two_skill_profile") else 1.0)
     else:
         floor_component = float(p.get("floor_points") if p.get("floor_points") is not None else expected * 0.6)
         ceiling_component = float(ceiling if ceiling is not None else expected * 1.25)
-    if strategy == "safe":
-        return 0.62 * signal + 0.30 * floor_component + 0.08 * ceiling_component
-    if strategy == "grand_league":
-        return 0.35 * signal + 0.55 * ceiling_component + 0.10 * _role_opportunity(p) * signal
-    return 0.52 * signal + 0.30 * ceiling_component + 0.18 * floor_component
+    if strategy == "strongest":
+        score = 0.78 * signal + 0.08 * floor_component + 0.14 * ceiling_component
+    elif strategy == "safe":
+        score = 0.62 * signal + 0.30 * floor_component + 0.08 * ceiling_component
+    elif strategy == "grand_league":
+        score = 0.35 * signal + 0.55 * ceiling_component + 0.10 * _role_opportunity(p) * signal
+    else:
+        score = 0.52 * signal + 0.30 * ceiling_component + 0.18 * floor_component
+    # Imported provider C trends are a secondary signal in provisional mode,
+    # useful when this player has no historical fantasy-point estimate.
+    try:
+        profile_score = p.get("ai11_role_score")
+        if profile_score is not None:
+            # Reward demonstrated multi-skill/recent-form profile, but keep
+            # captaincy tied to the chosen XI and the base contribution signal.
+            score *= max(0.88, min(1.12, 1.0 + (float(profile_score) - 50.0) * 0.0028))
+        if p.get("role") == "AR" and p.get("ai11_two_skill_profile"):
+            bat_score = p.get("ai11_batting_score")
+            bowl_score = p.get("ai11_bowling_score")
+            if bat_score is not None and bowl_score is not None and min(float(bat_score), float(bowl_score)) >= 65:
+                score *= 1.035
+    except (TypeError, ValueError):
+        pass
+    if expected is None:
+        try:
+            source_c = float(p.get("captain_pct") or p.get("ai11_captain_pct") or 0)
+            score += min(100.0, max(0.0, source_c)) * (0.02 if strategy == "strongest" else 0.12)
+        except (TypeError, ValueError):
+            pass
+    opportunity = _player_opportunity_profile(p, match_format)["score"] / 100.0
+    # Captaincy rewards credible involvement (top-order batting / real overs /
+    # two-skill contribution), not popularity alone.
+    score *= 0.92 + 0.16 * opportunity
+    return score
 
 
 def _vice_score(p, strategy, scenario, innings_mode, score_team, scenario_score, match_format):
@@ -180,16 +347,92 @@ def _vice_score(p, strategy, scenario, innings_mode, score_team, scenario_score,
     else:
         floor_component = float(floor if floor is not None else expected * 0.6)
         ceiling_component = float(ceiling if ceiling is not None else expected * 1.25)
-    if strategy == "safe":
-        return 0.68 * signal + 0.25 * floor_component + 0.07 * ceiling_component
-    if strategy == "grand_league":
-        return 0.42 * signal + 0.48 * ceiling_component + 0.10 * _role_opportunity(p) * signal
-    return 0.58 * signal + 0.27 * ceiling_component + 0.15 * floor_component
+    if strategy == "strongest":
+        score = 0.76 * signal + 0.12 * floor_component + 0.12 * ceiling_component
+    elif strategy == "safe":
+        score = 0.68 * signal + 0.25 * floor_component + 0.07 * ceiling_component
+    elif strategy == "grand_league":
+        score = 0.42 * signal + 0.48 * ceiling_component + 0.10 * _role_opportunity(p) * signal
+    else:
+        score = 0.58 * signal + 0.27 * ceiling_component + 0.15 * floor_component
+    # Provider VC trends support the provisional decision; they never replace
+    # the role, availability and involvement assessment.
+    try:
+        profile_score = p.get("ai11_role_score")
+        if profile_score is not None:
+            score *= max(0.90, min(1.10, 1.0 + (float(profile_score) - 50.0) * 0.002))
+    except (TypeError, ValueError):
+        pass
+    if expected is None:
+        try:
+            source_vc = float(p.get("vice_captain_pct") or p.get("ai11_vice_captain_pct") or 0)
+            score += min(100.0, max(0.0, source_vc)) * (0.02 if strategy == "strongest" else 0.12)
+        except (TypeError, ValueError):
+            pass
+    opportunity = _player_opportunity_profile(p, match_format)["score"] / 100.0
+    score *= 0.94 + 0.12 * opportunity
+    return score
+
+
+def _portfolio_exposure_score(raw_score, player_id, exposure, strategy, kind="captain"):
+    """Reduce repeat C/VC exposure across one generated portfolio, without forcing weak picks."""
+    weights = {
+        "strongest": 0.045,
+        "safe": 0.055,
+        "balanced": 0.12,
+        "scenario": 0.14,
+        "grand_league": 0.18,
+    }
+    weight = weights.get(strategy, 0.12)
+    if kind == "vice":
+        weight *= 0.90
+    repeat_count = exposure.get(player_id, 0)
+    penalty = min(0.36, weight * repeat_count)
+    return raw_score * (1.0 - penalty)
+
+
+def _captaincy_reason(player, strategy, role_label):
+    """Build an evidence-aware explanation; provisional scores are never called fantasy points."""
+    name = player.get("player_name") or "This player"
+    expected = player.get("expected_points")
+    floor = player.get("floor_points")
+    ceiling = player.get("ceiling_points") or player.get("upside")
+    details = []
+    if expected is not None:
+        details.append(f"modelled expected contribution {float(expected):.1f}")
+        if floor is not None:
+            details.append(f"floor {float(floor):.1f}")
+        if ceiling is not None:
+            details.append(f"ceiling {float(ceiling):.1f}")
+    else:
+        details.append("provisional role/opportunity score; historical fantasy-point estimates are unavailable")
+    if player.get("batting_position") is not None:
+        details.append(f"expected batting position {player['batting_position']}")
+    if player.get("expected_overs") is not None:
+        details.append(f"expected bowling workload {float(player['expected_overs']):g} overs")
+    if player.get("involvement_score") is not None:
+        details.append("imported involvement score available")
+    if expected is None and player.get("condition_factor") is not None:
+        details.append(f"venue/weather adjustment {float(player['condition_factor']):.2f}x applied to the provisional role score")
+    status = str(player.get("status") or "unknown").lower()
+    if status in {"playing", "confirmed"}:
+        details.append("Playing XI confirmed")
+    elif status in {"probable", "likely", "available"}:
+        details.append("availability is probable, not confirmed")
+    if player.get("selection_pct") is not None and strategy == "grand_league":
+        details.append(f"provider selection {float(player['selection_pct']):.1f}% considered only as a differential signal")
+    trend_field = "captain_pct" if role_label == "captain" else "vice_captain_pct"
+    trend_value = player.get(trend_field) or player.get(
+        "ai11_captain_pct" if role_label == "captain" else "ai11_vice_captain_pct"
+    )
+    if trend_value is not None and expected is None:
+        details.append(f"provider {role_label} trend {float(trend_value):.1f}% used as a secondary provisional signal")
+    return f"{name} selected as {role_label} for {strategy.replace('_', ' ')}: " + "; ".join(details) + "."
 
 
 def _score_context_multiplier(p, innings_mode, score_team, scenario_score, match_format):
-    """Small preference adjustment for a user-entered innings scenario, not points."""
-    if innings_mode not in {"first_innings", "chasing"} or not score_team or scenario_score is None:
+    """Small role-opportunity preference for an innings scenario, never a points prediction."""
+    if innings_mode not in {"first_innings", "chasing"} or not score_team:
         return 1.0
     fmt = str(match_format or "T20").upper()
     high_threshold, low_threshold = {
@@ -197,24 +440,23 @@ def _score_context_multiplier(p, innings_mode, score_team, scenario_score, match
         "ODI": (280, 230),
         "TEST": (350, 220),
     }.get(fmt, (180, 145))
-    high_score = int(scenario_score) >= high_threshold
-    low_score = int(scenario_score) <= low_threshold
+    high_score = int(scenario_score) >= high_threshold if scenario_score is not None else None
+    low_score = int(scenario_score) <= low_threshold if scenario_score is not None else None
     team = p.get("team")
     role = p.get("role")
-    batting_roles = {"BAT", "WK"}
+    batting_roles = {"BAT", "WK", "AR"}
     bowling_roles = {"BOWL", "AR"}
     if innings_mode == "first_innings":
-        if team == score_team:
-            if role in batting_roles:
-                return 1.04 if high_score else 1.015 if not low_score else 0.985
-        elif role in bowling_roles:
-            return 1.035 if high_score else 1.02 if low_score else 1.0
+        if team == score_team and role in batting_roles:
+            return 1.04 if high_score is True else 1.015 if high_score is None else 0.985
+        if team != score_team and role in bowling_roles:
+            return 1.035 if high_score is True else 1.02 if low_score is True or low_score is None else 1.0
     else:
         # score_team is the chasing side.
         if team == score_team and role in batting_roles:
-            return 1.04 if high_score else 1.02
+            return 1.04 if high_score is True else 1.02 if high_score is None or low_score is False else 1.015
         if team != score_team and role in bowling_roles:
-            return 1.035 if high_score else 1.02
+            return 1.035 if high_score is True else 1.02
     return 1.0
 
 
@@ -261,6 +503,9 @@ def _score(p, strategy, scenario, innings_mode="none", score_team=None,
     return value
 
 def _valid(p, chosen, rules, team_a, team_a_count, allow_missing_expected=False):
+    status = str(p.get("status") or "unknown").strip().lower()
+    if status in {"out", "injured", "unavailable", "not_playing"}:
+        return False
     if p.get("credits") is None or (not allow_missing_expected and p.get("expected_points") is None):
         return False
     if rules.playing_xi_only and (p.get("status") or "").lower() not in {"playing","confirmed"}:
@@ -276,6 +521,175 @@ def _valid(p, chosen, rules, team_a, team_a_count, allow_missing_expected=False)
     if team_a_count is not None and team_a and p["team"] != team_a and sum(x["team"] != team_a for x in chosen) >= rules.team_size-team_a_count:
         return False
     return True
+
+
+
+def build_team_diagnostic(players, team, strategy, scenario="neutral",
+                          innings_mode="none", score_team=None,
+                          scenario_score=None, match_format="T20",
+                          rules=None):
+    """Explain XI composition, selected players, near misses and C/VC strength.
+    All scores in this report are ranking indices unless verified fantasy points exist.
+    """
+    chosen = list(team.get("players") or [])
+    chosen_ids = {p.get("player_id") for p in chosen}
+    role_counts = Counter(p.get("role") for p in chosen)
+    pool = [p for p in players if p.get("player_id")]
+    ranked = sorted(
+        pool,
+        key=lambda p: _player_signal(
+            p, strategy, scenario, innings_mode, score_team,
+            scenario_score, match_format,
+            provisional=p.get("expected_points") is None
+        ),
+        reverse=True,
+    )
+    rank_by_id = {p["player_id"]: i + 1 for i, p in enumerate(ranked)}
+    selected = []
+    for player in chosen:
+        role = player.get("role")
+        reasons = []
+        if player.get("status") in {"playing", "confirmed"}:
+            reasons.append("confirmed in the Playing XI")
+        if player.get("batting_position") is not None:
+            pos = int(player["batting_position"])
+            reasons.append(f"batting position {pos}")
+            if pos <= 3:
+                reasons.append("top-order batting opportunity")
+        if player.get("expected_overs") is not None:
+            overs = float(player["expected_overs"])
+            reasons.append(f"expected bowling workload {overs:g} overs")
+            if overs >= 3:
+                reasons.append("meaningful wicket-taking opportunity")
+        if player.get("ai11_batting_score") is not None:
+            reasons.append(f"AI11 batting profile {float(player['ai11_batting_score']):.0f}/100")
+        if player.get("ai11_bowling_score") is not None:
+            reasons.append(f"AI11 bowling profile {float(player['ai11_bowling_score']):.0f}/100")
+        if player.get("recent_history_score") is not None:
+            reasons.append("recent completed-match history contributes to ranking")
+        if player.get("expected_points") is not None:
+            reasons.append("format-matched historical fantasy-point estimate available")
+        if not reasons:
+            reasons.append("role and available squad evidence")
+        selected.append({
+            "player_id": player["player_id"],
+            "player_name": player.get("player_name"),
+            "role": role,
+            "rank": rank_by_id.get(player["player_id"]),
+            "selection_index": round(_player_signal(
+                player, strategy, scenario, innings_mode, score_team,
+                scenario_score, match_format,
+                provisional=player.get("expected_points") is None
+            ), 2),
+            "opportunity_profile": _player_opportunity_profile(player, match_format),
+            "reason": "; ".join(reasons),
+            "evidence": "statistical estimate" if player.get("expected_points") is not None else "provisional selection evidence",
+        })
+
+    near_misses = []
+    for player in ranked:
+        if player["player_id"] in chosen_ids:
+            continue
+        role = player.get("role")
+        score = _player_signal(
+            player, strategy, scenario, innings_mode, score_team,
+            scenario_score, match_format,
+            provisional=player.get("expected_points") is None
+        )
+        role_selected = role_counts.get(role, 0)
+        role_limit = (rules.max_role.get(role) if rules else None)
+        reason = "Ranked below the selected XI on the combined performance/opportunity index."
+        if role_limit is not None and role_selected >= role_limit:
+            reason = f"Role quota reached ({role_selected}/{role_limit}); compare with selected {role} players."
+        elif player.get("credits") is None:
+            reason = "Cannot be selected until credits are verified."
+        elif player.get("status") not in {"playing", "confirmed", "probable", "likely", "available"}:
+            reason = "Availability is not confirmed; carries an availability risk."
+        elif role == "BOWL" and role_counts.get("BOWL", 0) < 4:
+            reason = "Specialist bowling opportunity may have been underweighted."
+        near_misses.append({
+            "player_id": player["player_id"],
+            "player_name": player.get("player_name"),
+            "role": role,
+            "selection_index": round(score, 2),
+            "reason": reason,
+        })
+        if len(near_misses) >= 6:
+            break
+
+    bowlers_available = sum(1 for p in pool if p.get("role") == "BOWL")
+    bowlers_selected = role_counts.get("BOWL", 0)
+    allrounders = role_counts.get("AR", 0)
+    bowling_warning = (
+        bowlers_selected < 4 and bowlers_available >= 4
+    )
+    warnings = []
+    if allrounders > 3:
+        warnings.append(f"All-rounder overload: {allrounders} selected; strongest-XI target is no more than 3 unless the player pool/role rules require it.")
+    if bowling_warning:
+        warnings.append(f"Bowling opportunity warning: only {bowlers_selected} specialist bowlers selected while {bowlers_available} are available. Review the highest-ranked omitted bowlers.")
+    if scenario == "batting_friendly":
+        warnings.append("Batting-friendly is a batting opportunity signal, not a reason to ignore specialist bowlers' powerplay/death-over wickets.")
+    if any(p.get("expected_overs") is None for p in pool if p.get("role") in {"BOWL", "AR"}):
+        warnings.append("Expected bowling overs are missing for some bowlers/all-rounders; workload comparison has lower confidence.")
+    captain = next((p for p in chosen if p.get("player_id") == team.get("captain_id")), None)
+    vice = next((p for p in chosen if p.get("player_id") == team.get("vice_captain_id")), None)
+    captain_scores = sorted(
+        [(p, _captain_score(p, strategy, scenario, innings_mode, score_team, scenario_score, match_format))
+         for p in chosen],
+        key=lambda item: item[1], reverse=True
+    )
+    captain_rank = next((i + 1 for i, (p, _) in enumerate(captain_scores)
+                         if captain and p.get("player_id") == captain.get("player_id")), None)
+    captain_top = captain_scores[0][1] if captain_scores else None
+    captain_value = next((score for p, score in captain_scores
+                          if captain and p.get("player_id") == captain.get("player_id")), None)
+    captain_strength = (
+        round(100.0 * captain_value / captain_top, 1)
+        if captain_value is not None and captain_top else None
+    )
+    captain_warning = bool(captain_rank and captain_rank > 2)
+    if captain_warning:
+        warnings.append(f"Captain ceiling check: selected captain ranks #{captain_rank} among this XI's captaincy scores; review the higher-ranked alternatives.")
+    if captain and captain.get("expected_points") is None:
+        warnings.append("Captaincy ceiling is a provisional ranking index, not a projected fantasy-points ceiling.")
+    return {
+        "pitch_scenario": scenario,
+        "innings_scenario": innings_mode,
+        "role_counts": dict(role_counts),
+        "selected_players": selected,
+        "high_potential_rejections": near_misses,
+        "bowling_opportunity": {
+            "specialist_bowlers_selected": bowlers_selected,
+            "specialist_bowlers_available": bowlers_available,
+            "underrepresented": bowling_warning,
+        },
+        "allrounder_check": {
+            "selected": allrounders,
+            "target_max": 3,
+            "overloaded": allrounders > 3,
+        },
+        "captaincy_check": {
+            "captain": captain.get("player_name") if captain else None,
+            "vice_captain": vice.get("player_name") if vice else None,
+            "captain_rank_in_xi": captain_rank,
+            "captain_strength_index": captain_strength,
+            "is_provisional_index": bool(captain and captain.get("expected_points") is None),
+            "warning": captain_warning,
+            "top_captain_alternatives": [
+                {"player_name": p.get("player_name"), "role": p.get("role"),
+                 "index": round(score, 2)}
+                for p, score in captain_scores[:3]
+            ],
+        },
+        "warnings": warnings,
+        "interpretation": (
+            "All displayed selection indices are relative ranking signals, not fantasy points."
+            if any(p.get("expected_points") is None for p in chosen)
+            else "Fantasy-point estimates are sourced from format-matched historical records; they are not guarantees."
+        ),
+    }
+
 
 def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
                 team_a=None, locked_ids=None, excluded_ids=None,
@@ -323,43 +737,96 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
         a_count=sum(p["team"] == team_a for p in locked)
         if a_count > rules.team_a_count or len(locked)-a_count > rules.team_size-rules.team_a_count:
             raise ValueError("Locked players conflict with the required team split.")
-    made, usage = [], Counter()
-    states = [(locked, 0.0)]
+    made, usage, captain_usage, vice_usage, pair_usage = [], Counter(), Counter(), Counter(), Counter()
     score_args = (innings_mode, score_team, scenario_score, match_format)
-    for _ in range(rules.team_size-len(locked)):
-        expanded=[]
-        for chosen,_score_so_far in states:
-            chosen_ids={p["player_id"] for p in chosen}
-            for p in pool:
-                if p["player_id"] in chosen_ids or not _valid(p,chosen,rules,team_a,rules.team_a_count,provisional):
-                    continue
-                next_chosen=chosen+[p]
-                counts=Counter(x["role"] for x in next_chosen)
-                remaining=rules.team_size-len(next_chosen)
-                deficits=sum(max(0,n-counts[r]) for r,n in rules.min_role.items())
-                if deficits > remaining: continue
-                value=sum(_player_signal(x,strategy,scenario,*score_args,provisional=provisional) - usage[x["player_id"]]*max(2.5, _player_signal(x,strategy,scenario,*score_args,provisional=provisional)*0.10) for x in next_chosen)
-                expanded.append((next_chosen,value))
-        if not expanded: break
-        unique={}
-        for chosen_set, value in expanded:
-            key=tuple(sorted(p["player_id"] for p in chosen_set))
-            if key not in unique or value > unique[key][1]:
-                unique[key]=(chosen_set,value)
-        expanded=list(unique.values())
-        expanded.sort(key=lambda x:x[1], reverse=True)
-        # Keep a diverse beam so later teams are not limited to one near-identical branch.
-        diverse=[]
-        beam_ids=[]
-        for candidate, candidate_score in expanded:
-            candidate_ids={p["player_id"] for p in candidate}
-            if any(len(candidate_ids & prior) >= rules.team_size-1 for prior in beam_ids):
+    # Score each candidate once. A high-quality partial XI is judged by its
+    # achievable upper bound, not only its current total; this avoids pruning
+    # a strong lineup just because it needs a lower-scoring role to stay legal.
+    candidate_scores = {
+        p["player_id"]: _player_signal(
+            p, strategy, scenario, innings_mode, score_team, scenario_score,
+            match_format, provisional=provisional
+        )
+        for p in pool
+    }
+    locked_score = sum(candidate_scores.get(p["player_id"], 0.0) for p in locked)
+    states = [(locked, locked_score)]
+    beam_width = min(2600, max(1200, len(pool) * 90))
+
+    def partial_is_feasible(chosen, available, remaining_slots):
+        counts = Counter(p["role"] for p in chosen)
+        available_roles = Counter(p["role"] for p in available)
+        if any(counts[role] + available_roles[role] < minimum
+               for role, minimum in rules.min_role.items()):
+            return False
+        if sum(max(0, minimum - counts[role])
+               for role, minimum in rules.min_role.items()) > remaining_slots:
+            return False
+        if rules.team_a_count is not None:
+            selected_a = sum(p["team"] == team_a for p in chosen)
+            selected_b = len(chosen) - selected_a
+            need_a = rules.team_a_count - selected_a
+            need_b = rules.team_size - rules.team_a_count - selected_b
+            available_a = sum(p["team"] == team_a for p in available)
+            available_b = len(available) - available_a
+            if need_a < 0 or need_b < 0 or need_a > available_a or need_b > available_b:
+                return False
+            if need_a + need_b != remaining_slots:
+                return False
+        credit_left = rules.max_credits - sum(float(p["credits"]) for p in chosen)
+        if credit_left < 0:
+            return False
+        if remaining_slots:
+            cheapest = sorted(float(p["credits"]) for p in available)[:remaining_slots]
+            if len(cheapest) < remaining_slots or sum(cheapest) > credit_left + 1e-9:
+                return False
+        return True
+
+    for _ in range(rules.team_size - len(locked)):
+        expanded = {}
+        for chosen, score_so_far in states:
+            chosen_ids = {p["player_id"] for p in chosen}
+            available_before = [p for p in pool if p["player_id"] not in chosen_ids]
+            if not available_before:
                 continue
-            diverse.append((candidate,candidate_score))
-            beam_ids.append(candidate_ids)
-            if len(diverse)>=350:
-                break
-        states=diverse or expanded[:350]
+            # Calculate the optimistic remaining-score prefix once per partial
+            # XI rather than sorting all remaining candidates for every branch.
+            ranked_remaining = sorted(
+                ((candidate_scores.get(p["player_id"], 0.0), p["player_id"])
+                 for p in available_before),
+                reverse=True,
+            )
+            prefix = [0.0]
+            for score_value, _player_id in ranked_remaining:
+                prefix.append(prefix[-1] + score_value)
+            remaining = rules.team_size - len(chosen) - 1
+
+            for p in available_before:
+                pid = p["player_id"]
+                if not _valid(p, chosen, rules, team_a, rules.team_a_count, provisional):
+                    continue
+                next_chosen = chosen + [p]
+                available_after = [other for other in available_before if other["player_id"] != pid]
+                if not partial_is_feasible(next_chosen, available_after, remaining):
+                    continue
+
+                value = score_so_far + candidate_scores.get(pid, 0.0)
+                top_n_sum = prefix[min(remaining, len(ranked_remaining))]
+                # If the player being added was inside the optimistic top-N,
+                # replace them with the next available candidate.
+                top_n_ids = {player_id for _, player_id in ranked_remaining[:remaining]}
+                if pid in top_n_ids and remaining < len(ranked_remaining):
+                    top_n_sum = prefix[remaining + 1] - candidate_scores.get(pid, 0.0)
+                optimistic = value + top_n_sum
+                key = tuple(sorted(chosen_ids | {pid}))
+                previous = expanded.get(key)
+                if previous is None or optimistic > previous[2]:
+                    expanded[key] = (next_chosen, value, optimistic)
+
+        if not expanded:
+            break
+        ordered = sorted(expanded.values(), key=lambda entry: entry[2], reverse=True)
+        states = [(chosen, value) for chosen, value, _ in ordered[:beam_width]]
     valid=[]
     for chosen,score in states:
         counts=Counter(p["role"] for p in chosen)
@@ -373,59 +840,245 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
     if not valid:
         raise ValueError("No legal team found. Check credits, roles, confirmed XI, locked players and team split.")
     valid.sort(key=lambda x:x[1],reverse=True)
-    # Select different lineups by player identity, not merely the next sorted result.
+    # Build a portfolio of strong but meaningfully different lineups. Diversity is
+    # preferred only within a strategy-specific quality band; weak differentials are not forced.
+    valid.sort(key=lambda x: x[1], reverse=True)
     selected_lineups = []
     remaining_valid = list(valid)
+    min_unique_players = {
+        "strongest": 1,
+        "safe": 1,
+        "balanced": 2,
+        "scenario": 3,
+        "grand_league": 3,
+    }.get(strategy, 2)
+    quality_floor = {
+        "strongest": 0.96,
+        "safe": 0.90,
+        "balanced": 0.84,
+        "scenario": 0.82,
+        "grand_league": 0.76,
+    }.get(strategy, 0.84)
+    overlap_weight = {
+        "strongest": 0.10,
+        "safe": 0.12,
+        "balanced": 0.22,
+        "scenario": 0.25,
+        "grand_league": 0.30,
+    }.get(strategy, 0.22)
+    captain_pair_weight = {
+        "strongest": 0.02,
+        "safe": 0.035,
+        "balanced": 0.075,
+        "scenario": 0.09,
+        "grand_league": 0.12,
+    }.get(strategy, 0.075)
+
     for index in range(min(count_teams, len(remaining_valid))):
+        if not remaining_valid:
+            break
+        best_base = max(score for _, score in remaining_valid)
+        quality_candidates = [
+            entry for entry in remaining_valid
+            if entry[1] >= best_base * quality_floor
+        ] or remaining_valid
+
+        # Try to keep at least the requested number of players different from each
+        # already-built team. Relax only when the candidate pool cannot support it.
+        diversity_candidates = []
+        for candidate, candidate_score in quality_candidates:
+            candidate_ids = {p["player_id"] for p in candidate}
+            if all(
+                len(candidate_ids & prior_ids) <= rules.team_size - min_unique_players
+                for prior_ids in selected_lineups
+            ):
+                diversity_candidates.append((candidate, candidate_score))
+        candidate_pool = diversity_candidates or quality_candidates
+
         best_entry = None
         best_adjusted = None
-        for chosen_candidate, base_score in remaining_valid:
+        for chosen_candidate, base_score in candidate_pool:
             candidate_ids = {p["player_id"] for p in chosen_candidate}
             overlap_penalty = 0.0
+            repeat_penalty = 0.0
             for prior_ids in selected_lineups:
                 overlap = len(candidate_ids & prior_ids)
                 similarity = overlap / max(1, rules.team_size)
-                # Push later teams toward genuinely different constructions.
-                overlap_penalty += (similarity ** 2) * (0.10 if strategy != "grand_league" else 0.15) * max(base_score, 1.0)
-            adjusted = base_score - overlap_penalty
+                overlap_penalty += (similarity ** 2) * overlap_weight * max(base_score, 1.0)
+            # A small portfolio exposure penalty avoids repeatedly using the same
+            # core players when two legal teams are otherwise similarly strong.
+            for player in chosen_candidate:
+                prior_uses = usage.get(player["player_id"], 0)
+                if prior_uses:
+                    player_signal = _player_signal(
+                        player, strategy, scenario, *score_args,
+                        provisional=provisional
+                    )
+                    repeat_penalty += min(0.045 * prior_uses, 0.18) * player_signal
+            adjusted = base_score - overlap_penalty - repeat_penalty
             if best_entry is None or adjusted > best_adjusted:
                 best_entry, best_adjusted = (chosen_candidate, base_score), adjusted
+
         if best_entry is None:
             break
         chosen, score = best_entry
         chosen_ids = {p["player_id"] for p in chosen}
         selected_lineups.append(chosen_ids)
-        remaining_valid = [(c, s) for c, s in remaining_valid if {p["player_id"] for p in c} != chosen_ids]
-        ids = chosen_ids
+        remaining_valid = [
+            (candidate, value) for candidate, value in remaining_valid
+            if {p["player_id"] for p in candidate} != chosen_ids
+        ]
+
         cands = [p for p in chosen if not captain_pool or p["player_id"] in captain_pool]
         vcands = [p for p in chosen if not vice_captain_pool or p["player_id"] in vice_captain_pool]
         captain_key = lambda p: _captain_score(p, strategy, scenario, *score_args)
-        captain = next((p for p in cands if p["player_id"] == manual_captain_id), None) or (sorted(cands, key=captain_key, reverse=True)[0] if cands else None)
         vice_key = lambda p: _vice_score(p, strategy, scenario, *score_args)
-        vice = next((p for p in vcands if p["player_id"] == manual_vice_captain_id), None) or (sorted([p for p in vcands if not captain or p["player_id"] != captain["player_id"]], key=vice_key, reverse=True)[0] if vcands else None)
+        # Treat captain and vice-captain as one leadership pool so a player is
+        # not repeatedly recycled from C to VC (or vice versa) in every lineup.
+        leadership_usage = captain_usage + vice_usage
+
+        captain_rank = lambda p: _portfolio_exposure_score(
+            captain_key(p), p["player_id"], leadership_usage, strategy, "captain"
+        )
+        captain = (
+            next((p for p in cands if p["player_id"] == manual_captain_id), None)
+            or (max(cands, key=captain_rank) if cands else None)
+        )
+
+        def vice_rank(p):
+            base = _portfolio_exposure_score(
+                vice_key(p), p["player_id"], leadership_usage, strategy, "vice"
+            )
+            if captain is not None:
+                pair_key = tuple(sorted((captain["player_id"], p["player_id"]), key=lambda value: str(value)))
+                pair_count = pair_usage.get(pair_key, 0)
+                base *= 1.0 - min(0.24, captain_pair_weight * pair_count)
+            return base
+
+        vice_options = [
+            p for p in vcands
+            if not captain or p["player_id"] != captain["player_id"]
+        ]
+        vice = (
+            next((p for p in vice_options if p["player_id"] == manual_vice_captain_id), None)
+            or (max(vice_options, key=vice_rank) if vice_options else None)
+        )
         if not captain or not vice:
             raise ValueError("Captain and vice-captain pools must contain two different selected players.")
-        if captain["player_id"] not in ids or vice["player_id"] not in ids:
+        if captain["player_id"] not in chosen_ids or vice["player_id"] not in chosen_ids:
             raise ValueError("Captain and vice-captain must be selected in the team.")
-        for p in chosen:
-            usage[p["player_id"]] += 1
+
+        captain_alternatives = sorted(
+            [p for p in chosen if p["player_id"] != captain["player_id"]],
+            key=captain_rank,
+            reverse=True
+        )[:2]
+        vice_alternatives = sorted(
+            [p for p in chosen if p["player_id"] != vice["player_id"]],
+            key=vice_rank,
+            reverse=True
+        )[:2]
+
         total = sum(float(p["credits"]) for p in chosen)
-        projected = None if provisional else round(sum(float(p["expected_points"]) for p in chosen) + float(captain["expected_points"]) + 0.5 * float(vice["expected_points"]), 2)
-        captain_alternatives = sorted([p for p in chosen if p["player_id"] != captain["player_id"]], key=captain_key, reverse=True)[:2]
-        vice_alternatives = sorted([p for p in chosen if p["player_id"] != vice["player_id"]], key=vice_key, reverse=True)[:2]
-        made.append({"generation_mode":mode,"strategy":strategy,"scenario":scenario,
-            "score_scenario":{"mode":innings_mode,"team":score_team,"scenario_score":scenario_score,"format":match_format} if innings_mode != "none" else None,
-            "players":chosen,
-            "captain_id":captain["player_id"],"vice_captain_id":vice["player_id"],
-            "captain_alternatives":[{"player_id":p["player_id"],"player_name":p.get("player_name"),"score":round(captain_key(p),2)} for p in captain_alternatives],
-            "vice_captain_alternatives":[{"player_id":p["player_id"],"player_name":p.get("player_name"),"score":round(vice_key(p),2)} for p in vice_alternatives],
-            "captain_reason":"Strategy-weighted ranking of expected contribution, ceiling, floor and role opportunity; popularity is not the deciding factor.",
-            "vice_captain_reason":"Independently ranked for vice-captain balance of expected contribution, floor and ceiling.",
-            "team_strength_score":round(score,2),
-            "risk_profile":"high-upside" if strategy=="grand_league" else "lower-variance" if strategy=="safe" else "balanced-risk",
-            "total_credits":round(total,1),"projected_points":projected,
-            "selection_score":round(score,2),"role_counts":dict(Counter(p["role"] for p in chosen)),
-            "team_split":dict(Counter(p["team"] for p in chosen)),
-            "points_available":not provisional,
-            "score_meaning":"model projected fantasy points including C/VC" if not provisional else "selection-priority score only; not fantasy points"})
+        projected = (
+            None if provisional else
+            round(sum(float(p["expected_points"]) for p in chosen)
+                  + float(captain["expected_points"])
+                  + 0.5 * float(vice["expected_points"]), 2)
+        )
+
+        # Update exposure only after the current XI and its C/VC have been selected.
+        for player in chosen:
+            usage[player["player_id"]] += 1
+        captain_usage[captain["player_id"]] += 1
+        vice_usage[vice["player_id"]] += 1
+        pair_key = tuple(sorted((captain["player_id"], vice["player_id"]), key=lambda value: str(value)))
+        pair_usage[pair_key] += 1
+
+        made.append({
+            "generation_mode": mode,
+            "portfolio_rank": len(made) + 1,
+            "recommendation_tier": "best_ranked_xi" if not made else "diversified_alternative",
+            "strategy": strategy,
+            "scenario": scenario,
+            "score_scenario": {
+                "mode": innings_mode, "team": score_team,
+                "scenario_score": scenario_score, "format": match_format
+            } if innings_mode != "none" else None,
+            "players": chosen,
+            "captain_id": captain["player_id"],
+            "vice_captain_id": vice["player_id"],
+            "captain_alternatives": [
+                {"player_id": p["player_id"], "player_name": p.get("player_name"),
+                 "score": round(captain_rank(p), 2)}
+                for p in captain_alternatives
+            ],
+            "vice_captain_alternatives": [
+                {"player_id": p["player_id"], "player_name": p.get("player_name"),
+                 "score": round(vice_rank(p), 2)}
+                for p in vice_alternatives
+            ],
+            "captain_reason": _captaincy_reason(captain, strategy, "captain"),
+            "vice_captain_reason": _captaincy_reason(vice, strategy, "vice-captain"),
+            "team_strength_score": round(score, 2),
+            "risk_profile": "high-upside" if strategy == "grand_league" else "lower-variance" if strategy == "safe" else "balanced-risk",
+            "total_credits": round(total, 1),
+            "projected_points": projected,
+            "selection_score": round(score, 2),
+            "role_counts": dict(Counter(p["role"] for p in chosen)),
+            "team_split": dict(Counter(p["team"] for p in chosen)),
+            "points_available": not provisional,
+            "score_meaning": "model projected fantasy points including C/VC" if not provisional else "selection-priority score only; not fantasy points",
+        })
+
+    # Publish portfolio-level exposure and overlap metrics for the UI and audit.
+    portfolio_size = max(1, len(made))
+    lineup_exposure = Counter(
+        player["player_id"] for team in made for player in team["players"]
+    )
+    captain_exposure = Counter(team["captain_id"] for team in made)
+    vice_exposure = Counter(team["vice_captain_id"] for team in made)
+    for team_index, team in enumerate(made):
+        team_ids = {player["player_id"] for player in team["players"]}
+        previous_overlaps = [
+            len(team_ids & {player["player_id"] for player in previous["players"]})
+            for previous in made[:team_index]
+        ]
+        team["lineup_overlap_pct"] = round(
+            (max(previous_overlaps) / max(1, rules.team_size)) * 100, 1
+        ) if previous_overlaps else 0.0
+        team["captain_exposure_pct"] = round(
+            captain_exposure[team["captain_id"]] / portfolio_size * 100, 1
+        )
+        team["vice_captain_exposure_pct"] = round(
+            vice_exposure[team["vice_captain_id"]] / portfolio_size * 100, 1
+        )
+        for player in team["players"]:
+            player["portfolio_exposure_pct"] = round(
+                lineup_exposure[player["player_id"]] / portfolio_size * 100, 1
+            )
+        team["portfolio_exposure"] = [
+            {
+                "player_id": player_id,
+                "player_name": next(
+                    (p.get("player_name") for p in team["players"]
+                     if p["player_id"] == player_id), player_id
+                ),
+                "teams_selected": count,
+                "exposure_pct": round(count / portfolio_size * 100, 1),
+            }
+            for player_id, count in sorted(
+                lineup_exposure.items(), key=lambda item: (-item[1], str(item[0]))
+            )
+        ]
+        team["portfolio_captain_usage"] = [
+            {"player_id": player_id, "teams_as_captain": count,
+             "exposure_pct": round(count / portfolio_size * 100, 1)}
+            for player_id, count in captain_exposure.items()
+        ]
+        team["portfolio_vice_usage"] = [
+            {"player_id": player_id, "teams_as_vice_captain": count,
+             "exposure_pct": round(count / portfolio_size * 100, 1)}
+            for player_id, count in vice_exposure.items()
+        ]
     return made

@@ -21,7 +21,7 @@ def test_parse_ai11_player_table_maps_selection_and_role():
     assert data["format"] == "ODI"
     assert data["team_a"] == "New Zealand"
     assert data["players"][0]["role"] == "BAT"
-    assert data["players"][0]["status"] == "confirmed"
+    assert data["players"][0]["status"] == "unknown"
     assert data["players"][0]["selection_pct"] == 44.5
     assert data["profiles"][0]["ai11_captain_pct"] == 5.2
 
@@ -121,105 +121,215 @@ def test_analysis_title_and_venue_are_cleaned_from_explicit_headings():
     assert data["title"] == "New Zealand vs India, 2nd ODI"
     assert data["venue"] == "Hnry Stadium"
 
-\n\ndef test_ai11_detailed_table_extracts_career_series_and_source_projection():
+
+def test_ai11_grouped_batting_bowling_stats_are_saved_as_aggregates_not_fantasy_points():
     html = """
-    <html><head><title>Namibia Women vs United States of America Women, 3rd Match: Fantasy Preview, Pitch Report &amp; Player Stats | AI11</title></head>
-    <body>
-      <img alt="NAM Women"><img alt="USA Women">
-      <h1>Namibia Women vs United States of America Women, 3rd Match: Fantasy Preview, Pitch Report &amp; Player Stats</h1>
-      <h2>Pitch Report: Entebbe Cricket Oval</h2>
-      <p>Weather: Entebbe Chance of rain 39% Humidity 72% Wind 5 km/h Dew is unlikely</p>
-      <p>The average first-innings score in T20 matches at Entebbe Cricket Oval is 93 and the average second-innings score is 76, based on 5 matches.</p>
+    <html><head><title>NZ vs IND 2nd ODI | AI11</title></head><body>
+      <img alt="New Zealand"><img alt="India">
       <table>
-        <tr><th>Player</th><th>Batting</th><th>Bowling</th><th>Series Performance</th><th>Lineup selection</th></tr>
         <tr>
-          <th>Name</th><th>T</th><th>R</th><th>S</th><th>M#</th><th>Bat</th><th>Inn</th><th>NO</th>
-          <th>Runs</th><th>HS</th><th>Avg</th><th>SR</th><th>50+</th><th>4/6</th>
-          <th>Bowl</th><th>Inn</th><th>Wk</th><th>Ov</th><th>Avg</th><th>Eco</th><th>SR</th>
-          <th>4w</th><th>Best</th><th>C/St</th><th>M</th><th>A. Pt</th><th>Pts</th><th>Run</th>
-          <th>Wk</th><th>DT</th><th>P</th><th>S%</th><th>C</th><th>VC</th>
+          <th rowspan="2">Name</th><th rowspan="2">T</th><th rowspan="2">R</th>
+          <th rowspan="2">S</th><th colspan="10">Batting</th><th colspan="8">Bowling</th>
+          <th colspan="5">Series</th>
         </tr>
         <tr>
-          <td>Jivana Aras</td><td>USA-W</td><td>ALL</td><td>✓</td><td>11</td><td>LHB</td>
-          <td>4</td><td>3</td><td>34</td><td>24</td><td>34</td><td>77.27</td><td>0</td><td>2</td>
-          <td>RM</td><td>11</td><td>7</td><td>2</td><td>19</td><td>6.04</td><td>18.8</td>
-          <td>0</td><td>3/18</td><td>2</td><td>0</td><td>0</td><td>0</td><td>0</td>
-          <td>0</td><td>0</td><td>7</td><td>10.68</td><td>0.04</td><td>0.17</td>
+          <th>M#</th><th>Bat</th><th>Inn</th><th>NO</th><th>Runs</th><th>HS</th>
+          <th>Avg</th><th>SR</th><th>50+</th><th>4/6</th>
+          <th>Inn</th><th>Wk</th><th>Ov</th><th>Avg</th><th>Eco</th><th>SR</th>
+          <th>4w</th><th>Best</th><th>C/St</th><th>Pts</th><th>S%</th><th>C</th><th>VC</th>
+        </tr>
+        <tr>
+          <td>Example Batter</td><td>IND</td><td>BAT</td><td>✓</td>
+          <td>12</td><td>RHB</td><td>10</td><td>2</td><td>450</td><td>91</td>
+          <td>56.25</td><td>88.2</td><td>4</td><td>45/12</td>
+          <td>3</td><td>2</td><td>8.0</td><td>24.5</td><td>6.1</td><td>24</td>
+          <td>0</td><td>2/18</td><td>5/1</td><td>320</td><td>65.2</td><td>12.5</td><td>8.1</td>
         </tr>
       </table>
     </body></html>
     """
     data = ai11.parse_analysis(html)
-    assert data["format"] == "T20"
-    assert data["venue"] == "Entebbe Cricket Oval"
-    assert data["player_count"] == 1
     profile = data["profiles"][0]
-    metrics = profile["ai11_metrics"]
-    assert metrics["career_matches"] == 11
-    assert metrics["batting_hand"] == "LHB"
-    assert metrics["batting_innings"] == 4
-    assert metrics["runs"] == 34
-    assert metrics["batting_average"] == 34
-    assert metrics["bowling_type"] == "RM"
-    assert metrics["bowling_innings"] == 11
-    assert metrics["wickets"] == 7
-    assert metrics["economy"] == 6.04
-    assert metrics["ai11_projected_points"] == 7
-    assert profile["ai11_selection_pct"] == 10.68
-    assert profile["ai11_captain_pct"] == 0.04
-    assert profile["ai11_vice_captain_pct"] == 0.17
-    assert "fantasy_points" not in metrics
-    assert data["intelligence"]["average_first_innings"] == 93
-    assert data["intelligence"]["average_second_innings"] == 76
+    stats = profile["ai11_statistics"]
+    assert stats["matches"] == 12
+    assert stats["batting_innings"] == 10
+    assert stats["runs"] == 450
+    assert stats["batting_average"] == 56.25
+    assert stats["bowling_innings"] == 3
+    assert stats["wickets"] == 2
+    assert stats["bowling_average"] == 24.5
+    assert stats["best_bowling"] == "2/18"
+    assert stats["catches_stumpings"] == "5/1"
+    assert profile["ai11_series_summary"]["ai11_series_points_reported"] == 320
+    assert "fantasy_points" not in stats
+    assert "fantasy_points" not in profile["ai11_series_summary"]
+    assert profile["data_type"] == "career_or_series_aggregate_not_match_level"
 
-def test_ai11_detailed_table_extracts_career_series_and_projection_metrics():
+
+def test_parse_ai11_current_t20_series_summary_and_grouped_batting_bowling_table():
     html = """
-    <html><head><title>Namibia Women vs United States of America Women, 3rd Match: Fantasy Preview, Pitch Report &amp; Player Stats | AI11</title></head>
+    <html>
+      <head><title>NAM-W vs USA-W 3rd Match Fantasy AI Predictions | AI11</title></head>
+      <body>
+        <img alt="NAM Women"><img alt="USA Women">
+        <p>Women's Victoria T20 Series USA-W vs NAM-W players T20 past performance,
+        current series performance, projected points and selection percentage.</p>
+        <table>
+          <tr>
+            <th colspan="5">Player</th><th colspan="9">Batting</th>
+            <th colspan="10">Bowling</th><th colspan="7">Series Performance</th>
+            <th colspan="3">Lineup selection</th>
+          </tr>
+          <tr>
+            <th>Name</th><th>T</th><th>R</th><th>S</th><th>M#</th>
+            <th>Bat</th><th>Inn</th><th>NO</th><th>Runs</th><th>HS</th>
+            <th>Avg</th><th>SR</th><th>50+</th><th>4/6</th>
+            <th>Bowl</th><th>Inn</th><th>Wk</th><th>Ov</th><th>Avg</th>
+            <th>Eco</th><th>SR</th><th>4w</th><th>Best</th><th>C/St</th>
+            <th>M</th><th>A. Pt</th><th>Pts</th><th>Run</th><th>Wk</th><th>DT</th><th>P</th>
+            <th>S%</th><th>C</th><th>VC</th>
+          </tr>
+          <tr>
+            <td>Wilka Mwatile</td><td>NAM-W</td><td>ALL</td><td>✓</td><td>110</td>
+            <td>RHB</td><td>89</td><td>19</td><td>984</td><td>54</td><td>14.05</td>
+            <td>83.17</td><td>1</td><td>100</td>
+            <td>RM</td><td>104</td><td>91</td><td>3.4</td><td>17.26</td><td>4.46</td>
+            <td>23.1</td><td>3</td><td>5/6</td><td>35/0</td>
+            <td>1</td><td>110</td><td>110</td><td>6</td><td>3</td><td>100</td><td>1</td>
+            <td>94.15</td><td>34.18</td><td>16.87</td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """
+    data = ai11.parse_analysis(html)
+    assert data["format"] == "T20"
+    profile = data["profiles"][0]
+    stats = profile["ai11_statistics"]
+    series = profile["ai11_series_summary"]
+    assert stats["matches"] == 110
+    assert stats["runs"] == 984
+    assert stats["batting_average"] == 14.05
+    assert stats["bowling_innings"] == 104
+    assert stats["wickets"] == 91
+    assert stats["bowling_average"] == 17.26
+    assert stats["best_bowling"] == "5/6"
+    assert series["series_matches"] == 1
+    assert series["series_average_points"] == 110
+    assert series["ai11_series_points_reported"] == 110
+    assert series["series_runs"] == 6
+    assert series["series_wickets"] == 3
+    assert profile["ai11_selection_pct"] == 94.15
+    assert profile["ai11_captain_pct"] == 34.18
+    assert profile["ai11_vice_captain_pct"] == 16.87
+    # The compact AI11 "P" series column is not fantasy points and must not
+    # be treated as the separate Match Performance PTS field.
+    assert profile["ai11_source_p_raw"] == 1
+    assert "ai11_projected_points" not in profile
+    assert "series_p_metric" not in series
+    assert "fantasy_points" not in stats
+    assert "fantasy_points" not in series
+
+
+def test_ai11_parse_team_code_mapping_pitch_toss_and_both_innings_averages():
+    html = """
+    <html><head><title>NAM-W vs USA-W 3rd Match Fantasy AI Predictions | AI11</title></head>
     <body>
       <img alt="NAM Women"><img alt="USA Women">
-      <h2>Pitch Report: Entebbe Cricket Oval</h2>
-      <p>Weather: Entebbe Chance of rain 39% Humidity 72% Wind 5 km/h Dew is unlikely</p>
-      <p>The average first-innings score in T20 matches at Entebbe Cricket Oval is 93 and the average second-innings score is 76, based on 5 matches.</p>
+      <p>Women's Victoria T20 Series USA-W vs NAM-W players T20 past performance,
+      current series performance, projected points and selection percentage.</p>
+      <p>Jivana Aras USA-W ALL ✓ 11 34 77.27</p>
       <table>
-        <tr><th>Player</th><th>Batting</th><th>Bowling</th><th>Series Performance</th><th>Lineup selection</th></tr>
-        <tr><th>Name</th><th>T</th><th>R</th><th>S</th><th>M#</th><th>Bat</th><th>Inn</th><th>NO</th><th>Runs</th><th>HS</th><th>Avg</th><th>SR</th><th>50+</th><th>4/6</th><th>Bowl</th><th>Inn</th><th>Wk</th><th>Ov</th><th>Avg</th><th>Eco</th><th>SR</th><th>4w</th><th>Best</th><th>C/St</th><th>M</th><th>A. Pt</th><th>Pts</th><th>Run</th><th>Wk</th><th>DT</th><th>P</th><th>S%</th><th>C</th><th>VC</th></tr>
-        <tr><td>Jivana Aras</td><td>USA-W</td><td>ALL</td><td>✓</td><td>11</td><td>LHB</td><td>4</td><td>3</td><td>34</td><td>24</td><td>34</td><td>77.27</td><td>0</td><td>2</td><td>RM</td><td>11</td><td>7</td><td>2</td><td>19</td><td>6.04</td><td>18.8</td><td>0</td><td>3/18</td><td>2</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>7</td><td>10.68</td><td>0.04</td><td>0.17</td></tr>
+        <tr><th>Name</th><th>T</th><th>R</th><th>S</th><th>M#</th><th>Bat</th><th>S%</th><th>C</th><th>VC</th></tr>
+        <tr><td>Jivana Aras</td><td>USA-W</td><td>ALL</td><td>✓</td><td>11</td><td>LHB</td><td>10.68</td><td>0.04</td><td>0.17</td></tr>
+        <tr><td>Wilka Mwatile</td><td>NAM-W</td><td>ALL</td><td>✓</td><td>110</td><td>RHB</td><td>94.15</td><td>34.18</td><td>16.87</td></tr>
+      </table>
+      <p>The Entebbe Cricket Oval pitch favours fast bowlers heavily.</p>
+      <p>Who won the toss in Namibia Women vs USA Women? USA-W elected to field first</p>
+      <p>The average first-innings score in T20 matches is 93 and the average second-innings score is 76, based on 5 matches.</p>
+      <p>Chance of rain 39% Humidity 72% Dew is unlikely</p>
+    </body></html>
+    """
+    data = ai11.parse_analysis(html)
+    assert data["team_a"] == "NAM Women"
+    assert data["team_b"] == "USA Women"
+    assert [p["team"] for p in data["players"]] == ["USA Women", "NAM Women"]
+    intel = data["intelligence"]
+    assert intel["average_first_innings"] == 93
+    assert intel["average_second_innings"] == 76
+    assert intel["venue_matches"] == 5
+    assert intel["pitch_type"] == "pace"
+    assert intel["toss_completed"] is True
+    assert intel["toss_winner"] == "USA Women"
+    assert intel["toss_decision"] == "bowl"
+    assert intel["batting_first_team"] == "NAM Women"
+    assert intel["chasing_team"] == "USA Women"
+    assert intel["dew_likely"] is False
+    assert data["players"][0]["status"] == "unknown"
+
+
+def test_grouped_ai11_table_retains_bowling_type_for_pace_spin_fit():
+    html = """
+    <html><head><title>MR vs AS Women 1st Match | AI11</title></head><body>
+      <img alt="Melbourne Renegades Women"><img alt="Adelaide Strikers Women">
+      <table>
+        <tr><th colspan="4">Player</th><th colspan="2">Batting</th><th colspan="2">Bowling</th><th colspan="3">Series Performance</th><th colspan="3">Lineup selection</th></tr>
+        <tr><th>Name</th><th>T</th><th>R</th><th>S</th><th>Bat</th><th>Avg</th><th>Bowl</th><th>Wk</th><th>M</th><th>A. Pt</th><th>Pts</th><th>S%</th><th>C</th><th>VC</th></tr>
+        <tr><td>G Wareham</td><td>MR</td><td>ALL</td><td>—</td><td>RHB</td><td>31</td><td>OB</td><td>21</td><td>3</td><td>88</td><td>264</td><td>85</td><td>12</td><td>18</td></tr>
       </table>
     </body></html>
     """
     data = ai11.parse_analysis(html)
-    assert data["format"] == "T20"
-    assert data["venue"] == "Entebbe Cricket Oval"
-    assert data["player_count"] == 1
-    profile = data["profiles"][0]
-    metrics = profile["ai11_metrics"]
-    assert metrics["career_matches"] == 11
-    assert metrics["batting_hand"] == "LHB"
-    assert metrics["batting_innings"] == 4
-    assert metrics["runs"] == 34
-    assert metrics["batting_average"] == 34
-    assert metrics["bowling_type"] == "RM"
-    assert metrics["bowling_innings"] == 11
-    assert metrics["wickets"] == 7
-    assert metrics["economy"] == 6.04
-    assert metrics["ai11_projected_points"] == 7
-    assert profile["ai11_selection_pct"] == 10.68
-    assert profile["ai11_captain_pct"] == 0.04
-    assert profile["ai11_vice_captain_pct"] == 0.17
-    assert "fantasy_points" not in metrics
-    assert data["intelligence"]["average_first_innings"] == 93
-    assert data["intelligence"]["average_second_innings"] == 76
+    stats = data["profiles"][0]["ai11_statistics"]
+    assert stats["batting_hand"] == "RHB"
+    assert stats["bowling_type"] == "OB"
 
-def test_ai11_projection_is_a_supporting_signal_not_a_verified_points_projection():
-    from app.optimizer import _player_signal
-    base = {"role": "AR", "status": "confirmed", "selection_pct": 50,
-            "expected_points": None, "floor_points": None, "ceiling_points": None}
-    ordinary = _player_signal(base, "balanced", "neutral", match_format="T20")
-    enhanced = _player_signal({
-        **base, "ai11_projected_points": 12,
-        "ai11_metrics": {"career_matches": 40, "batting_average": 28,
-                         "batting_strike_rate": 125, "bowling_innings": 35,
-                         "wickets": 40, "economy": 6.2},
-    }, "balanced", "neutral", match_format="T20")
-    assert enhanced > ordinary
-    assert base["expected_points"] is None
+
+def test_ai11_match_performance_pts_is_separate_from_series_p_and_marks_completed_result():
+    html = """
+    <html>
+      <head><title>Melbourne Renegades Women vs Adelaide Strikers Women 13th Match</title></head>
+      <body>
+        <p>Melbourne Renegades Women vs Adelaide Strikers Women</p>
+        <p>Date &amp; Time Saturday 07 November 2026</p>
+        <p>Completed. Melbourne Renegades Women won by 36 runs.</p>
+        <table>
+          <tr>
+            <th colspan="5">Player</th><th colspan="9">Batting</th>
+            <th colspan="10">Bowling</th><th colspan="7">Series Performance</th>
+            <th colspan="3">Lineup selection</th><th colspan="6">Match Performance</th>
+          </tr>
+          <tr>
+            <th>Name</th><th>T</th><th>R</th><th>S</th><th>M#</th>
+            <th>Bat</th><th>Inn</th><th>NO</th><th>Runs</th><th>HS</th><th>Avg</th><th>SR</th><th>50+</th><th>4/6</th>
+            <th>Bowl</th><th>Inn</th><th>Wk</th><th>Ov</th><th>Avg</th><th>Eco</th><th>SR</th><th>4w</th><th>Best</th><th>C/St</th>
+            <th>M</th><th>A. Pt</th><th>Pts</th><th>Run</th><th>Wk</th><th>DT</th><th>P</th>
+            <th>S%</th><th>C</th><th>VC</th>
+            <th>iDt</th><th>#</th><th>PTS</th><th>Bat</th><th>Bowl</th><th>Field</th>
+          </tr>
+          <tr>
+            <td>Georgia Wareham</td><td>MR-W</td><td>ALL</td><td>✓</td><td>85</td>
+            <td>RHB</td><td>75</td><td>13</td><td>1400</td><td>67</td><td>25.45</td><td>128.4</td><td>8</td><td>130/45</td>
+            <td>LB</td><td>79</td><td>84</td><td>2.8</td><td>15.96</td><td>5.98</td><td>16</td><td>0</td><td>3/11</td><td>34/2</td>
+            <td>8</td><td>82</td><td>248</td><td>102</td><td>1</td><td>100</td><td>5</td>
+            <td>85.27</td><td>12.02</td><td>18.36</td>
+            <td>✓</td><td>1</td><td>189</td><td>135</td><td>42</td><td>12</td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """
+    data = ai11.parse_analysis(html)
+    profile = data["profiles"][0]
+    assert data["intelligence"]["match_completed"] is True
+    assert data["intelligence"]["match_date"] == "2026-11-07"
+    assert profile["ai11_source_p_raw"] == 5
+    assert profile["ai11_match_performance"] == {
+        "played": "✓",
+        "fantasy_points": 189.0,
+        "batting_points": 135.0,
+        "bowling_points": 42.0,
+        "fielding_points": 12.0,
+    }
+    assert "ai11_projected_points" not in profile
+    assert "fantasy_points" not in profile["ai11_statistics"]
