@@ -59,15 +59,34 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
             base *= ai11_factor
         except (TypeError, ValueError):
             pass
-        # AI11's role-normalized batting/bowling/series score is a selection
-        # signal only. It adjusts the provisional index, never fantasy points.
-        try:
-            role_score = p.get("ai11_role_score")
-            if role_score is not None:
-                base *= max(0.88, min(1.12, 1.0 + (float(role_score) - 50.0) * 0.0024))
-        except (TypeError, ValueError):
-            pass
         floor_v, upside, consistency = base * 0.55, base * (1.18 if p.get("role") in {"AR", "WK"} else 1.08), 0.35
+
+    # AI11 performance profiles influence selection in BOTH modes while
+    # never being converted into a fantasy-point estimate. Current-series form
+    # and the role-specific career score are intentionally more meaningful
+    # than public selection/C/VC percentages.
+    try:
+        role_score = p.get("ai11_role_score")
+        recent_score = p.get("ai11_recent_form_score")
+        profile_scores = []
+        if role_score is not None:
+            profile_scores.append((float(role_score), 0.70))
+        if recent_score is not None:
+            profile_scores.append((float(recent_score), 0.30))
+        if profile_scores:
+            profile_strength = sum(score * weight for score, weight in profile_scores) / sum(weight for _, weight in profile_scores)
+            profile_multiplier = max(0.80, min(1.20, 1.0 + (profile_strength - 50.0) * 0.004))
+            base *= profile_multiplier
+        if p.get("role") == "AR" and p.get("ai11_two_skill_profile"):
+            bat_score = p.get("ai11_batting_score")
+            bowl_score = p.get("ai11_bowling_score")
+            if bat_score is not None and bowl_score is not None:
+                if min(float(bat_score), float(bowl_score)) >= 70:
+                    base *= 1.04
+                elif min(float(bat_score), float(bowl_score)) >= 60:
+                    base *= 1.02
+    except (TypeError, ValueError):
+        pass
 
     role = p.get("role")
     opportunity = _role_opportunity(p)
@@ -171,10 +190,23 @@ def _captain_score(p, strategy, scenario, innings_mode, score_team, scenario_sco
         score = 0.52 * signal + 0.30 * ceiling_component + 0.18 * floor_component
     # Imported provider C trends are a secondary signal in provisional mode,
     # useful when this player has no historical fantasy-point estimate.
+    try:
+        profile_score = p.get("ai11_role_score")
+        if profile_score is not None:
+            # Reward demonstrated multi-skill/recent-form profile, but keep
+            # captaincy tied to the chosen XI and the base contribution signal.
+            score *= max(0.88, min(1.12, 1.0 + (float(profile_score) - 50.0) * 0.0028))
+        if p.get("role") == "AR" and p.get("ai11_two_skill_profile"):
+            bat_score = p.get("ai11_batting_score")
+            bowl_score = p.get("ai11_bowling_score")
+            if bat_score is not None and bowl_score is not None and min(float(bat_score), float(bowl_score)) >= 65:
+                score *= 1.035
+    except (TypeError, ValueError):
+        pass
     if expected is None:
         try:
             source_c = float(p.get("captain_pct") or p.get("ai11_captain_pct") or 0)
-            score += min(100.0, max(0.0, source_c)) * 0.12
+            score += min(100.0, max(0.0, source_c)) * 0.06
         except (TypeError, ValueError):
             pass
     return score
@@ -199,10 +231,16 @@ def _vice_score(p, strategy, scenario, innings_mode, score_team, scenario_score,
         score = 0.58 * signal + 0.27 * ceiling_component + 0.15 * floor_component
     # Provider VC trends support the provisional decision; they never replace
     # the role, availability and involvement assessment.
+    try:
+        profile_score = p.get("ai11_role_score")
+        if profile_score is not None:
+            score *= max(0.90, min(1.10, 1.0 + (float(profile_score) - 50.0) * 0.002))
+    except (TypeError, ValueError):
+        pass
     if expected is None:
         try:
             source_vc = float(p.get("vice_captain_pct") or p.get("ai11_vice_captain_pct") or 0)
-            score += min(100.0, max(0.0, source_vc)) * 0.12
+            score += min(100.0, max(0.0, source_vc)) * 0.06
         except (TypeError, ValueError):
             pass
     return score
