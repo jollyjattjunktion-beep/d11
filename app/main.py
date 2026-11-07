@@ -1450,7 +1450,7 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
         "venue": parsed.get("venue"),
         "team_a": parsed["team_a"],
         "team_b": parsed["team_b"],
-        "status": "upcoming",
+        "status": "completed" if (parsed.get("intelligence") or {}).get("match_completed") else "upcoming",
         "source": "AI11",
     }
     if match is None:
