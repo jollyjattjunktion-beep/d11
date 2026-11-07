@@ -5,7 +5,7 @@ from sqlalchemy.pool import StaticPool
 from app import main
 from app.database import Base
 from app.models import Match, MatchIntelligence, MatchSquad, Player, PlayerSourceProfile
-from app.schemas import AI11ImportRequest
+from app.schemas import AI11ImportRequest, TeamRequest
 
 
 def make_db():
@@ -132,6 +132,57 @@ def test_ai11_profiles_link_to_existing_tg_match_and_preserve_tg_data(monkeypatc
         assert intelligence["batting_first_team"] == "MR"
         assert intelligence["chasing_team"] == "AS"
         assert result["credits_ready_for_team_builder"] is True
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_both_innings_without_toss_builds_both_possible_batting_orders(monkeypatch):
+    engine, db = make_db()
+    try:
+        db.add(Match(
+            id="no-toss-match", name="MR vs AS", format="T20",
+            team_a="MR", team_b="AS", status="upcoming",
+        ))
+        roles = ["WK", "BAT", "BAT", "BAT", "AR", "AR",
+                 "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL"]
+        predictions = []
+        for index, role in enumerate(roles):
+            player_id = f"p{index}"
+            team = "MR" if index < 6 else "AS"
+            db.add(Player(id=player_id, name=f"Player {index}"))
+            db.add(MatchSquad(
+                match_id="no-toss-match", player_id=player_id, team=team,
+                role=role, credits=8.0, selection_pct=50,
+                status="confirmed", source="TEAM_GENERATION",
+            ))
+            predictions.append({
+                "player_id": player_id, "player_name": f"Player {index}",
+                "team": team, "role": role, "credits": 8.0,
+                "selection_pct": 50, "status": "confirmed",
+                "expected_points": None, "floor_points": None,
+                "ceiling_points": None, "consistency": 0,
+                "upside": 0, "risk": "unknown", "condition_factor": 1.0,
+            })
+        db.commit()
+        monkeypatch.setattr(main, "predict_match", lambda _db, _match_id: predictions)
+
+        result = main.generate_teams(
+            "no-toss-match",
+            TeamRequest(
+                strategies=["balanced"], teams_per_strategy=1,
+                generation_mode="provisional", score_mode="both",
+            ),
+            db,
+        )
+        teams = result["teams"]["provisional"]["balanced"]
+        assert len(teams) == 4
+        labels = {team["scenario_label"] for team in teams}
+        assert labels == {
+            "Batting first • MR", "Chasing second • AS",
+            "Batting first • AS", "Chasing second • MR",
+        }
+        assert result["score_scenario"]["mode"] == "both"
     finally:
         db.close()
         engine.dispose()
