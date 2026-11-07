@@ -701,7 +701,7 @@ function renderDreamTeamPreview(t,strategy,mode,index){
   capRow.textContent='Captain ceiling check: '+(cap.captain||'—')+' • rank '+(cap.captain_rank_in_xi||'—')+'/'+(t.players||[]).length+' in this XI • '+(cap.is_provisional_index?'provisional ranking index, not fantasy points':'historical estimate based');
   body.append(capRow);
   const selectedTitle=document.createElement('strong');selectedTitle.textContent='Why these players were selected';body.append(selectedTitle);
-  (diagnostic.selected_players||[]).forEach(p=>{const row=document.createElement('div');row.className='helper';row.textContent=p.player_name+' ('+p.role+') — '+p.reason;body.append(row);});
+  (diagnostic.selected_players||[]).forEach(p=>{const row=document.createElement('div');row.className='helper';row.textContent=p.player_name+' ('+p.role+') — '+p.reason+(p.opportunity_profile?' • opportunity index '+p.opportunity_profile.score+'/100 • evidence confidence '+Math.round(p.opportunity_profile.confidence*100)+'%':'');body.append(row);});
   const rejectedTitle=document.createElement('strong');rejectedTitle.textContent='High-potential players not selected';body.append(rejectedTitle);
   (diagnostic.high_potential_rejections||[]).forEach(p=>{const row=document.createElement('div');row.className='helper';row.textContent=p.player_name+' ('+p.role+') — '+p.reason;body.append(row);});
   const note=document.createElement('div');note.className='helper';note.textContent=diagnostic.interpretation||'';body.append(note);
