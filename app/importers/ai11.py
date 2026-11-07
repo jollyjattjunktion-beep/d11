@@ -310,6 +310,14 @@ def parse_analysis(html: str):
                 group = group_by_index.get(column_index, "")
                 key = _stat_header_key(header)
                 group_key = group.casefold()
+                if "lineup" in group_key or "selection" in group_key:
+                    compact_header = re.sub(r"[^a-z0-9]+", "", header.casefold())
+                    if compact_header == "c":
+                        key = "captain_pct"
+                    elif compact_header == "vc":
+                        key = "vice_captain_pct"
+                    elif compact_header == "s%":
+                        key = "selection_pct"
                 if "series" in group_key:
                     series_aliases = {
                         "m": "series_matches", "apt": "series_average_points",
@@ -324,7 +332,7 @@ def parse_analysis(html: str):
                 elif key in {"innings", "batting_average", "strike_rate"} and "bat" in group:
                     key = {"innings": "batting_innings", "batting_average": "batting_average",
                            "strike_rate": "batting_strike_rate"}[key]
-                if key and key not in {"selection_pct", "vice_captain_pct"}:
+                if key and key not in {"selection_pct", "vice_captain_pct", "captain_pct"}:
                     value = _parse_ai11_stat_value(cells[column_index])
                     if value is not None:
                         stat_values[key] = value
