@@ -484,12 +484,20 @@ def parse_analysis(html: str):
         match = re.search(pattern, text, re.I)
         return _number(match.group(1)) if match else None
 
-    intelligence["average_first_innings"] = find_num(
-        r"average first[- ]innings score[^0-9]{0,80}(\d{2,3})"
-    )
-    intelligence["average_second_innings"] = find_num(
-        r"average second[- ]innings score[^0-9]{0,80}(\d{2,3})"
-    )
+    def find_innings_average(ordinal):
+        label = rf"average {ordinal}[- ]innings score"
+        match = re.search(label + r"([^.!?]{0,120})", text, re.I)
+        if not match:
+            return None
+        fragment = match.group(1)
+        # T20/ODI/TEST labels and venue sample counts are not the average.
+        fragment = re.sub(r"\b(?:T20|ODI|TEST)\b", " ", fragment, flags=re.I)
+        fragment = re.sub(r"based on\s+\d+\s+matches?", " ", fragment, flags=re.I)
+        value = re.search(r"\b(\d{2,3})\b", fragment)
+        return _number(value.group(1)) if value else None
+
+    intelligence["average_first_innings"] = find_innings_average("first")
+    intelligence["average_second_innings"] = find_innings_average("second")
     sample_match = re.search(
         r"average (?:first|second)[- ]innings score.*?based on (\d+) matches", text, re.I
     )
