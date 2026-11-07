@@ -2336,6 +2336,7 @@ def import_cricbuzz_venue_report(match_id: str, payload: CricbuzzVenueImportRequ
     data["venue_report_source_url"] = payload.url
     data["venue_provider"] = "CRICBUZZ"
     data["venue_id"] = venue_row.provider_key
+    data["manual_venue_override"] = True
     data["auto_venue_analysis"] = venue_analysis
     data.update(analysis_context_fields(venue_analysis))
 
