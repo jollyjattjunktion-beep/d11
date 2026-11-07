@@ -1,7 +1,12 @@
 from types import SimpleNamespace
 
 from app.importers.ai11 import parse_analysis
-from app.predictor import _ai11_profile_adjustment, _form_profile
+from app.predictor import _ai11_profile_adjustment, _form_profile, predict_player
+from app.database import Base
+from app.models import Match, Player, MatchSquad, PlayerSourceProfile
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 
 def test_ai11_profile_statistics_only_provide_bounded_supporting_signal():
@@ -91,3 +96,40 @@ def test_fantasy_projection_requires_three_match_level_records():
     ])
     assert enough["expected_points"] is not None
     assert enough["matches_used"] == 3
+
+
+def test_predictor_passes_ai11_selection_ownership_to_team_builder():
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(bind=engine)
+    db = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    try:
+        match = Match(
+            id="ai11-owned", name="A vs B T20", format="T20",
+            team_a="A", team_b="B", status="upcoming",
+        )
+        player = Player(id="owned-player", name="Owned Player")
+        squad = MatchSquad(
+            match_id="ai11-owned", player_id="owned-player", team="A",
+            role="AR", credits=9.0, selection_pct=None, status="unknown",
+        )
+        profile = PlayerSourceProfile(
+            match_id="ai11-owned", player_id="owned-player", source="AI11",
+            data={
+                "ai11_selection_pct": 87.5,
+                "ai11_captain_pct": 12.0,
+                "ai11_vice_captain_pct": 18.0,
+                "ai11_statistics": {},
+                "ai11_series_summary": {"series_matches": 2, "series_average_points": 76},
+            },
+        )
+        db.add_all([match, player, squad, profile])
+        db.commit()
+        result = predict_player(db, "ai11-owned", player, squad, match, {})
+        assert result["ai11_selection_pct"] == 87.5
+        assert result["ai11_captain_pct"] == 12.0
+        assert result["ai11_vice_captain_pct"] == 18.0
+    finally:
+        db.close()
+        engine.dispose()
