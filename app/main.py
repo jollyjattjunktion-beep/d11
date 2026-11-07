@@ -127,6 +127,10 @@ def _sync_public_match_feed(db: Session, force: bool = False) -> dict:
             if not record["visible"]:
                 hidden += 1
 
+        existing_rows = db.scalars(
+            select(Match).where(Match.source == "Team Generation")
+        ).all()
+
         # Hide provider-omitted fixtures from the public list but keep their
         # Match, squad, scorecards and player-history rows in SQL.
         # No hard delete or status mutation for records missing upstream.
