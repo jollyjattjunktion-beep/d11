@@ -7,6 +7,8 @@ from sqlalchemy import select
 import secrets
 import httpx
 import os
+import re
+import unicodedata
 import time
 import threading
 from datetime import datetime, timezone, timedelta
@@ -16,7 +18,8 @@ from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelli
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
                          TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, VenueEnrichRequest)
 from app.predictor import predict_match
-from app.optimizer import build_teams
+from app.ai11_analysis import build_ai11_match_analysis
+from app.optimizer import build_teams, build_team_diagnostic
 from app.config import MODEL_VERSION, ADMIN_TOKEN, TG_API_TOKEN
 from app.importers.ai11 import (fetch_page, parse_analysis, parse_fantasy, AI11RateLimitError)
 from app.importers.crex import fetch_crex_page, parse_crex_venue_report
@@ -882,96 +885,237 @@ def get_predictions(match_id: str, db: Session = Depends(get_db)):
 
 @app.post("/api/v1/matches/{match_id}/teams")
 def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(get_db)):
-    match=db.get(Match,match_id)
-    if not match: raise HTTPException(404,"Match not found")
-    squads=db.scalars(select(MatchSquad).where(MatchSquad.match_id==match_id)).all()
-    if not squads: raise HTTPException(422,"No squad players are imported for this match.")
-    missing_credit_players=[]
+    match = db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "Match not found")
+    squads = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match_id)).all()
+    if not squads:
+        raise HTTPException(422, "No squad players are imported for this match.")
+
+    missing_credit_players = []
     for squad in squads:
         if squad.credits is None:
-            player=db.get(Player,squad.player_id)
+            player = db.get(Player, squad.player_id)
             missing_credit_players.append(player.name if player else squad.player_id)
     if missing_credit_players:
-        raise HTTPException(422,detail={
-            "message":"Team generation requires verified player credits.",
-            "credits_missing_count":len(missing_credit_players),
-            "credits_missing_players":missing_credit_players,
-            "action":"Import verified credits or enter them manually. No credit values are guessed."
+        raise HTTPException(422, detail={
+            "message": "Team generation requires verified player credits.",
+            "credits_missing_count": len(missing_credit_players),
+            "credits_missing_players": missing_credit_players,
+            "action": "Import verified credits or enter them manually. No credit values are guessed."
         })
-    predictions=predict_match(db,match_id)
-    squad_by_id={s.player_id:s for s in squads}
-    combined=[]
+
+    predictions = predict_match(db, match_id)
+    intelligence_row = db.get(MatchIntelligence, match_id)
+    match_context = dict(intelligence_row.data or {}) if intelligence_row and isinstance(intelligence_row.data, dict) else {}
+    squad_by_id = {s.player_id: s for s in squads}
+    combined = []
     for prediction in predictions:
-        s=squad_by_id[prediction["player_id"]]
-        tg_profile=db.get(PlayerSourceProfile,(match_id,s.player_id,"TEAM_GENERATION"))
-        ai11_profile=db.get(PlayerSourceProfile,(match_id,s.player_id,"AI11"))
-        tg_data=tg_profile.data if tg_profile and isinstance(tg_profile.data,dict) else {}
-        ai11_data=ai11_profile.data if ai11_profile and isinstance(ai11_profile.data,dict) else {}
-        captain_pct=tg_data.get("captain_pct",ai11_data.get("captain_pct",ai11_data.get("captain")))
-        vice_pct=tg_data.get("vice_captain_pct",ai11_data.get("vice_captain_pct",ai11_data.get("vice_captain")))
-        combined.append({**prediction,"credits":s.credits,"selection_pct":s.selection_pct,"status":s.status,
-                         "captain_pct":captain_pct,"vice_captain_pct":vice_pct,
-                         "team_generation_image":tg_data.get("image"),
-                         "team_generation_fantasy_ids":tg_data.get("fantasy_ids"),
-                         "batting_position":tg_data.get("batting_position",prediction.get("batting_position")),
-                         "expected_overs":tg_data.get("expected_overs",prediction.get("expected_overs")),
-                         "involvement_score":tg_data.get("involvement_score",prediction.get("involvement_score")),
-                         "matchup_score":tg_data.get("matchup_score",prediction.get("matchup_score"))})
-    history_ready=bool(combined) and all(p.get("expected_points") is not None for p in combined)
-    if payload.score_mode != "none":
-        if payload.score_team not in {match.team_a, match.team_b}:
-            raise HTTPException(422, "Choose a batting-first or chasing team from this match.")
-        if payload.scenario_score is None:
-            raise HTTPException(422, "Enter the scenario score for the selected innings mode.")
-    requested=payload.generation_mode
-    modes=(["ai_prediction","provisional"] if requested=="both" else [requested])
+        squad = squad_by_id[prediction["player_id"]]
+        tg_profile = db.get(PlayerSourceProfile, (match_id, squad.player_id, "TEAM_GENERATION"))
+        tg_data = tg_profile.data if tg_profile and isinstance(tg_profile.data, dict) else {}
+        captain_pct = tg_data.get("captain_pct", prediction.get("ai11_captain_pct"))
+        vice_pct = tg_data.get("vice_captain_pct", prediction.get("ai11_vice_captain_pct"))
+        combined.append({
+            **prediction,
+            "credits": squad.credits,
+            "selection_pct": squad.selection_pct if squad.selection_pct is not None else prediction.get("ai11_selection_pct"),
+            "status": squad.status,
+            "captain_pct": captain_pct,
+            "vice_captain_pct": vice_pct,
+            "team_generation_image": tg_data.get("image"),
+            "team_generation_fantasy_ids": tg_data.get("fantasy_ids"),
+            "batting_position": tg_data.get("batting_position", prediction.get("batting_position")),
+            "expected_overs": tg_data.get("expected_overs", prediction.get("expected_overs")),
+            "involvement_score": tg_data.get("involvement_score", prediction.get("involvement_score")),
+            "matchup_score": tg_data.get("matchup_score", prediction.get("matchup_score")),
+            "batting_friendly": match_context.get("batting_friendly"),
+            "pace_friendly": match_context.get("pace_friendly"),
+            "spin_friendly": match_context.get("spin_friendly"),
+            "dew_likely": match_context.get("dew_likely"),
+            "rain_probability": match_context.get("rain_probability"),
+            "toss_batting_team": match_context.get("batting_first_team"),
+        })
+
+    match_context.update({
+        "team_a": match.team_a,
+        "team_b": match.team_b,
+        "format": match.format,
+    })
+    combined, ai11_analysis = build_ai11_match_analysis(
+        combined,
+        {"team_a": match.team_a, "team_b": match.team_b, "format": match.format},
+        match_context,
+    )
+    history_ready = bool(combined) and all(p.get("expected_points") is not None for p in combined)
+
+    # Interpret innings scenarios from explicit user selection or source-backed
+    # toss information. For "both", score_team means the selected/known batting-first side.
+    batting_first_team = match_context.get("batting_first_team")
+    if batting_first_team not in {match.team_a, match.team_b}:
+        batting_first_team = None
+        toss_winner = match_context.get("toss_winner")
+        toss_decision = match_context.get("toss_decision")
+        if toss_winner in {match.team_a, match.team_b} and toss_decision in {"bat", "bowl"}:
+            batting_first_team = toss_winner if toss_decision == "bat" else (
+                match.team_b if toss_winner == match.team_a else match.team_a
+            )
+    chasing_team = (
+        match.team_b if batting_first_team == match.team_a
+        else match.team_a if batting_first_team == match.team_b else None
+    )
+
+    def _auto_scenario_score(key: str):
+        value = match_context.get(key)
+        if value is None:
+            venue_analysis = match_context.get("auto_venue_analysis") or {}
+            alias = "first_innings_average" if key == "average_first_innings" else "second_innings_average"
+            value = venue_analysis.get(alias)
+        try:
+            return int(round(float(value))) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    scenario_specs = []
+    if payload.score_mode == "both":
+        batting_first_team = batting_first_team or (
+            payload.score_team if payload.score_team in {match.team_a, match.team_b} else None
+        )
+        first_average = payload.scenario_score or _auto_scenario_score("average_first_innings")
+        second_average = _auto_scenario_score("average_second_innings")
+        if batting_first_team is None:
+            # Toss not known: make both possible innings orders explicit rather
+            # than silently assuming a toss result or blocking team generation.
+            scenario_specs = [
+                ("first_innings", match.team_a, first_average),
+                ("chasing", match.team_b, second_average),
+                ("first_innings", match.team_b, first_average),
+                ("chasing", match.team_a, second_average),
+            ]
+        else:
+            chasing_team = match.team_b if batting_first_team == match.team_a else match.team_a
+            scenario_specs = [
+                ("first_innings", batting_first_team, first_average),
+                ("chasing", chasing_team, second_average),
+            ]
+    elif payload.score_mode == "first_innings":
+        scenario_team = payload.score_team or batting_first_team
+        if scenario_team not in {match.team_a, match.team_b}:
+            raise HTTPException(422, detail={
+                "message": "Choose the team batting first, or import toss information.",
+                "action": "Set the batting-first team in the innings scenario selector."
+            })
+        scenario_specs = [(
+            "first_innings", scenario_team,
+            payload.scenario_score or _auto_scenario_score("average_first_innings")
+        )]
+    elif payload.score_mode == "chasing":
+        scenario_team = payload.score_team or chasing_team
+        if scenario_team not in {match.team_a, match.team_b}:
+            raise HTTPException(422, detail={
+                "message": "Choose the team batting second, or import toss information.",
+                "action": "Set the chasing team in the innings scenario selector."
+            })
+        scenario_specs = [(
+            "chasing", scenario_team,
+            payload.scenario_score or _auto_scenario_score("average_second_innings")
+        )]
+    else:
+        scenario_specs = [("none", None, None)]
+
+    requested = payload.generation_mode
+    modes = ["ai_prediction", "provisional"] if requested == "both" else [requested]
     if "ai_prediction" in modes and not history_ready:
-        if requested=="ai_prediction":
-            raise HTTPException(422,detail={
-                "message":"AI Prediction Mode requires format-matched historical fantasy-point records.",
-                "prediction_status":"insufficient_history",
-                "players_missing_history":[p["player_name"] for p in combined if p.get("expected_points") is None],
-                "action":"Import verified match-by-match historical records for this format, then retry. Use Provisional Team Builder in the meantime."
+        if requested == "ai_prediction":
+            raise HTTPException(422, detail={
+                "message": "AI Prediction Mode requires format-matched historical fantasy-point records.",
+                "prediction_status": "insufficient_history",
+                "players_missing_history": [p["player_name"] for p in combined if p.get("expected_points") is None],
+                "action": "Import verified match-by-match historical records for this format, then retry. Use Provisional Team Builder in the meantime."
             })
         modes.remove("ai_prediction")
-    results={}
+
+    results = {}
     for mode in modes:
-        results[mode]={}
+        results[mode] = {}
         for strategy in payload.strategies:
-            try:
-                results[mode][strategy]=build_teams(
-                    combined,strategy,payload.rules,payload.teams_per_strategy,payload.scenario,
-                    team_a=match.team_a,locked_ids=payload.locked_player_ids,
-                    excluded_ids=payload.excluded_player_ids,captain_pool=payload.captain_pool,
-                    vice_captain_pool=payload.vice_captain_pool,
-                    manual_captain_id=payload.manual_captain_id,
-                    manual_vice_captain_id=payload.manual_vice_captain_id,
-                    mode=mode,
-                    innings_mode=payload.score_mode,
-                    score_team=payload.score_team,
-                    scenario_score=payload.scenario_score,
-                    match_format=match.format)
-            except ValueError as exc:
-                raise HTTPException(422,str(exc))
+            strategy_teams = []
+            effective_rules = payload.rules.model_copy(deep=True)
+            if strategy == "strongest":
+                # Strongest mode must not solve batting-friendly conditions by
+                # stacking generic all-rounders and dropping specialist bowlers.
+                available_specialists = sum(
+                    1 for p in combined
+                    if p.get("role") == "BOWL" and p.get("player_id") not in payload.excluded_player_ids
+                )
+                effective_rules.max_role["AR"] = min(
+                    effective_rules.max_role.get("AR", effective_rules.team_size), 3
+                )
+                effective_rules.min_role["BOWL"] = max(
+                    effective_rules.min_role.get("BOWL", 0),
+                    min(4, available_specialists, effective_rules.team_size)
+                )
+            for innings_mode, score_team, scenario_score in scenario_specs:
+                try:
+                    generated = build_teams(
+                        combined, strategy, effective_rules, payload.teams_per_strategy, payload.scenario,
+                        team_a=match.team_a, locked_ids=payload.locked_player_ids,
+                        excluded_ids=payload.excluded_player_ids, captain_pool=payload.captain_pool,
+                        vice_captain_pool=payload.vice_captain_pool,
+                        manual_captain_id=payload.manual_captain_id,
+                        manual_vice_captain_id=payload.manual_vice_captain_id,
+                        mode=mode, innings_mode=innings_mode, score_team=score_team,
+                        scenario_score=scenario_score, match_format=match.format
+                    )
+                except ValueError as exc:
+                    raise HTTPException(422, str(exc))
+                for team in generated:
+                    team["pre_generation_diagnostic"] = build_team_diagnostic(
+                        combined, team, strategy, payload.scenario,
+                        innings_mode, score_team, scenario_score, match.format,
+                        effective_rules
+                    )
+                    if innings_mode != "none":
+                        team["scenario_label"] = (
+                            "Batting first" if innings_mode == "first_innings" else "Chasing second"
+                        ) + (f" • {score_team}" if score_team else "")
+                    strategy_teams.append(team)
+            results[mode][strategy] = strategy_teams
+
+    scenario_response = {
+        "mode": payload.score_mode,
+        "scenarios": [
+            {"mode": mode_name, "team": team_name, "scenario_score": score_value}
+            for mode_name, team_name, score_value in scenario_specs if mode_name != "none"
+        ],
+        "format": match.format,
+        "note": "Innings scenarios are conditional player-selection preferences. AI11/venue averages are source context, not guaranteed totals or fantasy points."
+    } if payload.score_mode != "none" else None
+
     return {
-        "match_id":match_id,"model_version":MODEL_VERSION,
-        "generation_mode_requested":requested,
-        "score_scenario": {
-            "mode": payload.score_mode,
-            "team": payload.score_team,
-            "scenario_score": payload.scenario_score,
-            "format": match.format,
-            "note": "User-entered scenario assumption; used as a small player-selection preference, not a score or fantasy-points prediction."
-        } if payload.score_mode != "none" else None,
-        "history_status":"ready" if history_ready else "insufficient_history",
-        "available_modes":(["ai_prediction","provisional"] if history_ready else ["provisional"]),
-        "teams":results,
-        "manual_controls":{"locked":payload.locked_player_ids,
-            "excluded":payload.excluded_player_ids,
-            "captain_pool":payload.captain_pool,"vice_captain_pool":payload.vice_captain_pool},
-        "warnings":[
-            "AI Prediction Mode uses format-matched historical statistical estimates; it is not a trained machine-learning model."
-        ] + (["Provisional teams use AI11 career batting/bowling metrics, AI11's separate source projection, selection percentage and C/VC trends as bounded supporting signals. These do not become D11 fantasy-point estimates; projected fantasy points remain null without verified match-by-match history."] if not history_ready or "provisional" in modes else [])
+        "match_id": match_id,
+        "model_version": MODEL_VERSION,
+        "generation_mode_requested": requested,
+        "score_scenario": scenario_response,
+        "history_status": "ready" if history_ready else "insufficient_history",
+        "available_modes": ["ai_prediction", "provisional"] if history_ready else ["provisional"],
+        "ai11_analysis": ai11_analysis,
+        "teams": results,
+        "manual_controls": {
+            "locked": payload.locked_player_ids,
+            "excluded": payload.excluded_player_ids,
+            "captain_pool": payload.captain_pool,
+            "vice_captain_pool": payload.vice_captain_pool,
+        },
+        "warnings": [
+            "AI Prediction Mode uses format-matched historical statistical estimates; it is not a trained machine-learning model.",
+            "AI11 batting, bowling, current-series and selection signals support player ranking, but do not become D11 fantasy-point projections.",
+        ]
+        + ([
+            f"Usable AI11 performance scores for {ai11_analysis['profile_coverage']['players_with_rankable_score']} of {ai11_analysis['profile_coverage']['squad_players']} squad players ({ai11_analysis['profile_coverage']['coverage_pct']}%). Missing player scores: "
+            + ", ".join(p["player_name"] for p in ai11_analysis["profile_coverage"]["players_missing_ai11_profile"][:10])
+        ] if ai11_analysis["profile_coverage"]["quality"] != "complete" else [])
+        + (["Provisional fantasy-point estimates remain null until verified match-by-match history is imported."] if not history_ready else [])
     }
 
 @app.get("/api/v1/model/status")
@@ -983,6 +1127,44 @@ def model_status(db: Session = Depends(get_db)):
             "trained_machine_learning_model":False,"historical_records_by_format":counts,
             "note":"Current production path is an explainable statistical baseline with match-context adjustments. A trained ML model must be added only after sufficient clean historical records and chronological backtesting."}
 
+
+
+def _save_ai11_match_performance(db: Session, match_id: str, player_id: str,
+                                  match_format: str, performance: dict,
+                                  match_date: str | None = None) -> str:
+    """Import source-reported completed-match PTS as history, never for that same match."""
+    if not isinstance(performance, dict):
+        return "not_available"
+    points = performance.get("fantasy_points")
+    try:
+        points = float(points) if points is not None else None
+    except (TypeError, ValueError):
+        points = None
+    if points is None:
+        return "not_available"
+    existing = db.scalars(
+        select(PlayerMatchStats).where(
+            PlayerMatchStats.match_id == match_id,
+            PlayerMatchStats.player_id == player_id,
+        )
+    ).first()
+    if existing is not None:
+        if (existing.source or "").upper() == "AI11_MATCH_PERFORMANCE":
+            existing.fantasy_points = points
+            existing.match_date = match_date or existing.match_date
+            existing.format = match_format or existing.format
+            return "updated"
+        # A verified/manual scorecard always takes precedence over a provider copy.
+        return "preserved"
+    db.add(PlayerMatchStats(
+        match_id=match_id,
+        player_id=player_id,
+        format=match_format or "T20",
+        fantasy_points=points,
+        match_date=match_date,
+        source="AI11_MATCH_PERFORMANCE",
+    ))
+    return "inserted"
 
 
 @app.post("/api/v1/admin/import/ai11")
@@ -1018,12 +1200,13 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
         if fantasy_url:
             try:
                 fantasy_data=parse_fantasy(fetch_page(fantasy_url))
+                fantasy_data["fantasy_fetch_status"] = "fetched"
             except AI11RateLimitError as exc:
-                # The analysis page contains the player intelligence needed by
-                # the provisional builder. A rate limit on the optional
-                # fantasy/credits page must not discard that successful import.
+                # Keep the successful analysis-page import even if the optional
+                # dynamic fantasy/credits page is temporarily rate-limited.
                 fantasy_data["fantasy_fetch_status"] = "rate_limited"
                 fantasy_data["fantasy_fetch_error"] = str(exc)
+                fantasy_data["fantasy_retry_after_seconds"] = exc.retry_after
             except Exception as exc:
                 fantasy_data["fantasy_fetch_status"] = "unavailable"
                 fantasy_data["fantasy_fetch_error"] = type(exc).__name__
@@ -1040,67 +1223,409 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
         raise HTTPException(502, f"AI11 upstream fetch failed: {str(exc)[:300]}")
     if not parsed["players"]:
         raise HTTPException(422, "No player rows were extracted from the AI11 analysis page. Page markup may have changed or content may require browser rendering.")
-    match_id=parsed["match_id"]
-    match=db.get(Match,match_id)
-    match_values={"name":parsed["title"],"format":parsed["format"],
-                  "venue":parsed.get("venue"),"team_a":parsed["team_a"],
-                  "team_b":parsed["team_b"],"status":"upcoming",
-                  "source":"AI11"}
-    if match is None:
-        match=Match(id=match_id,**match_values); db.add(match)
-    else:
-        for key,value in match_values.items(): setattr(match,key,value)
-    saved,credits_saved=0,0
-    for item in parsed["players"]:
-        pid=item["id"]
-        player=db.get(Player,pid)
-        if player is None: db.add(Player(id=pid,name=item["name"]))
-        else: player.name=item["name"]
-        squad=db.get(MatchSquad,(match_id,pid))
-        credit=fantasy_data["credits"].get(pid)
-        values={"team":item["team"],"role":item["role"],
-                "credits":credit if credit is not None else (squad.credits if squad else None),
-                "selection_pct":item.get("selection_pct"),
-                "status":item.get("status","unknown"),
-                "source":"AI11" if credit is not None or squad is None else (squad.source or "AI11")}
-        if squad is None: db.add(MatchSquad(match_id=match_id,player_id=pid,**values))
+
+    if payload.target_match_id:
+        # Link AI11 to the real Team Generation match. The previous one-click
+        # workflow created a second AI11-only match ID, so the optimizer could
+        # not see the AI11 profiles when users later opened the TG fixture.
+        target_match = db.get(Match, payload.target_match_id)
+        if target_match is None:
+            raise HTTPException(404, "Target D11 match not found. Load the Team Generation match first.")
+        target_squads = db.scalars(
+            select(MatchSquad).where(MatchSquad.match_id == payload.target_match_id)
+        ).all()
+        if not target_squads:
+            raise HTTPException(422, "The target D11 match has no imported squad. Import the Team Generation fixture before linking AI11.")
+
+        def name_key(value):
+            normalized = unicodedata.normalize("NFKD", str(value or ""))
+            ascii_value = normalized.encode("ascii", "ignore").decode("ascii").casefold()
+            return re.sub(r"[^a-z0-9]+", "", ascii_value)
+
+        def first_last(value):
+            normalized = unicodedata.normalize("NFKD", str(value or ""))
+            ascii_value = normalized.encode("ascii", "ignore").decode("ascii").casefold()
+            words = re.findall(r"[a-z0-9]+", ascii_value)
+            return words[0] if words else "", words[-1] if words else ""
+
+        squad_by_name = {}
+        squad_rows = []
+        for squad in target_squads:
+            player_row = db.get(Player, squad.player_id)
+            if not player_row:
+                continue
+            squad_rows.append((squad, player_row))
+            squad_by_name.setdefault(name_key(player_row.name), []).append((squad, player_row))
+
+        def match_squad_player(source_name):
+            exact = squad_by_name.get(name_key(source_name), [])
+            if len(exact) == 1:
+                return exact[0]
+            source_first, source_last = first_last(source_name)
+            if not source_last:
+                return None
+            # Safe initial+surname match supports provider variants such as
+            # "G Wareham" vs "Georgia Wareham", but refuses ambiguous surnames.
+            candidates = []
+            for squad, player_row in squad_rows:
+                target_first, target_last = first_last(player_row.name)
+                if target_last == source_last and target_first and target_first[0] == source_first[0]:
+                    candidates.append((squad, player_row))
+            return candidates[0] if len(candidates) == 1 else None
+
+        def team_key(value):
+            return re.sub(r"[^a-z0-9]+", "", str(value or "").casefold())
+
+        def team_initials(value):
+            words = re.findall(r"[a-z0-9]+", str(value or "").casefold())
+            ignored = {"women", "womens", "woman", "men", "mens", "u", "under", "cricket", "team"}
+            words = [word for word in words if word not in ignored and not re.fullmatch(r"u?\d+", word)]
+            return "".join(word[0] for word in words)
+
+        target_teams = [target_match.team_a, target_match.team_b]
+
+        def map_ai11_team(source_team):
+            source_key = team_key(source_team)
+            if not source_key:
+                return None
+            exact = [team for team in target_teams if team_key(team) == source_key]
+            if len(exact) == 1:
+                return exact[0]
+            initials = [
+                team for team in target_teams
+                if source_key in {
+                    team_initials(team),
+                    team_initials(team) + "w",
+                    team_initials(team) + "m",
+                }
+                or team_key(team) in {
+                    team_initials(source_team),
+                    team_initials(source_team) + "w",
+                    team_initials(source_team) + "m",
+                }
+            ]
+            if len(initials) == 1:
+                return initials[0]
+            return None
+
+        # Also learn the alias mapping from exact player-name matches. This is
+        # more reliable than assuming AI11's logo labels equal TG team names.
+        team_votes = {}
+        for item in parsed["players"]:
+            matched = match_squad_player(item.get("name"))
+            if matched and item.get("team"):
+                target_team = matched[0].team
+                team_votes.setdefault(str(item["team"]), {}).setdefault(target_team, 0)
+                team_votes[str(item["team"])][target_team] += 1
+        team_map = {}
+        for source_team in {parsed.get("team_a"), parsed.get("team_b")} | set(team_votes):
+            if not source_team:
+                continue
+            mapped = map_ai11_team(source_team)
+            if not mapped and team_votes.get(str(source_team)):
+                mapped = max(team_votes[str(source_team)].items(), key=lambda item: item[1])[0]
+            if mapped in target_teams:
+                team_map[str(source_team)] = mapped
+
+        # Do not attach a different historical fixture's player PTS to the
+        # currently open match. Doing so could make past results look like
+        # current-match history and corrupt the same-match leakage guard.
+        source_fixture_teams = [
+            team_map.get(str(source_team)) or map_ai11_team(source_team)
+            for source_team in (parsed.get("team_a"), parsed.get("team_b"))
+        ]
+        same_fixture_teams = (
+            len(source_fixture_teams) == 2
+            and all(team in target_teams for team in source_fixture_teams)
+            and set(source_fixture_teams) == set(target_teams)
+        )
+        if not same_fixture_teams:
+            raise HTTPException(
+                422,
+                detail={
+                    "message": "The AI11 URL belongs to a different fixture than the D11 match currently open.",
+                    "ai11_teams": [parsed.get("team_a"), parsed.get("team_b")],
+                    "d11_teams": target_teams,
+                    "action": "Import the completed AI11 scorecard as a standalone historical match, or open the matching D11 fixture before linking it.",
+                },
+            )
+        if str(parsed.get("format") or "").upper() != str(target_match.format or "").upper():
+            raise HTTPException(
+                422,
+                detail={
+                    "message": "The AI11 match format does not match the open D11 fixture.",
+                    "ai11_format": parsed.get("format"),
+                    "d11_format": target_match.format,
+                },
+            )
+        source_date = (parsed.get("intelligence") or {}).get("match_date")
+        if source_date and target_match.start_time:
+            try:
+                target_date = datetime.fromisoformat(
+                    str(target_match.start_time).replace("Z", "+00:00")
+                ).date().isoformat()
+            except (TypeError, ValueError):
+                target_date = None
+            if target_date and target_date != source_date:
+                raise HTTPException(
+                    422,
+                    detail={
+                        "message": "The AI11 scorecard date does not match the open D11 fixture date.",
+                        "ai11_date": source_date,
+                        "d11_date": target_date,
+                        "action": "Open the matching fixture or import this AI11 result separately as historical data.",
+                    },
+                )
+
+        profile_by_source_id = {
+            profile.get("player_id"): profile
+            for profile in parsed.get("profiles", [])
+            if profile.get("player_id")
+        }
+        matched_count = 0
+        unmatched = []
+        match_points_imported = 0
+        match_points_updated = 0
+        match_points_preserved = 0
+        source_intelligence = dict(parsed.get("intelligence") or {})
+        for item in parsed["players"]:
+            matched = match_squad_player(item.get("name"))
+            if not matched:
+                unmatched.append(item.get("name") or item.get("id"))
+                continue
+            squad, player_row = matched
+            source_id = item.get("id")
+            profile_data = dict(profile_by_source_id.get(source_id) or {})
+            profile_data.update({
+                "player_id": squad.player_id,
+                "player_name": player_row.name,
+                "team": squad.team,
+                "role": squad.role,
+                "ai11_source_player_id": source_id,
+                "ai11_source_player_name": item.get("name"),
+                "ai11_source_team": item.get("team"),
+                "ai11_source_role": item.get("role"),
+                "linked_to_match_id": payload.target_match_id,
+            })
+            profile = db.get(PlayerSourceProfile, (payload.target_match_id, squad.player_id, "AI11"))
+            if profile is None:
+                db.add(PlayerSourceProfile(
+                    match_id=payload.target_match_id,
+                    player_id=squad.player_id,
+                    source="AI11",
+                    data=profile_data,
+                ))
+            else:
+                profile.data = {**(profile.data or {}), **profile_data}
+            if source_intelligence.get("match_completed"):
+                result = _save_ai11_match_performance(
+                    db,
+                    payload.target_match_id,
+                    squad.player_id,
+                    target_match.format or parsed["format"],
+                    profile_data.get("ai11_match_performance") or {},
+                    source_intelligence.get("match_date") or target_match.start_time,
+                )
+                match_points_imported += int(result == "inserted")
+                match_points_updated += int(result == "updated")
+                match_points_preserved += int(result == "preserved")
+            matched_count += 1
+
+        for key in ("toss_winner", "batting_first_team", "chasing_team"):
+            source_team = source_intelligence.get(key)
+            if source_team:
+                mapped = team_map.get(str(source_team)) or map_ai11_team(source_team)
+                if mapped:
+                    source_intelligence[key] = mapped
+
+        intelligence_row = db.get(MatchIntelligence, payload.target_match_id)
+        existing_intelligence = (
+            dict(intelligence_row.data or {})
+            if intelligence_row and isinstance(intelligence_row.data, dict)
+            else {}
+        )
+        # Keep venue catalogue/manual facts already saved in D11. AI11 fills
+        # missing context and provides toss data; the source payload is retained.
+        context_keys = {
+            "pitch_type", "pitch_notes", "pitch_recommendation", "pitch_confidence",
+            "average_first_innings", "average_second_innings", "venue_matches",
+            "toss_completed", "toss_winner", "toss_decision",
+            "batting_first_team", "chasing_team", "recent_form_source_text",
+            "h2h_source_text", "weather_summary", "rain_probability", "humidity",
+            "wind_kmh", "dew_likely", "match_completed", "match_date",
+        }
+        for key in context_keys:
+            value = source_intelligence.get(key)
+            if value is not None and (key not in existing_intelligence or existing_intelligence[key] in (None, "")):
+                existing_intelligence[key] = value
+        existing_intelligence["ai11_source_context"] = source_intelligence
+        existing_intelligence["ai11_source_urls"] = [analysis_url] + ([fantasy_url] if fantasy_url else [])
+        existing_intelligence["ai11_profiles_linked"] = matched_count
+        existing_intelligence["ai11_profiles_unmatched"] = unmatched
+        existing_intelligence["ai11_match_completed"] = bool(source_intelligence.get("match_completed"))
+        existing_intelligence["ai11_match_points_imported"] = match_points_imported
+        existing_intelligence["ai11_imported_at"] = datetime.now(timezone.utc).isoformat()
+        if intelligence_row is None:
+            db.add(MatchIntelligence(match_id=payload.target_match_id, data=existing_intelligence))
         else:
-            for key,value in values.items():
-                if value is not None: setattr(squad,key,value)
-        if credit is not None: credits_saved+=1
-        profile=db.get(PlayerSourceProfile,(match_id,pid,"AI11"))
-        profile_data=next((p for p in parsed["profiles"] if p["player_id"]==pid),{})
+            intelligence_row.data = existing_intelligence
+        db.commit()
+
+        missing_credits = [
+            db.get(Player, squad.player_id).name
+            for squad in target_squads
+            if squad.credits is None and db.get(Player, squad.player_id)
+        ]
+        return {
+            "imported": True,
+            "linked_to_existing_match": True,
+            "match_id": payload.target_match_id,
+            "match": {
+                "name": target_match.name,
+                "format": target_match.format,
+                "venue": target_match.venue,
+                "team_a": target_match.team_a,
+                "team_b": target_match.team_b,
+            },
+            "ai11_source_match_id": parsed["match_id"],
+            "ai11_source_match": {
+                "name": parsed["title"],
+                "team_a": parsed["team_a"],
+                "team_b": parsed["team_b"],
+                "format": parsed["format"],
+            },
+            "players_in_ai11": len(parsed["players"]),
+            "players_matched": matched_count,
+            "players_unmatched": unmatched,
+            "profiles_saved": matched_count,
+            "match_performance_records_imported": match_points_imported,
+            "match_performance_records_updated": match_points_updated,
+            "existing_verified_match_records_preserved": match_points_preserved,
+            "match_completed": bool(source_intelligence.get("match_completed")),
+            "match_context_fields_saved": sorted(source_intelligence.keys()),
+            "credits_verified_count": sum(1 for squad in target_squads if squad.credits is not None),
+            "credits_missing_count": len(missing_credits),
+            "credits_missing_players": missing_credits,
+            "credits_ready_for_team_builder": bool(target_squads) and not missing_credits,
+            "fantasy_fetch_status": fantasy_data.get("fantasy_fetch_status", "not_requested"),
+            "note": "AI11 profiles and match context are attached to the selected D11 match. Team Generation credits and official lineup status are preserved.",
+            "warning": "AI11 career/current-series aggregates and source selection trends are profile signals. Completed-match PTS rows are imported separately as match-level historical records; the predictor excludes the current match ID to prevent result leakage.",
+        }
+
+    # Standalone AI11 imports remain supported when no target match is supplied.
+    match_id = parsed["match_id"]
+    match = db.get(Match, match_id)
+    match_values = {
+        "name": parsed["title"],
+        "format": parsed["format"],
+        "venue": parsed.get("venue"),
+        "team_a": parsed["team_a"],
+        "team_b": parsed["team_b"],
+        "status": "completed" if (parsed.get("intelligence") or {}).get("match_completed") else "upcoming",
+        "source": "AI11",
+    }
+    if match is None:
+        match = Match(id=match_id, **match_values)
+        db.add(match)
+    else:
+        for key, value in match_values.items():
+            setattr(match, key, value)
+
+    saved, credits_saved = 0, 0
+    match_points_imported = 0
+    match_points_updated = 0
+    match_points_preserved = 0
+    standalone_intelligence = dict(parsed.get("intelligence") or {})
+    for item in parsed["players"]:
+        pid = item["id"]
+        player = db.get(Player, pid)
+        if player is None:
+            db.add(Player(id=pid, name=item["name"]))
+        else:
+            player.name = item["name"]
+        squad = db.get(MatchSquad, (match_id, pid))
+        credit = fantasy_data["credits"].get(pid)
+        values = {
+            "team": item["team"],
+            "role": item["role"],
+            "credits": credit if credit is not None else (squad.credits if squad else None),
+            "selection_pct": item.get("selection_pct"),
+            "status": item.get("status", "unknown"),
+            "source": "AI11" if credit is not None or squad is None else (squad.source or "AI11"),
+        }
+        if squad is None:
+            db.add(MatchSquad(match_id=match_id, player_id=pid, **values))
+        else:
+            for key, value in values.items():
+                if key == "status" and value == "unknown":
+                    continue
+                if value is not None:
+                    setattr(squad, key, value)
+        if credit is not None:
+            credits_saved += 1
+        profile = db.get(PlayerSourceProfile, (match_id, pid, "AI11"))
+        profile_data = next((p for p in parsed.get("profiles", []) if p["player_id"] == pid), {})
         if profile is None:
-            db.add(PlayerSourceProfile(match_id=match_id,player_id=pid,source="AI11",data=profile_data))
-        else: profile.data=profile_data
-        saved+=1
-    intel=db.get(MatchIntelligence,match_id)
-    intel_data={**parsed.get("intelligence",{}),
-                "source_urls":[analysis_url]+([fantasy_url] if fantasy_url else []),
-                "source":"AI11","imported_player_count":saved}
-    if intel is None: db.add(MatchIntelligence(match_id=match_id,data=intel_data))
-    else: intel.data={**(intel.data or {}),**intel_data}
+            db.add(PlayerSourceProfile(match_id=match_id, player_id=pid, source="AI11", data=profile_data))
+        else:
+            profile.data = profile_data
+        if standalone_intelligence.get("match_completed"):
+            result = _save_ai11_match_performance(
+                db,
+                match_id,
+                pid,
+                parsed["format"],
+                profile_data.get("ai11_match_performance") or {},
+                standalone_intelligence.get("match_date") or match.start_time,
+            )
+            match_points_imported += int(result == "inserted")
+            match_points_updated += int(result == "updated")
+            match_points_preserved += int(result == "preserved")
+        saved += 1
+
+    intel = db.get(MatchIntelligence, match_id)
+    intel_data = {
+        **parsed.get("intelligence", {}),
+        "source_urls": [analysis_url] + ([fantasy_url] if fantasy_url else []),
+        "source": "AI11",
+        "imported_player_count": saved,
+    }
+    if intel is None:
+        db.add(MatchIntelligence(match_id=match_id, data=intel_data))
+    else:
+        intel.data = {**(intel.data or {}), **intel_data}
     db.commit()
-    # Readiness includes saved manual corrections, not only values in this AI11 response.
-    squad_rows=db.scalars(select(MatchSquad).where(MatchSquad.match_id==match_id)).all()
-    player_names={p["id"]:p["name"] for p in parsed["players"]}
-    missing=[player_names.get(row.player_id,row.player_id) for row in squad_rows if row.credits is None]
-    return {"imported":True,"match_id":match_id,"match":match_values,
-            "players_imported":saved,"credits_imported":credits_saved,
-            "credits_verified_count":sum(1 for row in squad_rows if row.credits is not None),
-            "credits_missing_count":len(missing),"credits_missing_players":missing,
-            "credits_status":fantasy_data.get("credits_status","not_present_in_fetched_html"),
-            "credit_evidence":fantasy_data.get("credit_evidence",[]),
-            "credits_ready_for_team_builder":bool(squad_rows) and len(missing)==0,
-            "fantasy_page_requires_browser":fantasy_data["dynamic_content_may_require_browser"],
-            "profiles_saved":saved,
-            "ai11_profiles_with_metrics":sum(1 for profile in parsed.get("profiles",[]) if profile.get("ai11_metrics")),
-            "ai11_source_projections_found":sum(1 for profile in parsed.get("profiles",[]) if profile.get("ai11_projected_points") is not None),
-            "ai11_metric_fields":sorted({key for profile in parsed.get("profiles",[]) for key in (profile.get("ai11_metrics") or {}).keys()}),
-            "ai11_match_intelligence_fields":sorted(parsed.get("intelligence",{}).keys()),
-            "fantasy_fetch_status":fantasy_data.get("fantasy_fetch_status","fetched" if fantasy_url else "not_requested"),
-            "prediction_integration":"AI11 career/series metrics and its own source projection are used only as bounded supporting signals in provisional team ranking and C/VC selection. They are never stored as verified Dream11 fantasy points.",
-            "warning":"AI11 career/series aggregates and source projections are not match-by-match Dream11 fantasy points. Missing player credits must still be verified from the fantasy platform or a trusted source; D11 does not guess credits."}
+    squad_rows = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match_id)).all()
+    player_names = {p["id"]: p["name"] for p in parsed["players"]}
+    missing = [player_names.get(row.player_id, row.player_id) for row in squad_rows if row.credits is None]
+    return {
+        "imported": True,
+        "linked_to_existing_match": False,
+        "match_id": match_id,
+        "match": match_values,
+        "players_imported": saved,
+        "credits_imported": credits_saved,
+        "credits_verified_count": sum(1 for row in squad_rows if row.credits is not None),
+        "credits_missing_count": len(missing),
+        "credits_missing_players": missing,
+        "credits_status": fantasy_data.get("credits_status", "not_present_in_fetched_html"),
+        "credit_evidence": fantasy_data.get("credit_evidence", []),
+        "credits_ready_for_team_builder": bool(squad_rows) and len(missing) == 0,
+        "fantasy_page_requires_browser": fantasy_data["dynamic_content_may_require_browser"],
+        "profiles_saved": saved,
+        "match_performance_records_imported": match_points_imported,
+        "match_performance_records_updated": match_points_updated,
+        "existing_verified_match_records_preserved": match_points_preserved,
+        "match_completed": bool(standalone_intelligence.get("match_completed")),
+        "statistics_profiles_saved": sum(1 for profile in parsed.get("profiles", []) if profile.get("ai11_statistics") or profile.get("ai11_series_summary")),
+        "career_statistics_fields": sorted({key for profile in parsed.get("profiles", []) for key in (profile.get("ai11_statistics") or {}).keys()}),
+        "series_statistics_fields": sorted({key for profile in parsed.get("profiles", []) for key in (profile.get("ai11_series_summary") or {}).keys()}),
+        "statistics_data_type": "career_or_series_aggregate_not_match_level",
+        "match_context_fields_saved": sorted(parsed.get("intelligence", {}).keys()),
+        "source_note": "AI11 lineup tick is stored as source selection evidence, not official Playing XI confirmation.",
+        "prediction_integration": "AI11 career/series aggregates are bounded ranking signals; verified match-by-match fantasy-point history remains the source for expected/floor/ceiling points.",
+        "warning": "AI11 career/series aggregates and selection trends are not per-match historical fantasy points.",
+    }
 
 @app.get("/api/v1/admin/matches/{match_id}/credits")
 def get_match_credit_status(match_id: str, _admin: bool = Depends(require_admin),

@@ -118,13 +118,103 @@ def _player_id(name):
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:110]
 
 
+def _stat_header_key(value: str) -> str | None:
+    """Map AI11's compact grouped-table labels to stable profile field names."""
+    raw = re.sub(r"[^a-z0-9%/]+", " ", (value or "").casefold()).strip()
+    compact = raw.replace(" ", "")
+    aliases = {
+        "m#": "matches", "matches": "matches", "mat": "matches", "m": "matches", "50": "fifties", "100": "hundreds",
+        "inn": "innings", "no": "not_outs", "runs": "runs", "r": "runs",
+        "hs": "highest_score", "avg": "batting_average", "sr": "strike_rate",
+        "50+": "fifties", "100+": "hundreds", "4/6": "fours_sixes",
+        "4s": "fours", "6s": "sixes", "4w": "four_wicket_hauls", "wk": "wickets", "w": "wickets",
+        "ov": "overs", "overs": "overs", "eco": "economy", "econ": "economy",
+        "best": "best_bowling", "c/st": "catches_stumpings", "c": "catches",
+        "st": "stumpings", "pts": "source_reported_points", "pt": "source_reported_points",
+        "apt": "series_average_points", "run": "series_runs", "dt": "series_dt", "p": "series_p",
+        "s%": "selection_pct", "vc": "vice_captain_pct",
+    }
+    if compact in aliases:
+        return aliases[compact]
+    if raw in {"bat", "bowl", "series performance"}:
+        return None
+    if "average" in raw and "bowl" in raw:
+        return "bowling_average"
+    if "average" in raw:
+        return "batting_average"
+    if "strike" in raw and "rate" in raw:
+        return "strike_rate"
+    if "economy" in raw:
+        return "economy"
+    if "wicket" in raw:
+        return "wickets"
+    if "catch" in raw:
+        return "catches"
+    if "stump" in raw:
+        return "stumpings"
+    if "hundred" in raw:
+        return "hundreds"
+    if "fifty" in raw or "50+" in compact:
+        return "fifties"
+    if "run" in raw and "out" in raw:
+        return "run_outs"
+    return None
+
+
+def _parse_ai11_stat_value(value: str):
+    value = (value or "").strip()
+    if not value or value in {"-", "—", "N/A"}:
+        return None
+    # Preserve cricket notation such as 5/37 and 2/27 as text.
+    if re.fullmatch(r"\d+\s*/\s*\d+", value):
+        return re.sub(r"\s+", "", value)
+    if re.fullmatch(r"[0-9,.]+", value):
+        return _number(value)
+    return value[:80]
+
+
+def _normal_team_code(value: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def _team_code_matches_name(code: str, display_name: str) -> bool:
+    """Map short AI11 codes such as USA-W, NAM-W and IND19 to display names."""
+    code_key = _normal_team_code(code)
+    words = re.findall(r"[A-Za-z0-9]+", str(display_name or "").lower())
+    age_match = re.search(r"(?:u|under)[- ]?(\d{1,2})", str(display_name or ""), re.I)
+    age = age_match.group(1) if age_match else ""
+    women = bool(re.search(r"\bwomen|\bwomens|\bwoman", str(display_name or ""), re.I))
+    men = bool(re.search(r"\bmen|\bmens", str(display_name or ""), re.I))
+    ignored = {"women", "womens", "woman", "men", "mens", "under", "u"}
+    country_words = [word for word in words if word not in ignored and not re.fullmatch(r"u?\d+", word)]
+    acronym = "".join(word[0] for word in country_words)
+    first = country_words[0] if country_words else ""
+    candidates = {acronym, first[:2], first[:3], first[:4]}
+    if women:
+        candidates |= {acronym + "W", first[:3] + "W", first[:2] + "W"}
+    if men:
+        candidates |= {acronym + "M", first[:3] + "M"}
+    if age:
+        candidates |= {acronym + age, first[:3] + age}
+    candidates = {_normal_team_code(value) for value in candidates if value}
+    return code_key in candidates
+
+
 def parse_analysis(html: str):
     soup = BeautifulSoup(html, "html.parser")
     page_title = soup.title.get_text(" ", strip=True) if soup.title else "AI11 match"
     heading = soup.find("h1")
     heading_text = heading.get_text(" ", strip=True) if heading else page_title
     text = soup.get_text(" ", strip=True)
-    fmt = "TEST" if re.search(r"\btest\b", page_title + " " + heading_text, re.I) else "T20" if re.search(r"\bT20\b", page_title + " " + heading_text, re.I) else "ODI"
+    canonical = soup.find("link", rel=lambda value: value and "canonical" in value)
+    canonical_url = str(canonical.get("href") or "") if canonical else ""
+    fmt_hint_text = " ".join((page_title, heading_text, canonical_url, text[:8000]))
+    # AI11 often puts format in the series caption rather than browser title.
+    table_format = re.search(r"\b(T20|ODI|TEST)\s+past performance\b", fmt_hint_text, re.I)
+    series_format = re.search(r"\b(T20|ODI|TEST)\s+series\b", fmt_hint_text, re.I)
+    chosen_format = table_format.group(1) if table_format else series_format.group(1) if series_format else None
+    fmt = (chosen_format or ("TEST" if re.search(r"\btest\b", fmt_hint_text, re.I)
+          else "T20" if re.search(r"\bT20\b", fmt_hint_text, re.I) else "ODI")).upper()
 
     venue = None
     for node in soup.find_all(["h1", "h2", "h3", "h4", "strong"]):
@@ -139,14 +229,36 @@ def parse_analysis(html: str):
             venue = venue_match.group(1).strip()
 
     teams = []
+    # Prefer an explicit fixture title over image alt text: player headshots may
+    # also have alt labels and must never be mistaken for team names.
+    fixture_candidates = [page_title, heading_text]
+    for candidate in fixture_candidates:
+        match_vs = re.search(r"(.+?)\s+vs\s+(.+)", candidate, re.I)
+        if not match_vs:
+            continue
+        left = re.sub(r"\s*[|:–—].*$", "", match_vs.group(1)).strip(" -,:")
+        # Some AI11 page titles prefix the fixture with the series name.
+        left = re.split(r"(?:series|cup|tournament)\s+", left, flags=re.I)[-1].strip(" -,:")
+        right = re.split(
+            r"\s*(?:[|:–—]|-\s*)?\s*(?:\d+(?:st|nd|rd|th)\s+(?:match|odi|t20i)|dream team|fantasy|pitch report|player stats).*",
+            match_vs.group(2), maxsplit=1, flags=re.I
+        )[0].strip(" -,:")
+        if left and right:
+            teams = [left, right]
+            break
+    image_team_alts = []
     for node in soup.select("img[alt]"):
         alt = node.get("alt", "").strip()
-        if alt and alt.lower() not in {"image", "logo"} and alt not in teams:
-            teams.append(alt)
-    if len(teams) < 2:
-        m = re.search(r"([A-Za-z ]+)\s+vs\s+([A-Za-z ]+)", heading_text, re.I)
-        if m:
-            teams = [m.group(1).strip(), m.group(2).strip()]
+        if alt and alt.lower() not in {"image", "logo"} and alt not in image_team_alts:
+            image_team_alts.append(alt)
+    if len(teams) == 2:
+        mapped = []
+        for team_label in teams:
+            aliases = [name for name in image_team_alts if _team_code_matches_name(team_label, name)]
+            mapped.append(aliases[0] if len(aliases) == 1 else team_label)
+        teams = mapped
+    elif len(image_team_alts) >= 2:
+        teams = image_team_alts[:2]
     team_a, team_b = (teams[0], teams[1]) if len(teams) >= 2 else ("TEAM_A", "TEAM_B")
 
     match_name = re.sub(r"\s*\|\s*AI11.*$", "", page_title, flags=re.I).strip()
@@ -168,129 +280,347 @@ def parse_analysis(html: str):
     # AI11's detailed player table has flat column labels after a grouped
     # Batting / Bowling / Series Performance / Lineup Selection header.
     # Keep duplicate Avg/SR/Inn labels in their displayed order.
+    def normalized_header(value):
+        return re.sub(r"[^a-z0-9%+#/]", "", (value or "").casefold())
+
     for table in soup.find_all("table"):
         rows = table.find_all("tr")
-        header_row_index, headers = None, []
+        header_row_index = None
+        headers = []
+        group_by_index = {}
+
         for index, row in enumerate(rows):
-            candidate = [c.get_text(" ", strip=True).lower() for c in row.find_all(["th", "td"])]
-            normalized = [re.sub(r"[^a-z0-9%+#/]", "", x.casefold()) for x in candidate]
-            if "name" in normalized and "s%" in normalized and any(x in {"bat", "bowl", "inn"} for x in normalized):
-                header_row_index, headers = index, normalized
-                break
+            candidate_cells = row.find_all(["th", "td"])
+            candidate = [cell.get_text(" ", strip=True).lower() for cell in candidate_cells]
+            previous_cells = rows[index - 1].find_all(["th", "td"]) if index > 0 else []
+            previous = [cell.get_text(" ", strip=True).lower() for cell in previous_cells]
+            has_name = any(normalized_header(x) in {"name", "player"} for x in candidate + previous)
+            has_selection = any(normalized_header(x) in {"s%", "selection%"} for x in candidate + previous)
+            if not (has_name and has_selection):
+                continue
+
+            header_row_index = index
+            has_group_header = index > 0 and any(
+                int(cell.get("colspan", 1) or 1) > 1 for cell in previous_cells
+            )
+            if has_group_header:
+                sub_cursor = 0
+                for group_cell in previous_cells:
+                    group_label = group_cell.get_text(" ", strip=True).lower()
+                    try:
+                        span = max(1, int(group_cell.get("colspan", 1) or 1))
+                    except (TypeError, ValueError):
+                        span = 1
+                    try:
+                        rowspan = max(1, int(group_cell.get("rowspan", 1) or 1))
+                    except (TypeError, ValueError):
+                        rowspan = 1
+
+                    if rowspan > 1:
+                        headers.append(group_label)
+                        group_by_index[len(headers) - 1] = ""
+                    elif span > 1:
+                        for _ in range(span):
+                            sub_label = (
+                                candidate_cells[sub_cursor].get_text(" ", strip=True).lower()
+                                if sub_cursor < len(candidate_cells) else ""
+                            )
+                            headers.append(sub_label)
+                            group_by_index[len(headers) - 1] = group_label
+                            sub_cursor += 1
+                    else:
+                        headers.append(group_label)
+                        group_by_index[len(headers) - 1] = ""
+            else:
+                headers = candidate
+                group_by_index = {}
+            break
+
         if header_row_index is None:
             continue
 
-        idx = lambda label, occurrence=0: header_index(headers, label, occurrence)
-        name_i, team_i, role_i = idx("name"), idx("t"), idx("r")
-        status_i, selection_i, captain_i, vice_i = idx("s"), idx("s%"), idx("c"), idx("vc")
+        def find_index(labels, occurrence=0):
+            wanted = {normalized_header(label) for label in labels}
+            found = [
+                i for i, value in enumerate(headers)
+                if normalized_header(value) in wanted
+            ]
+            return found[occurrence] if len(found) > occurrence else None
+
+        name_i = find_index(("name", "player"))
+        team_i = find_index(("t", "team"))
+        role_i = find_index(("r", "role"))
+        status_i = find_index(("s", "status", "lineup"))
+        selection_i = find_index(("s%", "selection%"))
+        captain_i = find_index(("c", "captain"))
+        vice_i = find_index(("vc", "vicecaptain"))
         if name_i is None or role_i is None:
             continue
 
-        column_map = {
-            "career_matches": idx("m#"),
-            "batting_hand": idx("bat"),
-            "batting_innings": idx("inn", 0),
-            "not_outs": idx("no"),
-            "runs": idx("runs"),
-            "highest_score": idx("hs"),
-            "batting_average": idx("avg", 0),
-            "batting_strike_rate": idx("sr", 0),
-            "fifties_plus": idx("50+"),
-            "fours_sixes": idx("4/6"),
-            "bowling_type": idx("bowl"),
-            "bowling_innings": idx("inn", 1),
-            "wickets": idx("wk", 0),
-            "overs": idx("ov"),
-            "bowling_average": idx("avg", 1),
-            "economy": idx("eco"),
-            "bowling_strike_rate": idx("sr", 1),
-            "four_wicket_hauls": idx("4w"),
-            "best_bowling": idx("best"),
-            "catches_stumpings": idx("c/st"),
-            "series_matches": idx("m"),
-            "series_average_points": idx("a.pt"),
-            "series_points": idx("pts"),
-            "series_runs": idx("run"),
-            "series_wickets": idx("wk", 1),
-            "series_dt": idx("dt"),
-            "ai11_projected_points": idx("p"),
-        }
-
         for row in rows[header_row_index + 1:]:
-            cells = [c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])]
+            cells = [cell.get_text(" ", strip=True) for cell in row.find_all(["td", "th"])]
             if len(cells) <= max(name_i, role_i):
                 continue
             name = cells[name_i].strip()
             role = _role(cells[role_i] if role_i < len(cells) else "")
             if not name or name.lower() in {"name", "player"} or not role:
                 continue
-            team = cells[team_i].strip() if team_i is not None and team_i < len(cells) and cells[team_i].strip() else "UNKNOWN"
+
+            team = (
+                cells[team_i].strip()
+                if team_i is not None and team_i < len(cells) and cells[team_i].strip()
+                else "UNKNOWN"
+            )
             selection = _number(cells[selection_i]) if selection_i is not None and selection_i < len(cells) else None
             captain_pct = _number(cells[captain_i]) if captain_i is not None and captain_i < len(cells) else None
             vice_pct = _number(cells[vice_i]) if vice_i is not None and vice_i < len(cells) else None
             lineup = cells[status_i].strip().lower() if status_i is not None and status_i < len(cells) else ""
-            status = "confirmed" if "✓" in lineup or "confirmed" in lineup else "unknown"
+            # A checkmark is a source-table selection marker, not official Playing XI confirmation.
+            status = "confirmed" if re.search(r"\b(?:confirmed|playing\s*xi|in\s*playing\s*xi)\b", lineup) else "unknown"
             pid = _player_id(name)
-            if any(p["id"] == pid for p in players):
+            if any(player["id"] == pid for player in players):
                 continue
 
-            metrics = {}
-            for key, column in column_map.items():
-                if column is None or column >= len(cells):
+            stat_values = {}
+            for column_index, header in enumerate(headers):
+                if column_index >= len(cells):
                     continue
-                raw = cells[column].strip()
-                if key in {"batting_hand", "bowling_type", "best_bowling", "catches_stumpings", "fours_sixes"}:
-                    if raw and raw not in {"-", "—"}:
-                        metrics[key] = raw
-                else:
-                    number = _number(raw)
-                    if number is not None:
-                        metrics[key] = number
-            players.append({"id": pid, "name": name, "team": team, "role": role,
-                            "credits": None, "selection_pct": selection, "status": status,
-                            "source": "AI11"})
+                group = group_by_index.get(column_index, "").casefold()
+                compact_header = normalized_header(header)
+                key = _stat_header_key(header)
+
+                if "bat" in group and compact_header in {"bat", "hand"}:
+                    key = "batting_hand"
+                elif "bowl" in group and compact_header in {"bowl", "type"}:
+                    key = "bowling_type"
+
+                if "lineup" in group or "selection" in group:
+                    if compact_header == "c":
+                        key = "captain_pct"
+                    elif compact_header == "vc":
+                        key = "vice_captain_pct"
+                    elif compact_header in {"s%", "selection%"}:
+                        key = "selection_pct"
+
+                if "series" in group:
+                    series_aliases = {
+                        "m": "series_matches",
+                        "apt": "series_average_points",
+                        "pts": "ai11_series_points_reported",
+                        "run": "series_runs",
+                        "wk": "series_wickets",
+                        "dt": "series_dt_metric",
+                        "p": "ai11_source_p_raw",
+                    }
+                    key = series_aliases.get(compact_header, key)
+
+                if "match performance" in group:
+                    match_aliases = {
+                        "idt": "ai11_match_played",
+                        "pts": "ai11_match_fantasy_points",
+                        "bat": "ai11_match_batting_points",
+                        "bowl": "ai11_match_bowling_points",
+                        "field": "ai11_match_fielding_points",
+                    }
+                    key = match_aliases.get(compact_header, key)
+
+                if key in {"innings", "batting_average", "strike_rate"} and "bowl" in group:
+                    key = {
+                        "innings": "bowling_innings",
+                        "batting_average": "bowling_average",
+                        "strike_rate": "bowling_strike_rate",
+                    }[key]
+                elif key in {"innings", "batting_average", "strike_rate"} and "bat" in group:
+                    key = {
+                        "innings": "batting_innings",
+                        "batting_average": "batting_average",
+                        "strike_rate": "batting_strike_rate",
+                    }[key]
+
+                if key and key not in {"selection_pct", "captain_pct", "vice_captain_pct"}:
+                    value = _parse_ai11_stat_value(cells[column_index])
+                    if value is not None:
+                        stat_values[key] = value
+
+            if captain_pct is not None:
+                stat_values["captain_pct"] = captain_pct
+            if vice_pct is not None:
+                stat_values["vice_captain_pct"] = vice_pct
+            if selection is not None:
+                stat_values["selection_pct"] = selection
+
+            series_keys = {
+                "series_matches", "series_average_points", "ai11_series_points_reported",
+                "series_runs", "series_wickets", "series_dt_metric",
+            }
+            series_summary = {
+                key: stat_values.pop(key)
+                for key in list(stat_values) if key in series_keys
+            }
+            ai11_source_p_raw = stat_values.pop("ai11_source_p_raw", None)
+            match_key_map = {
+                "ai11_match_played": "played",
+                "ai11_match_fantasy_points": "fantasy_points",
+                "ai11_match_batting_points": "batting_points",
+                "ai11_match_bowling_points": "bowling_points",
+                "ai11_match_fielding_points": "fielding_points",
+            }
+            match_performance = {
+                match_key_map[key]: stat_values.pop(key)
+                for key in list(stat_values) if key in match_key_map
+            }
+
+            players.append({
+                "id": pid, "name": name, "team": team, "role": role,
+                "credits": None, "selection_pct": selection, "status": status,
+                "source": "AI11",
+            })
             profiles.append({
-                "player_id": pid, "player_name": name, "team": team, "role": role,
-                "format": fmt, "ai11_captain_pct": captain_pct,
-                "ai11_vice_captain_pct": vice_pct, "ai11_selection_pct": selection,
-                "ai11_metrics": metrics,
-                "ai11_projected_points": metrics.get("ai11_projected_points"),
-                "ai11_data_type": "AI11 source-reported player metrics and projection; not verified Dream11 fantasy points",
-                "ai11_row": cells, "source": "AI11"
+                "player_id": pid,
+                "player_name": name,
+                "team": team,
+                "role": role,
+                "format": fmt,
+                "ai11_captain_pct": captain_pct,
+                "ai11_vice_captain_pct": vice_pct,
+                "ai11_selection_pct": selection,
+                "ai11_metrics": {**stat_values, **series_summary},
+                "ai11_statistics": stat_values,
+                "ai11_series_summary": series_summary,
+                "ai11_source_p_raw": ai11_source_p_raw,
+                "ai11_match_performance": match_performance,
+                "ai11_row": cells,
+                "source": "AI11",
+                "data_type": "career_or_series_aggregate_not_match_level",
             })
         if players:
             break
 
+    # AI11 logos use display labels while the detailed table uses team codes.
+    # Map codes to display labels only where the abbreviation match is clear.
+    team_codes = list(dict.fromkeys(
+        str(player.get("team") or "").strip() for player in players
+        if player.get("team") and player.get("team") != "UNKNOWN"
+    ))
+    team_code_map = {}
+    for code in team_codes:
+        matches = [name for name in teams if _team_code_matches_name(code, name)]
+        if len(matches) == 1:
+            team_code_map[code] = matches[0]
+    if len(team_codes) >= 2 and len(team_code_map) < 2:
+        # Avoid a mixed full-name/code team split when a provider uses a new code.
+        team_a, team_b = team_codes[0], team_codes[1]
+        team_code_map = {code: code for code in team_codes}
+    for player in players:
+        player["team"] = team_code_map.get(player.get("team"), player.get("team"))
+    for profile in profiles:
+        profile["team"] = team_code_map.get(profile.get("team"), profile.get("team"))
+
     intelligence = {
         "ai11_analysis_url_type": "match_analysis_with_player_statistics",
-        "ai11_data_provenance": "AI11 source page; aggregate player statistics and source projections are not match-by-match Dream11 fantasy points",
+        "ai11_data_provenance": "AI11 career/series aggregates and source P fields are source data, not verified match-level Dream11 fantasy points",
+        "team_display_names": team_code_map,
+        "team_codes": team_codes,
+        "match_completed": bool(
+            re.search(r"\bcompleted\b", text, re.I)
+            or re.search(r"\b(?:won by|lost by|tied|drawn|no result)\b", text, re.I)
+        ),
     }
+    date_match = re.search(
+        r"(?:Date & Time|was played on|started on)\s*(?:[A-Za-z]+,?\s*)?(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})",
+        text, re.I,
+    )
+    if date_match:
+        from datetime import datetime
+        for date_format in ("%d %B %Y", "%d %b %Y"):
+            try:
+                intelligence["match_date"] = datetime.strptime(date_match.group(1), date_format).strftime("%Y-%m-%d")
+                break
+            except ValueError:
+                continue
 
     def find_num(pattern):
         match = re.search(pattern, text, re.I)
         return _number(match.group(1)) if match else None
 
-    intelligence["average_first_innings"] = find_num(
-        r"average first[- ]innings score.{0,120}?(\d{2,3})"
+    def find_innings_average(ordinal):
+        label = rf"average {ordinal}[- ]innings score"
+        match = re.search(label + r"([^.!?]{0,120})", text, re.I)
+        if not match:
+            return None
+        fragment = match.group(1)
+        # T20/ODI/TEST labels and venue sample counts are not the average.
+        fragment = re.sub(r"\b(?:T20|ODI|TEST)\b", " ", fragment, flags=re.I)
+        fragment = re.sub(r"based on\s+\d+\s+matches?", " ", fragment, flags=re.I)
+        value = re.search(r"\b(\d{2,3})\b", fragment)
+        return _number(value.group(1)) if value else None
+
+    intelligence["average_first_innings"] = find_innings_average("first")
+    intelligence["average_second_innings"] = find_innings_average("second")
+    sample_match = re.search(
+        r"average (?:first|second)[- ]innings score.*?based on (\d+) matches", text, re.I
     )
-    intelligence["average_second_innings"] = find_num(
-        r"average second[- ]innings score.{0,120}?(\d{2,3})"
-    )
+    if sample_match:
+        intelligence["venue_matches"] = int(sample_match.group(1))
     intelligence["rain_probability"] = find_num(r"Chance of rain\s*(\d+(?:\.\d+)?)\s*%?")
     intelligence["humidity"] = find_num(r"Humidity\s*(\d+(?:\.\d+)?)\s*%?")
     intelligence["wind_kmh"] = find_num(r"Wind\s*(\d+(?:\.\d+)?)\s*km/h")
     if venue:
         intelligence["venue_name"] = venue
-    pitch_match = re.search(r"pitch (?:favou?rs?|is) ([^.]+)", text, re.I)
+
+    pitch_match = re.search(
+        r"pitch (?:favou?rs?|is|looks) ([^.]+)", text, re.I
+    )
     if pitch_match:
-        intelligence["pitch_notes"] = pitch_match.group(0).strip()
+        pitch_notes = pitch_match.group(0).strip()
+        intelligence["pitch_notes"] = pitch_notes[:500]
+        lower_pitch = pitch_notes.casefold()
+        if any(word in lower_pitch for word in ("fast bowler", "seam", "pace")):
+            intelligence["pitch_type"] = "pace"
+            intelligence["pitch_recommendation"] = "Pace-friendly"
+        elif any(word in lower_pitch for word in ("spinner", "spin", "turn")):
+            intelligence["pitch_type"] = "spin"
+            intelligence["pitch_recommendation"] = "Spin-friendly"
+        elif any(word in lower_pitch for word in ("batting", "batter", "batsman", "flat pitch")):
+            intelligence["pitch_type"] = "batting"
+            intelligence["pitch_recommendation"] = "Batting-friendly"
+        elif any(word in lower_pitch for word in ("bowler", "bowling")):
+            intelligence["pitch_type"] = "bowling"
+            intelligence["pitch_recommendation"] = "Bowling-friendly"
+        else:
+            intelligence["pitch_type"] = "balanced"
+            intelligence["pitch_recommendation"] = "Balanced"
+        intelligence["pitch_confidence"] = "source-description"
+
+    toss_match = re.search(
+        r"Who won the toss.*?\s+([A-Za-z0-9-]+)\s+elected to (bat|field|bowl)(?: first)?",
+        text, re.I
+    )
+    if toss_match:
+        toss_code = toss_match.group(1)
+        toss_winner = team_code_map.get(toss_code, toss_code)
+        decision = "bat" if toss_match.group(2).casefold() == "bat" else "bowl"
+        intelligence.update({
+            "toss_completed": True,
+            "toss_winner": toss_winner,
+            "toss_decision": decision,
+        })
+        other = team_b if toss_winner == team_a else team_a if toss_winner == team_b else None
+        if other:
+            intelligence["batting_first_team"] = toss_winner if decision == "bat" else other
+            intelligence["chasing_team"] = other if decision == "bat" else toss_winner
+
+    if re.search(r"Dew is likely", text, re.I):
+        intelligence["dew_likely"] = True
+    elif re.search(r"Dew is unlikely", text, re.I):
+        intelligence["dew_likely"] = False
     form_match = re.search(r"Recent Form(.*?)(?:Head to Head|Pitch Report)", text, re.I)
     if form_match:
-        intelligence["recent_form_source_text"] = form_match.group(1).strip()[:1200]
+        intelligence["recent_form_source_text"] = form_match.group(1).strip()[:700]
     h2h_match = re.search(r"Head to Head \(last 5\)(.*?)(?:Pitch Report|Weather)", text, re.I)
     if h2h_match:
-        intelligence["h2h_source_text"] = h2h_match.group(1).strip()[:1200]
-    weather_match = re.search(r"Weather:.*?(?:Dew is likely[^.]*\.|Dew is unlikely[^.]*)?", text, re.I)
+        intelligence["h2h_source_text"] = h2h_match.group(1).strip()[:700]
+    weather_match = re.search(r"Weather:.*?(?:Dew is (?:likely|unlikely)[^.]*\.)?", text, re.I)
     if weather_match:
         intelligence["weather_summary"] = weather_match.group(0)[:800]
     return {"match_id": match_id, "title": match_name, "format": fmt, "team_a": team_a, "team_b": team_b,

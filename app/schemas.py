@@ -119,8 +119,8 @@ class TeamRules(BaseModel):
         return self
 
 class TeamRequest(BaseModel):
-    strategies: list[Literal["safe", "balanced", "grand_league", "scenario"]] = Field(
-        default_factory=lambda: ["balanced"]
+    strategies: list[Literal["strongest", "safe", "balanced", "grand_league", "scenario"]] = Field(
+        default_factory=lambda: ["strongest"]
     )
     teams_per_strategy: int = Field(default=1, ge=1, le=20)
     rules: TeamRules = Field(default_factory=TeamRules)
@@ -133,13 +133,16 @@ class TeamRequest(BaseModel):
     manual_vice_captain_id: str | None = None
     team_mode: Literal["manual", "automatic"] = "automatic"
     generation_mode: Literal["both", "ai_prediction", "provisional"] = "both"
-    score_mode: Literal["none", "first_innings", "chasing"] = "none"
+    score_mode: Literal["none", "first_innings", "chasing", "both"] = "none"
     score_team: str | None = Field(default=None, max_length=100)
     scenario_score: int | None = Field(default=None, ge=1, le=600)
 
 class AI11ImportRequest(BaseModel):
     analysis_url: str
     fantasy_url: str | None = None
+    # When present, attach AI11 profiles and pitch/toss data to an existing
+    # Team Generation match instead of creating an unrelated AI11-only match.
+    target_match_id: str | None = Field(default=None, max_length=100)
 
 class HistoricalBatchImport(BaseModel):
     records: list[StatsIn] = Field(min_length=1, max_length=10000)

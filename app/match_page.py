@@ -17,6 +17,30 @@ def _logo(value: str | None, fallback: str) -> str:
     return f'<span class="logo-fallback" aria-label="{html.escape(fallback)}">{initials}</span>'
 
 
+def _recommended_pitch_key(analysis: dict, recommendation_ready: bool) -> str:
+    """Normalize the venue's analysed surface behaviour for the match-page selector."""
+    if not recommendation_ready:
+        return "balanced"
+    candidates = (
+        analysis.get("pitch_type"),
+        analysis.get("surface"),
+        analysis.get("pitch_recommendation"),
+    )
+    for value in candidates:
+        text = str(value or "").strip().casefold().replace("_", "-")
+        if not text:
+            continue
+        if "batting" in text or text in {"bat", "batting-friendly"}:
+            return "batting"
+        if "spin" in text:
+            return "spin"
+        if "bowling" in text or "pace-friendly" in text or text in {"bowling-friendly", "bowler"}:
+            return "bowling"
+        if text in {"balanced", "neutral", "even"}:
+            return "balanced"
+    return "balanced"
+
+
 def _player_row(player: dict) -> str:
     name = str(player.get("player_name") or "Unknown player")
     image = _safe_image_url(player.get("image"))
@@ -101,7 +125,7 @@ def _squad_markup(team_a: str, team_b: str, players: list[dict]) -> str:
         )
     if not players:
         return (
-            '<div class="empty">The match record exists, but no player squad data has been saved yet. '
+            '<div class="empty">Squad has not been imported yet. The match record exists, but no player squad data has been saved. '
             'Open this page again after the fixture provider makes the squad available.</div>'
         )
     return '<div class="squad-grid">' + "".join(groups) + "</div>"
@@ -172,7 +196,10 @@ def _venue_guidance_markup(analysis: dict | None, report: dict | None) -> str:
     total = analysis.get("total_matches")
     confidence = html.escape(str(analysis.get("confidence") or "low").title())
     def value(v, suffix=""):
-        return html.escape((f"{float(v):g}{suffix}" if v is not None else "—"))
+        if v is None:
+            return "—"
+        formatted = f"{float(v):.1f}" if suffix == "%" else f"{float(v):g}"
+        return html.escape(formatted + suffix)
     return (
         '<div class="venue-guidance">'
         '<div class="venue-guidance-title"><span>Automatic venue analysis</span>'
@@ -222,7 +249,7 @@ def render_match_detail(
     venue_recommendation_ready = bool(
         analysis.get("available") and int(analysis.get("total_matches") or 0) >= 15
     )
-    recommended_pitch = analysis.get("pitch_type") if venue_recommendation_ready else "balanced"
+    recommended_pitch = _recommended_pitch_key(analysis, venue_recommendation_ready)
     recommended_score_mode = analysis.get("recommended_innings_mode") if venue_recommendation_ready else "manual"
     recommended_score_value = analysis.get("first_innings_average") if venue_recommendation_ready else None
     toss_completed = bool(intelligence.get("toss_completed"))
