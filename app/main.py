@@ -3125,6 +3125,7 @@ def cricsheet_player_search(q: str, limit: int = 20,
             "matches": 0, "runs": 0, "balls_faced": 0, "fours": 0, "sixes": 0, "dismissals": 0, "batting_position_total": 0, "batting_position_samples": 0,
             "wickets": 0, "bowling_legal_balls": 0, "runs_conceded": 0,
             "catches": 0, "stumpings": 0, "run_outs": 0,
+            "batting_phases": {}, "bowling_phases": {},
         })
         item["teams"].add(row.team)
         item["matches"] += 1
@@ -3134,12 +3135,18 @@ def cricsheet_player_search(q: str, limit: int = 20,
         for key in ("runs", "balls_faced", "fours", "sixes", "dismissals", "wickets",
                     "bowling_legal_balls", "runs_conceded", "catches", "stumpings", "run_outs"):
             item[key] += getattr(row, key)
+        for group_name in ("batting_phases", "bowling_phases"):
+            for phase, values in (getattr(row, group_name) or {}).items():
+                target = item[group_name].setdefault(phase, {})
+                for stat, value in values.items():
+                    target[stat] = target.get(stat, 0) + value
     return {"results": [{**item, "teams": sorted(item["teams"]),
-                         "batting_average": round(item["runs"] / max(item["dismissals"], 1), 2),
+                         "batting_average": round(item["runs"] / item["dismissals"], 2) if item["dismissals"] else None,
                          "runs_per_match": round(item["runs"] / max(item["matches"], 1), 2),
                          "average_batting_position": round(item["batting_position_total"] / max(item["batting_position_samples"], 1), 2) if item["batting_position_samples"] else None,
                          "strike_rate": round(100 * item["runs"] / max(item["balls_faced"], 1), 2),
-                         "economy": round(6 * item["runs_conceded"] / max(item["bowling_legal_balls"], 1), 2)}
+                         "economy": round(6 * item["runs_conceded"] / item["bowling_legal_balls"], 2) if item["bowling_legal_balls"] else None,
+                         "bowling_overs": round(item["bowling_legal_balls"] / 6, 2)}
                         for item in grouped.values()]}
 
 
