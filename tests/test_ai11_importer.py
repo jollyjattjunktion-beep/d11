@@ -261,3 +261,20 @@ def test_ai11_parse_team_code_mapping_pitch_toss_and_both_innings_averages():
     assert intel["chasing_team"] == "USA Women"
     assert intel["dew_likely"] is False
     assert data["players"][0]["status"] == "unknown"
+
+
+def test_grouped_ai11_table_retains_bowling_type_for_pace_spin_fit():
+    html = """
+    <html><head><title>MR vs AS Women 1st Match | AI11</title></head><body>
+      <img alt="Melbourne Renegades Women"><img alt="Adelaide Strikers Women">
+      <table>
+        <tr><th colspan="4">Player</th><th colspan="2">Batting</th><th colspan="2">Bowling</th><th colspan="3">Series Performance</th><th colspan="3">Lineup selection</th></tr>
+        <tr><th>Name</th><th>T</th><th>R</th><th>S</th><th>Bat</th><th>Avg</th><th>Bowl</th><th>Wk</th><th>M</th><th>A. Pt</th><th>Pts</th><th>S%</th><th>C</th><th>VC</th></tr>
+        <tr><td>G Wareham</td><td>MR</td><td>ALL</td><td>—</td><td>RHB</td><td>31</td><td>OB</td><td>21</td><td>3</td><td>88</td><td>264</td><td>85</td><td>12</td><td>18</td></tr>
+      </table>
+    </body></html>
+    """
+    data = ai11.parse_analysis(html)
+    stats = data["profiles"][0]["ai11_statistics"]
+    assert stats["batting_hand"] == "RHB"
+    assert stats["bowling_type"] == "OB"
