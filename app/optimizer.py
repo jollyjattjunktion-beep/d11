@@ -687,6 +687,8 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
 
         made.append({
             "generation_mode": mode,
+            "portfolio_rank": len(made) + 1,
+            "recommendation_tier": "best_ranked_xi" if not made else "diversified_alternative",
             "strategy": strategy,
             "scenario": scenario,
             "score_scenario": {
