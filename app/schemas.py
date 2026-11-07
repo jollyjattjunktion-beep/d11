@@ -186,7 +186,7 @@ class VenueEnrichRequest(BaseModel):
 
 class CricsheetImportRequest(BaseModel):
     source_url: str = Field(
-        default="https://cricsheet.org/downloads/all_json.zip",
+        default="https://cricsheet.org/downloads/2026_json.zip",
         min_length=20,
         max_length=500,
     )
