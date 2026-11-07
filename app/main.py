@@ -1455,7 +1455,7 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
         "credits_missing_players": missing,
         "credits_status": fantasy_data.get("credits_status", "not_present_in_fetched_html"),
         "credit_evidence": fantasy_data.get("credit_evidence", []),
-        "credits_ready_for_team_builder": bool(row for row in squad_rows) and len(missing) == 0,
+        "credits_ready_for_team_builder": bool(squad_rows) and len(missing) == 0,
         "fantasy_page_requires_browser": fantasy_data["dynamic_content_may_require_browser"],
         "profiles_saved": saved,
         "statistics_profiles_saved": sum(1 for profile in parsed.get("profiles", []) if profile.get("ai11_statistics") or profile.get("ai11_series_summary")),
