@@ -59,6 +59,14 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
             base *= ai11_factor
         except (TypeError, ValueError):
             pass
+        # AI11's role-normalized batting/bowling/series score is a selection
+        # signal only. It adjusts the provisional index, never fantasy points.
+        try:
+            role_score = p.get("ai11_role_score")
+            if role_score is not None:
+                base *= max(0.88, min(1.12, 1.0 + (float(role_score) - 50.0) * 0.0024))
+        except (TypeError, ValueError):
+            pass
         floor_v, upside, consistency = base * 0.55, base * (1.18 if p.get("role") in {"AR", "WK"} else 1.08), 0.35
 
     role = p.get("role")
@@ -81,12 +89,28 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
         except (TypeError, ValueError):
             pass
     try:
-        if role in {"BAT", "WK"} and p.get("batting_friendly") is not None:
+        if role in {"BAT", "WK", "AR"} and p.get("batting_friendly") is not None:
             condition += (float(p["batting_friendly"]) - 0.5) * 0.12
         if role in {"BOWL", "AR"} and p.get("pace_friendly") is not None:
             condition += (float(p["pace_friendly"]) - 0.5) * 0.08
         if role in {"BOWL", "AR"} and p.get("spin_friendly") is not None:
             condition += (float(p["spin_friendly"]) - 0.5) * 0.08
+        # When AI11 provides a source-described pitch but no numerical Cricbuzz
+        # pace/spin factor, use the player's imported discipline as a small fit.
+        if scenario == "batting_friendly" and role in {"BAT", "WK", "AR"}:
+            bat_score = p.get("ai11_batting_score")
+            if bat_score is not None:
+                condition *= max(0.96, min(1.04, 1.0 + (float(bat_score) - 50.0) * 0.0008))
+        if scenario in {"pace_friendly", "bowling_friendly"} and role in {"BOWL", "AR"}:
+            bowl_score = p.get("ai11_bowling_score")
+            if bowl_score is not None:
+                condition *= max(0.96, min(1.04, 1.0 + (float(bowl_score) - 50.0) * 0.0008))
+        if scenario == "spin_friendly" and role in {"BOWL", "AR"}:
+            bowl_score = p.get("ai11_bowling_score")
+            style = p.get("ai11_bowling_style_group")
+            if bowl_score is not None:
+                style_factor = 1.015 if style == "spin" else 0.99 if style == "pace" else 1.0
+                condition *= max(0.96, min(1.04, (1.0 + (float(bowl_score) - 50.0) * 0.0005) * style_factor))
         if p.get("dew_likely") is True and role in {"BOWL", "AR"}:
             condition *= 0.97
         if p.get("rain_probability") is not None and float(p["rain_probability"]) >= 50:
@@ -240,8 +264,8 @@ def _captaincy_reason(player, strategy, role_label):
 
 
 def _score_context_multiplier(p, innings_mode, score_team, scenario_score, match_format):
-    """Small preference adjustment for a user-entered innings scenario, not points."""
-    if innings_mode not in {"first_innings", "chasing"} or not score_team or scenario_score is None:
+    """Small role-opportunity preference for an innings scenario, never a points prediction."""
+    if innings_mode not in {"first_innings", "chasing"} or not score_team:
         return 1.0
     fmt = str(match_format or "T20").upper()
     high_threshold, low_threshold = {
@@ -249,24 +273,23 @@ def _score_context_multiplier(p, innings_mode, score_team, scenario_score, match
         "ODI": (280, 230),
         "TEST": (350, 220),
     }.get(fmt, (180, 145))
-    high_score = int(scenario_score) >= high_threshold
-    low_score = int(scenario_score) <= low_threshold
+    high_score = int(scenario_score) >= high_threshold if scenario_score is not None else None
+    low_score = int(scenario_score) <= low_threshold if scenario_score is not None else None
     team = p.get("team")
     role = p.get("role")
-    batting_roles = {"BAT", "WK"}
+    batting_roles = {"BAT", "WK", "AR"}
     bowling_roles = {"BOWL", "AR"}
     if innings_mode == "first_innings":
-        if team == score_team:
-            if role in batting_roles:
-                return 1.04 if high_score else 1.015 if not low_score else 0.985
-        elif role in bowling_roles:
-            return 1.035 if high_score else 1.02 if low_score else 1.0
+        if team == score_team and role in batting_roles:
+            return 1.04 if high_score is True else 1.015 if high_score is None else 0.985
+        if team != score_team and role in bowling_roles:
+            return 1.035 if high_score is True else 1.02 if low_score is True or low_score is None else 1.0
     else:
         # score_team is the chasing side.
         if team == score_team and role in batting_roles:
-            return 1.04 if high_score else 1.02
+            return 1.04 if high_score is True else 1.02 if high_score is None or low_score is False else 1.015
         if team != score_team and role in bowling_roles:
-            return 1.035 if high_score else 1.02
+            return 1.035 if high_score is True else 1.02
     return 1.0
 
 
