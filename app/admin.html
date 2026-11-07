@@ -239,9 +239,22 @@
           <label style="flex:1;min-width:150px">Strategy<select class="field" id="strategy"><option value="safe">Safe</option><option value="balanced">Balanced</option><option value="grand_league">Grand League</option><option value="all">All strategies</option></select></label>
           <label style="flex:1;min-width:190px">Team A : Team B split<select class="field" id="teamSplit"><option value="auto">Automatic / flexible</option><option value="6-5">Team A 6 — Team B 5</option><option value="5-6">Team A 5 — Team B 6</option><option value="7-4">Team A 7 — Team B 4</option><option value="4-7">Team A 4 — Team B 7</option></select></label>
         </div>
-        <div class="notice warn" id="generationModeNotice">Historical fantasy point coverage will be checked at generation time. If history is missing, only provisional selection-score teams can be created.</div>
+        <div class="panel" style="box-shadow:none;margin-top:12px">
+          <div class="panelhead"><div><h2>AI11 match scenario intelligence</h2><div class="helper">Use source-backed pitch, toss, innings averages and player performance signals to create separate team portfolios.</div></div><span class="pill">MATCH ANALYSIS</span></div>
+          <div class="panelbody">
+            <div class="row">
+              <label style="flex:1;min-width:180px">Pitch / conditions<select class="field" id="ai11PitchScenario"><option value="auto">Automatic from match data</option><option value="batting_friendly">Batting-friendly</option><option value="pace_friendly">Pace-friendly</option><option value="spin_friendly">Spin-friendly</option><option value="bowling_friendly">Bowling-friendly</option><option value="neutral">Balanced / neutral</option></select></label>
+              <label style="flex:1;min-width:180px">Innings scenario<select class="field" id="inningsScenario"><option value="none">Match conditions / no innings split</option><option value="first_innings">Batting first</option><option value="chasing">Chasing second</option><option value="both">Generate both scenarios</option></select></label>
+              <label style="flex:1;min-width:180px">Scenario team<select class="field" id="scenarioTeam"><option value="auto">Auto from toss / AI11</option></select></label>
+              <label style="flex:1;min-width:160px">Score assumption (optional)<input class="field" type="number" id="scenarioScore" min="1" max="600" placeholder="Auto from innings average"></label>
+            </div>
+            <div class="helper" id="scenarioHelp">Automatic mode uses AI11 pitch notes and the imported match venue report. “Both” creates separate batting-first and chasing portfolios. Without toss data, select the batting-first team.</div>
+          </div>
+        </div>
+        <div class="notice warn" id="generationModeNotice">Historical fantasy point coverage will be checked at generation time. AI11 batting, bowling, series and selection data improve provisional selection ranking but are not fantasy-point projections.</div>
         <div class="row" style="margin-top:18px"><button class="btn green" id="generateTeams">Generate fantasy teams</button><button class="btn secondary" id="printTeams" disabled>Print / Save PDF</button><span class="helper">Fixed players are locked into every generated team. Each team is previewed as a Dream11-style ground card.</span></div>
         <div id="generationError" class="notice error" style="display:none"></div>
+        <div id="ai11AnalysisPanel" style="display:none;margin-top:16px"></div>
         <div id="teamResults" class="results" style="margin-top:18px"></div>
         <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn outline" id="restart">Start another match</button></div>
       </section>
