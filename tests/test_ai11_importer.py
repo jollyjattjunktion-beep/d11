@@ -172,22 +172,7 @@ def test_analysis_title_and_venue_are_cleaned_from_explicit_headings():
     assert data["intelligence"]["average_first_innings"] == 93
     assert data["intelligence"]["average_second_innings"] == 76
 
-
-def test_ai11_projection_is_a_supporting_signal_not_a_verified_points_projection():
-    from app.optimizer import _player_signal
-    base = {"role": "AR", "status": "confirmed", "selection_pct": 50,
-            "expected_points": None, "floor_points": None, "ceiling_points": None}
-    ordinary = _player_signal(base, "balanced", "neutral", match_format="T20")
-    enhanced = _player_signal({
-        **base, "ai11_projected_points": 12,
-        "ai11_metrics": {"career_matches": 40, "batting_average": 28,
-                         "batting_strike_rate": 125, "bowling_innings": 35,
-                         "wickets": 40, "economy": 6.2},
-    }, "balanced", "neutral", match_format="T20")
-    assert enhanced > ordinary
-    assert base["expected_points"] is None
-
-\n\ndef test_ai11_detailed_table_extracts_career_series_and_projection_metrics():
+def test_ai11_detailed_table_extracts_career_series_and_projection_metrics():
     html = """
     <html><head><title>Namibia Women vs United States of America Women, 3rd Match: Fantasy Preview, Pitch Report &amp; Player Stats | AI11</title></head>
     <body>
@@ -224,7 +209,6 @@ def test_ai11_projection_is_a_supporting_signal_not_a_verified_points_projection
     assert "fantasy_points" not in metrics
     assert data["intelligence"]["average_first_innings"] == 93
     assert data["intelligence"]["average_second_innings"] == 76
-
 
 def test_ai11_projection_is_a_supporting_signal_not_a_verified_points_projection():
     from app.optimizer import _player_signal
