@@ -120,3 +120,69 @@ def test_analysis_title_and_venue_are_cleaned_from_explicit_headings():
     data = ai11.parse_analysis(html)
     assert data["title"] == "New Zealand vs India, 2nd ODI"
     assert data["venue"] == "Hnry Stadium"
+
+\n\ndef test_ai11_detailed_table_extracts_career_series_and_source_projection():
+    html = """
+    <html><head><title>Namibia Women vs United States of America Women, 3rd Match: Fantasy Preview, Pitch Report &amp; Player Stats | AI11</title></head>
+    <body>
+      <img alt="NAM Women"><img alt="USA Women">
+      <h1>Namibia Women vs United States of America Women, 3rd Match: Fantasy Preview, Pitch Report &amp; Player Stats</h1>
+      <h2>Pitch Report: Entebbe Cricket Oval</h2>
+      <p>Weather: Entebbe Chance of rain 39% Humidity 72% Wind 5 km/h Dew is unlikely</p>
+      <p>The average first-innings score in T20 matches at Entebbe Cricket Oval is 93 and the average second-innings score is 76, based on 5 matches.</p>
+      <table>
+        <tr><th>Player</th><th>Batting</th><th>Bowling</th><th>Series Performance</th><th>Lineup selection</th></tr>
+        <tr>
+          <th>Name</th><th>T</th><th>R</th><th>S</th><th>M#</th><th>Bat</th><th>Inn</th><th>NO</th>
+          <th>Runs</th><th>HS</th><th>Avg</th><th>SR</th><th>50+</th><th>4/6</th>
+          <th>Bowl</th><th>Inn</th><th>Wk</th><th>Ov</th><th>Avg</th><th>Eco</th><th>SR</th>
+          <th>4w</th><th>Best</th><th>C/St</th><th>M</th><th>A. Pt</th><th>Pts</th><th>Run</th>
+          <th>Wk</th><th>DT</th><th>P</th><th>S%</th><th>C</th><th>VC</th>
+        </tr>
+        <tr>
+          <td>Jivana Aras</td><td>USA-W</td><td>ALL</td><td>✓</td><td>11</td><td>LHB</td>
+          <td>4</td><td>3</td><td>34</td><td>24</td><td>34</td><td>77.27</td><td>0</td><td>2</td>
+          <td>RM</td><td>11</td><td>7</td><td>2</td><td>19</td><td>6.04</td><td>18.8</td>
+          <td>0</td><td>3/18</td><td>2</td><td>0</td><td>0</td><td>0</td><td>0</td>
+          <td>0</td><td>0</td><td>7</td><td>10.68</td><td>0.04</td><td>0.17</td>
+        </tr>
+      </table>
+    </body></html>
+    """
+    data = ai11.parse_analysis(html)
+    assert data["format"] == "T20"
+    assert data["venue"] == "Entebbe Cricket Oval"
+    assert data["player_count"] == 1
+    profile = data["profiles"][0]
+    metrics = profile["ai11_metrics"]
+    assert metrics["career_matches"] == 11
+    assert metrics["batting_hand"] == "LHB"
+    assert metrics["batting_innings"] == 4
+    assert metrics["runs"] == 34
+    assert metrics["batting_average"] == 34
+    assert metrics["bowling_type"] == "RM"
+    assert metrics["bowling_innings"] == 11
+    assert metrics["wickets"] == 7
+    assert metrics["economy"] == 6.04
+    assert metrics["ai11_projected_points"] == 7
+    assert profile["ai11_selection_pct"] == 10.68
+    assert profile["ai11_captain_pct"] == 0.04
+    assert profile["ai11_vice_captain_pct"] == 0.17
+    assert "fantasy_points" not in metrics
+    assert data["intelligence"]["average_first_innings"] == 93
+    assert data["intelligence"]["average_second_innings"] == 76
+
+
+def test_ai11_projection_is_a_supporting_signal_not_a_verified_points_projection():
+    from app.optimizer import _player_signal
+    base = {"role": "AR", "status": "confirmed", "selection_pct": 50,
+            "expected_points": None, "floor_points": None, "ceiling_points": None}
+    ordinary = _player_signal(base, "balanced", "neutral", match_format="T20")
+    enhanced = _player_signal({
+        **base, "ai11_projected_points": 12,
+        "ai11_metrics": {"career_matches": 40, "batting_average": 28,
+                         "batting_strike_rate": 125, "bowling_innings": 35,
+                         "wickets": 40, "economy": 6.2},
+    }, "balanced", "neutral", match_format="T20")
+    assert enhanced > ordinary
+    assert base["expected_points"] is None
