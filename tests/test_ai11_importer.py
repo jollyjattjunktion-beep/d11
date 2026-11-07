@@ -291,7 +291,7 @@ def test_ai11_match_performance_pts_is_separate_from_series_p_and_marks_complete
       <head><title>Melbourne Renegades Women vs Adelaide Strikers Women 13th Match</title></head>
       <body>
         <p>Melbourne Renegades Women vs Adelaide Strikers Women</p>
-        <p>Saturday 07 November 2026</p>
+        <p>Date &amp; Time Saturday 07 November 2026</p>
         <p>Completed. Melbourne Renegades Women won by 36 runs.</p>
         <table>
           <tr>
