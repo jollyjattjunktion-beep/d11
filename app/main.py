@@ -11,12 +11,14 @@ import re
 import unicodedata
 import time
 import threading
+import io
+import zipfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from app.database import Base, engine, get_db, SessionLocal
-from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue
+from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue, CricsheetMatch, CricsheetPlayerMatch
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
-                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, VenueEnrichRequest)
+                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, VenueEnrichRequest, CricsheetImportRequest)
 from app.predictor import predict_match
 from app.ai11_analysis import build_ai11_match_analysis
 from app.optimizer import build_teams, build_team_diagnostic
@@ -2875,3 +2877,251 @@ def admin_page():
         raise HTTPException(500, "Admin interface file is missing.")
     return HTMLResponse(admin_file.read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
 
+
+
+
+# Cricsheet T20 historical import. All records live in dedicated tables and
+# are never written into or used to replace the live Match/squad tables.
+_CRICSHEET_MAX_ARCHIVE_BYTES = 150 * 1024 * 1024
+_CRICSHEET_MAX_UNCOMPRESSED_BYTES = 500 * 1024 * 1024
+
+
+def _cricsheet_download(url: str) -> bytes:
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname not in {"cricsheet.org", "www.cricsheet.org"}:
+        raise HTTPException(422, "Cricsheet source must be an HTTPS URL hosted on cricsheet.org.")
+    if not parsed.path.startswith("/downloads/") or parsed.query or parsed.fragment:
+        raise HTTPException(422, "Only direct Cricsheet /downloads/ archive URLs are accepted.")
+    try:
+        response = httpx.get(url, timeout=httpx.Timeout(60.0, connect=15.0), follow_redirects=False,
+                             headers={"Accept": "application/zip"})
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Could not download Cricsheet archive: " + type(exc).__name__)
+    if response.status_code != 200:
+        raise HTTPException(502, "Cricsheet archive download returned HTTP " + str(response.status_code))
+    if len(response.content) > _CRICSHEET_MAX_ARCHIVE_BYTES:
+        raise HTTPException(413, "Cricsheet archive exceeds the 150 MB download safety limit.")
+    if not response.content.startswith(b"PK"):
+        raise HTTPException(422, "Cricsheet download is not a ZIP archive.")
+    return response.content
+
+
+def _parse_cricsheet_archive(archive_bytes: bytes, max_matches: int) -> tuple[list[dict], dict]:
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(archive_bytes))
+    except zipfile.BadZipFile:
+        raise HTTPException(422, "Cricsheet archive is not a valid ZIP file.")
+    with archive:
+        entries = [item for item in archive.infolist() if item.filename.lower().endswith(".json")]
+        if not entries:
+            raise HTTPException(422, "Archive contains no JSON match files.")
+        if len(entries) > max_matches:
+            raise HTTPException(413, f"Archive has {len(entries)} JSON files; max_matches is {max_matches}.")
+        total_size = sum(item.file_size for item in entries)
+        if total_size > _CRICSHEET_MAX_UNCOMPRESSED_BYTES:
+            raise HTTPException(413, "Archive expands beyond the 500 MB safety limit.")
+        parsed, invalid, duplicates = [], [], 0
+        seen = set()
+        for entry in entries:
+            # Reject path traversal and directory entries; filenames are metadata only.
+            if entry.filename.startswith(("/", "\\")) or ".." in entry.filename.split("/"):
+                invalid.append({"file": entry.filename[:180], "reason": "unsafe archive path"})
+                continue
+            if entry.file_size > 20 * 1024 * 1024:
+                invalid.append({"file": entry.filename[:180], "reason": "individual JSON file exceeds 20 MB"})
+                continue
+            try:
+                record = parse_t20_json_bytes(archive.read(entry), entry.filename)
+            except (ValueError, KeyError, TypeError) as exc:
+                invalid.append({"file": entry.filename[:180], "reason": str(exc)[:240]})
+                continue
+            if record["source_match_id"] in seen:
+                duplicates += 1
+                continue
+            seen.add(record["source_match_id"])
+            parsed.append(record)
+        if invalid:
+            raise HTTPException(status_code=422, detail={
+                "message": "Archive validation failed; no SQL records were written.",
+                "invalid_files": invalid[:25],
+                "invalid_count": len(invalid),
+                "valid_matches": len(parsed),
+            })
+        if not parsed:
+            raise HTTPException(422, "No valid T20 matches found in the archive.")
+        return parsed, {"archive_json_files": len(entries), "valid_matches": len(parsed),
+                        "duplicate_files": duplicates, "uncompressed_bytes": total_size}
+
+
+def _cricsheet_match_values(record: dict) -> dict:
+    return {key: record[key] for key in (
+        "source_file", "source_sha256", "match_date", "season", "competition",
+        "venue", "city", "team_a", "team_b", "toss_winner", "toss_decision",
+        "winner", "result_method", "innings"
+    )}
+
+
+@app.post("/api/v1/admin/cricsheet/t20/import")
+def import_cricsheet_t20(payload: CricsheetImportRequest,
+                         _admin: bool = Depends(require_admin),
+                         db: Session = Depends(get_db)):
+    """Dry-run by default; additive/idempotent upsert into dedicated aggregate tables."""
+    archive_bytes = _cricsheet_download(payload.source_url)
+    records, validation = _parse_cricsheet_archive(archive_bytes, payload.max_matches)
+    existing_matches = {
+        row.source_match_id: row
+        for row in db.scalars(select(CricsheetMatch).where(
+            CricsheetMatch.source_match_id.in_([r["source_match_id"] for r in records])
+        )).all()
+    }
+    existing_players = {}
+    if existing_matches:
+        player_rows = db.scalars(select(CricsheetPlayerMatch).where(
+            CricsheetPlayerMatch.source_match_id.in_(list(existing_matches))
+        )).all()
+        existing_players = {(row.source_match_id, row.player_key): row for row in player_rows}
+
+    inserted_matches = updated_matches = unchanged_matches = 0
+    inserted_players = updated_players = unchanged_players = 0
+    player_rows_to_write = sum(len(r["players"]) for r in records)
+    for record in records:
+        current = existing_matches.get(record["source_match_id"])
+        if current is None:
+            inserted_matches += 1
+        elif current.source_sha256 == record["source_sha256"]:
+            unchanged_matches += 1
+        else:
+            updated_matches += 1
+        for player in record["players"]:
+            old = existing_players.get((record["source_match_id"], player["player_key"]))
+            if old is None:
+                inserted_players += 1
+            elif current is not None and current.source_sha256 == record["source_sha256"]:
+                unchanged_players += 1
+            else:
+                updated_players += 1
+
+    summary = {
+        **validation,
+        "dry_run": payload.dry_run,
+        "matches_insert": inserted_matches,
+        "matches_update": updated_matches,
+        "matches_unchanged": unchanged_matches,
+        "player_match_aggregates_insert": inserted_players,
+        "player_match_aggregates_update": updated_players,
+        "player_match_aggregates_unchanged": unchanged_players,
+        "raw_deliveries_stored": 0,
+        "existing_sql_rows_deleted": 0,
+        "source": "Cricsheet T20 JSON",
+    }
+    if payload.dry_run:
+        return {**summary, "written": False, "message": "Dry run only. No SQL records were changed."}
+
+    try:
+        for record in records:
+            match = existing_matches.get(record["source_match_id"])
+            if match is None:
+                match = CricsheetMatch(source_match_id=record["source_match_id"], **_cricsheet_match_values(record))
+                db.add(match)
+            elif match.source_sha256 != record["source_sha256"]:
+                for key, value in _cricsheet_match_values(record).items():
+                    setattr(match, key, value)
+            if match.source_sha256 != record["source_sha256"] or match.source_match_id not in existing_matches:
+                for player in record["players"]:
+                    old = existing_players.get((record["source_match_id"], player["player_key"]))
+                    values = {k: v for k, v in player.items() if k != "player_key"}
+                    if old is None:
+                        db.add(CricsheetPlayerMatch(
+                            source_match_id=record["source_match_id"],
+                            player_key=player["player_key"], **values
+                        ))
+                    else:
+                        for key, value in values.items():
+                            setattr(old, key, value)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return {**summary, "written": True, "message": "Historical aggregates imported. Existing SQL rows were not deleted."}
+
+
+@app.get("/api/v1/admin/cricsheet/coverage")
+def cricsheet_t20_coverage(_admin: bool = Depends(require_admin), db: Session = Depends(get_db)):
+    matches = db.scalars(select(CricsheetMatch)).all()
+    players = db.scalars(select(CricsheetPlayerMatch)).all()
+    venues = sorted({row.venue for row in matches if row.venue})
+    competitions = sorted({row.competition for row in matches if row.competition})
+    dates = sorted(row.match_date for row in matches if row.match_date)
+    return {
+        "source": "Cricsheet",
+        "format": "T20",
+        "matches": len(matches),
+        "player_match_aggregates": len(players),
+        "unique_players": len({row.player_key for row in players}),
+        "venues": len(venues),
+        "competitions": len(competitions),
+        "date_range": {"from": dates[0], "to": dates[-1]} if dates else None,
+        "storage": "compact per-match player aggregates; no delivery rows",
+        "deletion_policy": "import is additive/upsert-only; no existing SQL rows are deleted",
+    }
+
+
+@app.get("/api/v1/admin/cricsheet/players/search")
+def cricsheet_player_search(q: str, limit: int = 20,
+                            _admin: bool = Depends(require_admin),
+                            db: Session = Depends(get_db)):
+    limit = max(1, min(limit, 100))
+    needle = "%" + q.strip().replace("%", "") + "%"
+    rows = db.scalars(select(CricsheetPlayerMatch).where(
+        CricsheetPlayerMatch.player_name.ilike(needle)
+    ).limit(limit)).all()
+    grouped = {}
+    for row in rows:
+        item = grouped.setdefault(row.player_key, {
+            "player_key": row.player_key, "player_name": row.player_name, "teams": set(),
+            "matches": 0, "runs": 0, "balls_faced": 0, "fours": 0, "sixes": 0,
+            "wickets": 0, "bowling_legal_balls": 0, "runs_conceded": 0,
+            "catches": 0, "stumpings": 0, "run_outs": 0,
+        })
+        item["teams"].add(row.team)
+        item["matches"] += 1
+        for key in ("runs", "balls_faced", "fours", "sixes", "wickets",
+                    "bowling_legal_balls", "runs_conceded", "catches", "stumpings", "run_outs"):
+            item[key] += getattr(row, key)
+    return {"results": [{**item, "teams": sorted(item["teams"]),
+                         "batting_average_per_match": round(item["runs"] / max(item["matches"], 1), 2),
+                         "strike_rate": round(100 * item["runs"] / max(item["balls_faced"], 1), 2),
+                         "economy": round(6 * item["runs_conceded"] / max(item["bowling_legal_balls"], 1), 2)}
+                        for item in grouped.values()]}
+
+
+@app.get("/api/v1/admin/cricsheet/venues/search")
+def cricsheet_venue_search(q: str, limit: int = 30,
+                           _admin: bool = Depends(require_admin),
+                           db: Session = Depends(get_db)):
+    limit = max(1, min(limit, 100))
+    needle = "%" + q.strip().replace("%", "") + "%"
+    rows = db.scalars(select(CricsheetMatch).where(CricsheetMatch.venue.ilike(needle)).limit(limit)).all()
+    grouped = {}
+    for row in rows:
+        item = grouped.setdefault(row.venue, {"venue": row.venue, "matches": 0, "first_innings_runs": [],
+                                             "second_innings_runs": [], "bat_first_wins": 0,
+                                             "bowl_first_wins": 0})
+        item["matches"] += 1
+        if row.innings:
+            item["first_innings_runs"].append(row.innings[0].get("runs", 0))
+        if len(row.innings) > 1:
+            item["second_innings_runs"].append(row.innings[1].get("runs", 0))
+        if row.winner == row.team_a or row.winner == row.team_b:
+            first_team = row.innings[0].get("team") if row.innings else None
+            if row.winner == first_team:
+                item["bat_first_wins"] += 1
+            else:
+                item["bowl_first_wins"] += 1
+    results = []
+    for item in grouped.values():
+        for field in ("first_innings_runs", "second_innings_runs"):
+            vals = item.pop(field)
+            item[field.replace("_runs", "_average")] = round(sum(vals) / len(vals), 2) if vals else None
+        results.append(item)
+    return {"venues": results}
