@@ -52,6 +52,44 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
         source_vc = float(p.get("vice_captain_pct") or p.get("ai11_vice_captain_pct") or 0.0)
         # Provisional score is a selection-priority index, never fantasy points.
         base = _role_opportunity(p) * 35.0 + popularity * 0.10 + min(source_c, 100) * 0.025 + min(source_vc, 100) * 0.015
+        # AI11's own projected-points field is a separate source signal. It is
+        # deliberately low-weight and is never copied into expected_points.
+        try:
+            ai11_projection = p.get("ai11_projected_points")
+            if ai11_projection is not None:
+                base += max(0.0, min(30.0, float(ai11_projection))) * 0.25
+        except (TypeError, ValueError):
+            pass
+        # Career/series aggregates add only a small role-aware nudge when the
+        # source provides a usable sample; they do not create fantasy points.
+        metrics = p.get("ai11_metrics") if isinstance(p.get("ai11_metrics"), dict) else {}
+        try:
+            sample = float(metrics.get("career_matches") or 0)
+            profile_deltas = []
+            role = p.get("role")
+            if sample >= 3 and role in {"BAT", "WK", "AR"}:
+                avg = metrics.get("batting_average")
+                sr = metrics.get("batting_strike_rate")
+                if avg is not None:
+                    profile_deltas.append(max(-1.0, min(1.0, (float(avg) - 20.0) / 20.0)) * 0.025)
+                if sr is not None:
+                    baseline_sr = 110.0 if match_format == "T20" else 80.0
+                    profile_deltas.append(max(-1.0, min(1.0, (float(sr) - baseline_sr) / baseline_sr)) * 0.015)
+            if sample >= 3 and role in {"BOWL", "AR"}:
+                wickets = metrics.get("wickets")
+                bowling_innings = float(metrics.get("bowling_innings") or 0)
+                economy = metrics.get("economy")
+                if wickets is not None and bowling_innings > 0:
+                    rate = float(wickets) / bowling_innings
+                    profile_deltas.append(max(-1.0, min(1.0, (rate - 0.8) / 0.8)) * 0.025)
+                if economy is not None:
+                    baseline_eco = 8.5 if match_format == "T20" else 6.0
+                    profile_deltas.append(max(-1.0, min(1.0, (baseline_eco - float(economy)) / baseline_eco)) * 0.015)
+            if profile_deltas:
+                profile_factor = max(0.94, min(1.06, 1.0 + sum(profile_deltas)))
+                base *= profile_factor
+        except (TypeError, ValueError):
+            pass
         floor_v, upside, consistency = base * 0.55, base * (1.18 if p.get("role") in {"AR", "WK"} else 1.08), 0.35
 
     role = p.get("role")
