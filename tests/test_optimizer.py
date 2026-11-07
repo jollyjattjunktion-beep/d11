@@ -454,3 +454,63 @@ def test_strongest_team_role_mix_can_select_four_specialist_bowlers_and_max_thre
     assert team["role_counts"]["BOWL"] >= 4
     assert team["role_counts"]["AR"] <= 3
     assert sum(team["role_counts"].values()) == 11
+
+
+def test_pre_generation_diagnostic_flags_batting_friendly_bowling_gap_and_explains_near_misses():
+    from app.optimizer import build_team_diagnostic
+
+    players = []
+    roles = ["WK", "BAT", "BAT", "BAT", "AR", "AR", "AR",
+             "BOWL", "BOWL", "BOWL", "BOWL", "BOWL"]
+    for index, role in enumerate(roles):
+        players.append({
+            "player_id": f"diag-{index}", "player_name": f"Player {index}",
+            "team": "A" if index % 2 else "B", "role": role,
+            "status": "confirmed", "credits": 8.0,
+            "expected_points": None, "floor_points": None, "ceiling_points": None,
+            "ai11_role_score": 80 - index, "ai11_recent_form_score": 75 - index,
+            "ai11_batting_score": 78 if role in {"BAT", "WK", "AR"} else None,
+            "ai11_bowling_score": 82 if role in {"BOWL", "AR"} else None,
+            "batting_position": index + 1 if role in {"BAT", "WK"} else None,
+            "expected_overs": 4 if role == "BOWL" else 2 if role == "AR" else None,
+            "selection_pct": 50,
+        })
+    chosen = players[:10] + [players[7]]
+    team = {
+        "players": chosen, "captain_id": "diag-0", "vice_captain_id": "diag-1",
+    }
+    diagnostic = build_team_diagnostic(
+        players, team, "strongest", "batting_friendly",
+        match_format="T20",
+    )
+    assert diagnostic["allrounder_check"]["overloaded"] is True
+    assert diagnostic["bowling_opportunity"]["underrepresented"] is True
+    assert any("Batting-friendly" in item for item in diagnostic["warnings"])
+    assert diagnostic["selected_players"]
+    assert diagnostic["high_potential_rejections"]
+    assert diagnostic["captaincy_check"]["is_provisional_index"] is True
+
+
+def test_pre_generation_diagnostic_does_not_label_provisional_captain_index_as_points():
+    from app.optimizer import build_team_diagnostic
+
+    captain = {
+        "player_id": "c", "player_name": "Captain", "team": "A", "role": "AR",
+        "status": "confirmed", "expected_points": None, "floor_points": None,
+        "ceiling_points": None, "ai11_role_score": 85, "ai11_recent_form_score": 80,
+        "ai11_two_skill_profile": True, "ai11_batting_score": 82,
+        "ai11_bowling_score": 80,
+    }
+    vice = {
+        "player_id": "v", "player_name": "Vice", "team": "B", "role": "BOWL",
+        "status": "confirmed", "expected_points": None, "floor_points": None,
+        "ceiling_points": None, "ai11_role_score": 75, "ai11_recent_form_score": 78,
+        "expected_overs": 4,
+    }
+    diagnostic = build_team_diagnostic(
+        [captain, vice],
+        {"players": [captain, vice], "captain_id": "c", "vice_captain_id": "v"},
+        "strongest", "batting_friendly",
+    )
+    assert diagnostic["captaincy_check"]["is_provisional_index"] is True
+    assert "not fantasy points" in diagnostic["interpretation"]
