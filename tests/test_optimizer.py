@@ -301,3 +301,67 @@ def test_ai11_series_form_can_outweigh_raw_selection_popularity():
     strong_signal = _player_signal(strong, "balanced", "neutral", provisional=True)
     weak_signal = _player_signal(weak, "balanced", "neutral", provisional=True)
     assert strong_signal > weak_signal
+
+
+def test_strongest_strategy_prefers_ai11_performance_over_popularity():
+    from app.optimizer import _player_signal
+
+    base = {
+        "team": "A", "role": "BAT", "status": "confirmed",
+        "expected_points": None, "floor_points": None, "ceiling_points": None,
+        "ai11_profile_factor": 1.0,
+    }
+    high_performance_low_selection = {
+        **base, "player_id": "form-first", "selection_pct": 12.0,
+        "ai11_role_score": 91.0, "ai11_recent_form_score": 88.0,
+        "ai11_batting_score": 90.0, "captain_pct": 0.2, "vice_captain_pct": 0.1,
+    }
+    popular_low_performance = {
+        **base, "player_id": "popular", "selection_pct": 97.0,
+        "ai11_role_score": 38.0, "ai11_recent_form_score": 34.0,
+        "ai11_batting_score": 36.0, "captain_pct": 42.0, "vice_captain_pct": 31.0,
+    }
+    strongest_star = _player_signal(
+        high_performance_low_selection, "strongest", "neutral",
+        match_format="T20", provisional=True,
+    )
+    strongest_popular = _player_signal(
+        popular_low_performance, "strongest", "neutral",
+        match_format="T20", provisional=True,
+    )
+    assert strongest_star > strongest_popular
+
+
+def test_strongest_strategy_falls_back_safely_when_ai11_profile_missing():
+    from app.optimizer import _player_signal
+
+    player = {
+        "player_id": "unknown-profile", "team": "A", "role": "BOWL",
+        "status": "unknown", "selection_pct": 20.0,
+        "expected_points": None, "floor_points": None, "ceiling_points": None,
+    }
+    score = _player_signal(player, "strongest", "neutral", provisional=True)
+    assert score > 0
+    assert score < 100
+
+
+def test_strongest_strategy_can_build_a_complete_legal_lineup():
+    players = sample_players()
+    for index, player in enumerate(players):
+        player["expected_points"] = None
+        player["floor_points"] = None
+        player["ceiling_points"] = None
+        player["ai11_profile_factor"] = 1.0
+        player["ai11_role_score"] = 88.0 - index * 1.5
+        player["ai11_recent_form_score"] = 90.0 - index * 1.2
+        player["selection_pct"] = 15.0 if index < 11 else 95.0
+        player["captain_pct"] = 2.0
+        player["vice_captain_pct"] = 1.0
+    team = build_teams(
+        players, "strongest", TeamRules(), count_teams=1,
+        mode="provisional", match_format="T20",
+    )[0]
+    assert len(team["players"]) == 11
+    assert team["points_available"] is False
+    assert team["projected_points"] is None
+    assert team["captain_id"] != team["vice_captain_id"]
