@@ -764,6 +764,30 @@ function renderAI11Analysis(data){
   if(!value)return;
   const note=document.createElement('div');note.className='notice';note.textContent=label+': '+value;body.append(note);
  });
+ const matchPerformance=data.match_performance||{};
+ if(matchPerformance.completed){
+  const review=document.createElement('div');review.className='notice';review.style.marginTop='12px';
+  const title=document.createElement('strong');title.textContent='Completed match performance — retrospective learning data only';
+  const note=document.createElement('div');note.className='helper';note.textContent='Actual source PTS from this completed fixture. These scores are stored for future-match form and are excluded from predictions for this same match.';
+  review.append(title,note);
+  if(matchPerformance.available&&(matchPerformance.players||[]).length){
+   const table=document.createElement('div');table.className='result-list';table.style.marginTop='8px';
+   matchPerformance.players.slice(0,10).forEach(p=>{
+    const row=document.createElement('div');row.className='result-player';
+    const name=document.createElement('b');name.textContent=p.player_name||'Player';
+    const team=document.createElement('span');team.className='role';team.textContent=(p.team||'')+' • '+(p.role||'');
+    const pts=document.createElement('strong');pts.textContent=Number(p.actual_match_points||0).toFixed(1)+' PTS';
+    const details=document.createElement('span');details.className='helper';
+    details.textContent='Bat '+(p.batting_points??'—')+' • Bowl '+(p.bowling_points??'—')+' • Field '+(p.fielding_points??'—');
+    const info=document.createElement('div');info.append(name,team,details);row.append(info,pts);table.append(row);
+   });
+   review.append(table);
+  }else{
+   const noRows=document.createElement('div');noRows.className='helper';noRows.textContent='The source marks this match completed, but no numeric Match Performance PTS rows were available to import.';
+   review.append(noRows);
+  }
+  body.append(review);
+ }
  const rec=data.recommendations||{};
  const grid=document.createElement('div');grid.style.display='grid';grid.style.gridTemplateColumns='repeat(auto-fit,minmax(220px,1fr))';grid.style.gap='10px';grid.style.marginTop='12px';
  const sections=[
