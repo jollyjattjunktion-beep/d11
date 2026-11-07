@@ -125,8 +125,8 @@ def parse_analysis(html: str):
     heading_text = heading.get_text(" ", strip=True) if heading else page_title
     text = soup.get_text(" ", strip=True)
     fmt = "TEST" if re.search(r"\btest\b", page_title + " " + heading_text, re.I) else "T20" if re.search(r"\bT20\b", page_title + " " + heading_text, re.I) else "ODI"
+
     venue = None
-    # Prefer the explicit Pitch Report heading; broad Stadium regexes can capture article-card text.
     for node in soup.find_all(["h1", "h2", "h3", "h4", "strong"]):
         heading_value = node.get_text(" ", strip=True)
         venue_match = re.search(r"Pitch Report\s*:\s*(.+)$", heading_value, re.I)
@@ -134,87 +134,148 @@ def parse_analysis(html: str):
             venue = re.sub(r"\s+", " ", venue_match.group(1)).strip(" -,:")
             break
     if not venue:
-        venue_match = re.search(r"Pitch Report\s*:\s*([A-Z][A-Za-z .'-]+? Stadium)", text, re.I)
+        venue_match = re.search(r"Pitch Report\s*:\s*([A-Z][A-Za-z .'-]+? (?:Stadium|Oval|Ground))", text, re.I)
         if venue_match:
             venue = venue_match.group(1).strip()
+
     teams = []
     for node in soup.select("img[alt]"):
         alt = node.get("alt", "").strip()
         if alt and alt.lower() not in {"image", "logo"} and alt not in teams:
             teams.append(alt)
     if len(teams) < 2:
-        m = re.search(r"([A-Za-z ]+)\s+vs\s+([A-Za-z ]+)", page_title, re.I)
+        m = re.search(r"([A-Za-z ]+)\s+vs\s+([A-Za-z ]+)", heading_text, re.I)
         if m:
             teams = [m.group(1).strip(), m.group(2).strip()]
     team_a, team_b = (teams[0], teams[1]) if len(teams) >= 2 else ("TEAM_A", "TEAM_B")
+
     match_name = re.sub(r"\s*\|\s*AI11.*$", "", page_title, flags=re.I).strip()
     match_name = re.sub(r"\s*[:–-]\s*(?:Fantasy Preview|Pitch Report|Player Stats).*$", "", match_name, flags=re.I).strip()
     match_name = re.sub(r"\s+", " ", match_name).strip(" -,:")
     if not match_name or match_name.lower() == "ai11 match":
         match_name = heading_text
     if team_a not in match_name or team_b not in match_name:
-        fixture_round = re.search(r"\b(\d+(?:st|nd|rd|th)\s+ODI|\d+(?:st|nd|rd|th)\s+T20I|Test)\b", page_title + " " + heading_text, re.I)
+        fixture_round = re.search(r"\b(\d+(?:st|nd|rd|th)\s+(?:ODI|T20I|Match)|Test)\b", page_title + " " + heading_text, re.I)
         if fixture_round:
             match_name = f"{team_a} vs {team_b}, {fixture_round.group(1)}"
     match_id = _player_id(match_name) or "ai11-match"
-    players = []
-    profiles = []
 
-    # AI11 currently renders a two-row grouped table header. Find the actual
-    # column-heading row rather than assuming the first <tr> is the header.
+    players, profiles = [], []
+    def header_index(headers, label, occurrence=0):
+        found = [i for i, value in enumerate(headers) if re.sub(r"[^a-z0-9%+#/]", "", value.casefold()) == label]
+        return found[occurrence] if len(found) > occurrence else None
+
+    # AI11's detailed player table has flat column labels after a grouped
+    # Batting / Bowling / Series Performance / Lineup Selection header.
+    # Keep duplicate Avg/SR/Inn labels in their displayed order.
     for table in soup.find_all("table"):
         rows = table.find_all("tr")
-        header_index = None
-        headers = []
+        header_row_index, headers = None, []
         for index, row in enumerate(rows):
             candidate = [c.get_text(" ", strip=True).lower() for c in row.find_all(["th", "td"])]
-            if any(x in {"name", "player"} for x in candidate) and any("s%" in x for x in candidate):
-                header_index, headers = index, candidate
+            normalized = [re.sub(r"[^a-z0-9%+#/]", "", x.casefold()) for x in candidate]
+            if "name" in normalized and "s%" in normalized and any(x in {"bat", "bowl", "inn"} for x in normalized):
+                header_row_index, headers = index, normalized
                 break
-        if header_index is None:
+        if header_row_index is None:
             continue
-        name_idx = next((i for i, x in enumerate(headers) if x in {"name", "player"}), None)
-        team_idx = next((i for i, x in enumerate(headers) if x in {"t", "team"}), None)
-        role_idx = next((i for i, x in enumerate(headers) if x in {"r", "role"}), None)
-        status_idx = next((i for i, x in enumerate(headers) if x in {"s", "status", "lineup"}), None)
-        selection_idx = next((i for i, x in enumerate(headers) if "s%" in x), None)
-        captain_idx = next((i for i, x in enumerate(headers) if x == "c"), None)
-        vice_idx = next((i for i, x in enumerate(headers) if x == "vc"), None)
-        if name_idx is None or role_idx is None:
+
+        idx = lambda label, occurrence=0: header_index(headers, label, occurrence)
+        name_i, team_i, role_i = idx("name"), idx("t"), idx("r")
+        status_i, selection_i, captain_i, vice_i = idx("s"), idx("s%"), idx("c"), idx("vc")
+        if name_i is None or role_i is None:
             continue
-        for row in rows[header_index + 1:]:
+
+        column_map = {
+            "career_matches": idx("m#"),
+            "batting_hand": idx("bat"),
+            "batting_innings": idx("inn", 0),
+            "not_outs": idx("no"),
+            "runs": idx("runs"),
+            "highest_score": idx("hs"),
+            "batting_average": idx("avg", 0),
+            "batting_strike_rate": idx("sr", 0),
+            "fifties_plus": idx("50+"),
+            "fours_sixes": idx("4/6"),
+            "bowling_type": idx("bowl"),
+            "bowling_innings": idx("inn", 1),
+            "wickets": idx("wk", 0),
+            "overs": idx("ov"),
+            "bowling_average": idx("avg", 1),
+            "economy": idx("eco"),
+            "bowling_strike_rate": idx("sr", 1),
+            "four_wicket_hauls": idx("4w"),
+            "best_bowling": idx("best"),
+            "catches_stumpings": idx("c/st"),
+            "series_matches": idx("m"),
+            "series_average_points": idx("a.pt"),
+            "series_points": idx("pts"),
+            "series_runs": idx("run"),
+            "series_wickets": idx("wk", 1),
+            "series_dt": idx("dt"),
+            "ai11_projected_points": idx("p"),
+        }
+
+        for row in rows[header_row_index + 1:]:
             cells = [c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])]
-            if len(cells) <= max(name_idx, role_idx):
+            if len(cells) <= max(name_i, role_i):
                 continue
-            name = cells[name_idx].strip()
-            role = _role(cells[role_idx] if role_idx < len(cells) else "")
+            name = cells[name_i].strip()
+            role = _role(cells[role_i] if role_i < len(cells) else "")
             if not name or name.lower() in {"name", "player"} or not role:
                 continue
-            team = cells[team_idx].strip() if team_idx is not None and team_idx < len(cells) and cells[team_idx].strip() else "UNKNOWN"
-            selection = _number(cells[selection_idx]) if selection_idx is not None and selection_idx < len(cells) else None
-            captain_pct = _number(cells[captain_idx]) if captain_idx is not None and captain_idx < len(cells) else None
-            vice_pct = _number(cells[vice_idx]) if vice_idx is not None and vice_idx < len(cells) else None
-            lineup = cells[status_idx].strip().lower() if status_idx is not None and status_idx < len(cells) else ""
+            team = cells[team_i].strip() if team_i is not None and team_i < len(cells) and cells[team_i].strip() else "UNKNOWN"
+            selection = _number(cells[selection_i]) if selection_i is not None and selection_i < len(cells) else None
+            captain_pct = _number(cells[captain_i]) if captain_i is not None and captain_i < len(cells) else None
+            vice_pct = _number(cells[vice_i]) if vice_i is not None and vice_i < len(cells) else None
+            lineup = cells[status_i].strip().lower() if status_i is not None and status_i < len(cells) else ""
             status = "confirmed" if "✓" in lineup or "confirmed" in lineup else "unknown"
             pid = _player_id(name)
             if any(p["id"] == pid for p in players):
                 continue
+
+            metrics = {}
+            for key, column in column_map.items():
+                if column is None or column >= len(cells):
+                    continue
+                raw = cells[column].strip()
+                if key in {"batting_hand", "bowling_type", "best_bowling", "catches_stumpings", "fours_sixes"}:
+                    if raw and raw not in {"-", "—"}:
+                        metrics[key] = raw
+                else:
+                    number = _number(raw)
+                    if number is not None:
+                        metrics[key] = number
             players.append({"id": pid, "name": name, "team": team, "role": role,
                             "credits": None, "selection_pct": selection, "status": status,
                             "source": "AI11"})
-            profiles.append({"player_id": pid, "player_name": name, "team": team, "role": role,
-                "format": fmt, "ai11_captain_pct": captain_pct, "ai11_vice_captain_pct": vice_pct,
-                "ai11_selection_pct": selection, "ai11_row": cells, "source": "AI11"})
+            profiles.append({
+                "player_id": pid, "player_name": name, "team": team, "role": role,
+                "format": fmt, "ai11_captain_pct": captain_pct,
+                "ai11_vice_captain_pct": vice_pct, "ai11_selection_pct": selection,
+                "ai11_metrics": metrics,
+                "ai11_projected_points": metrics.get("ai11_projected_points"),
+                "ai11_data_type": "AI11 source-reported player metrics and projection; not verified Dream11 fantasy points",
+                "ai11_row": cells, "source": "AI11"
+            })
         if players:
             break
 
-    intelligence = {}
+    intelligence = {
+        "ai11_analysis_url_type": "match_analysis_with_player_statistics",
+        "ai11_data_provenance": "AI11 source page; aggregate player statistics and source projections are not match-by-match Dream11 fantasy points",
+    }
 
     def find_num(pattern):
         match = re.search(pattern, text, re.I)
         return _number(match.group(1)) if match else None
 
-    intelligence["average_first_innings"] = find_num(r"average first[- ]innings score[^0-9]{0,50}(\d{2,3})")
+    intelligence["average_first_innings"] = find_num(
+        r"average first[- ]innings score[^0-9]{0,80}(\d{2,3})"
+    )
+    intelligence["average_second_innings"] = find_num(
+        r"average second[- ]innings score[^0-9]{0,80}(\d{2,3})"
+    )
     intelligence["rain_probability"] = find_num(r"Chance of rain\s*(\d+(?:\.\d+)?)\s*%?")
     intelligence["humidity"] = find_num(r"Humidity\s*(\d+(?:\.\d+)?)\s*%?")
     intelligence["wind_kmh"] = find_num(r"Wind\s*(\d+(?:\.\d+)?)\s*km/h")
@@ -225,13 +286,13 @@ def parse_analysis(html: str):
         intelligence["pitch_notes"] = pitch_match.group(0).strip()
     form_match = re.search(r"Recent Form(.*?)(?:Head to Head|Pitch Report)", text, re.I)
     if form_match:
-        intelligence["recent_form_source_text"] = form_match.group(1).strip()[:500]
+        intelligence["recent_form_source_text"] = form_match.group(1).strip()[:1200]
     h2h_match = re.search(r"Head to Head \(last 5\)(.*?)(?:Pitch Report|Weather)", text, re.I)
     if h2h_match:
-        intelligence["h2h_source_text"] = h2h_match.group(1).strip()[:500]
-    weather_match = re.search(r"Weather:.*?(?:Dew is likely[^.]*\.)?", text, re.I)
+        intelligence["h2h_source_text"] = h2h_match.group(1).strip()[:1200]
+    weather_match = re.search(r"Weather:.*?(?:Dew is likely[^.]*\.|Dew is unlikely[^.]*)?", text, re.I)
     if weather_match:
-        intelligence["weather_summary"] = weather_match.group(0)[:500]
+        intelligence["weather_summary"] = weather_match.group(0)[:800]
     return {"match_id": match_id, "title": match_name, "format": fmt, "team_a": team_a, "team_b": team_b,
             "venue": venue, "players": players, "profiles": profiles,
             "intelligence": intelligence, "player_count": len(players)}
