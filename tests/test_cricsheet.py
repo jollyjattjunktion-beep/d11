@@ -72,6 +72,7 @@ def test_parser_calculates_compact_t20_aggregates_and_phase_stats():
     assert batter["balls_faced"] == 1  # wides do not count as balls faced
     assert batter["fours"] == 1
     assert batter["batting_innings"] == 1
+    assert batter["batting_position"] == 1
     assert bowler["wickets"] == 1
     assert bowler["bowling_legal_balls"] == 2
     assert keeper["catches"] == 1
@@ -128,9 +129,11 @@ def test_cricsheet_import_is_idempotent_and_only_writes_aggregate_tables(monkeyp
         assert first["matches_insert"] == 1
         assert db.scalar(select(CricsheetMatch)) is not None
         assert len(db.scalars(select(CricsheetPlayerMatch)).all()) == 4
+        assert len(db.scalars(select(main.CricsheetMatchup)).all()) == 2
         second = main.import_cricsheet_t20(main.CricsheetImportRequest(dry_run=False), _admin=True, db=db)
         assert second["matches_unchanged"] == 1
         assert second["player_match_aggregates_unchanged"] == 4
+        assert second["matchup_aggregates_unchanged"] == 2
         assert len(db.scalars(select(CricsheetMatch)).all()) == 1
         assert db.get(Match, "live-2") is not None
     finally:
