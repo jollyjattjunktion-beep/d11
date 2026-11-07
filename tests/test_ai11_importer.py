@@ -21,7 +21,7 @@ def test_parse_ai11_player_table_maps_selection_and_role():
     assert data["format"] == "ODI"
     assert data["team_a"] == "New Zealand"
     assert data["players"][0]["role"] == "BAT"
-    assert data["players"][0]["status"] == "confirmed"
+    assert data["players"][0]["status"] == "unknown"  # AI11 table checkmark is not an official XI confirmation
     assert data["players"][0]["selection_pct"] == 44.5
     assert data["profiles"][0]["ai11_captain_pct"] == 5.2
 
@@ -165,7 +165,13 @@ def test_analysis_title_and_venue_are_cleaned_from_explicit_headings():
     assert metrics["wickets"] == 7
     assert metrics["economy"] == 6.04
     assert metrics["ai11_projected_points"] == 7
+    assert metrics["series_matches"] == 0
+    assert metrics["series_average_points"] == 0
+    assert metrics["series_points"] == 0
+    assert metrics["series_runs"] == 0
+    assert metrics["series_wickets"] == 0
     assert profile["ai11_selection_pct"] == 10.68
+    assert data["players"][0]["status"] == "unknown"  # Source checkmark is not official Playing XI
     assert profile["ai11_captain_pct"] == 0.04
     assert profile["ai11_vice_captain_pct"] == 0.17
     assert "fantasy_points" not in metrics
