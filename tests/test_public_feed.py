@@ -5,6 +5,8 @@ from app.public_feed import (
     normalize_fixture,
     normalize_match_format,
     parse_source_datetime,
+    manual_venue_is_locked,
+    should_update_venue_from_feed,
 )
 
 
@@ -72,3 +74,38 @@ def test_epoch_milliseconds_are_normalized_to_utc():
     parsed = parse_source_datetime(1794016800000)
     assert parsed is not None
     assert parsed.tzinfo == timezone.utc
+
+
+
+def test_manual_venue_override_survives_non_empty_provider_venue():
+    intelligence = {"manual_venue_override": True}
+    assert manual_venue_is_locked(intelligence, "My selected ground")
+    assert not should_update_venue_from_feed(
+        "My selected ground", "Different provider ground", intelligence
+    )
+
+
+def test_legacy_admin_saved_venue_is_protected_after_upgrade():
+    # Older releases did not write manual_venue_override, but they did record
+    # admin_match_updated_at whenever an administrator saved a match.
+    intelligence = {"admin_match_updated_at": "2026-11-07T10:00:00+00:00"}
+    assert manual_venue_is_locked(intelligence, "Admin-selected stadium")
+    assert not should_update_venue_from_feed(
+        "Admin-selected stadium", "Provider stadium", intelligence
+    )
+
+
+def test_unlocked_venue_follows_provider_feed():
+    assert not manual_venue_is_locked({"public_feed": {}}, None)
+    assert should_update_venue_from_feed(None, "Provider stadium", {"public_feed": {}})
+
+
+def test_missing_provider_venue_does_not_erase_existing_venue():
+    assert not should_update_venue_from_feed("Known ground", None, {})
+    assert not should_update_venue_from_feed("Known ground", "", {})
+
+
+def test_manually_cleared_venue_stays_locked_until_explicit_feed_reset():
+    intelligence = {"manual_venue_override": True}
+    assert manual_venue_is_locked(intelligence, None)
+    assert not should_update_venue_from_feed(None, "Provider ground", intelligence)
