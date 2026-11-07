@@ -381,7 +381,7 @@ def parse_analysis(html: str):
                     series_aliases = {
                         "m": "series_matches", "apt": "series_average_points",
                         "pts": "ai11_series_points_reported", "run": "series_runs",
-                        "wk": "series_wickets", "dt": "series_dt_metric", "p": "series_p_metric",
+                        "wk": "series_wickets", "dt": "series_dt_metric", "p": "ai11_projected_points",
                     }
                     compact_header = re.sub(r"[^a-z0-9]+", "", header.casefold())
                     key = series_aliases.get(compact_header, key)
@@ -403,13 +403,16 @@ def parse_analysis(html: str):
                 stat_values["selection_pct"] = selection
             series_keys = {
                 "series_matches", "series_average_points", "ai11_series_points_reported",
-                "series_runs", "series_wickets", "series_dt_metric", "series_p_metric"
+                "series_runs", "series_wickets", "series_dt_metric"
             }
             series_summary = {key: stat_values.pop(key) for key in list(stat_values) if key in series_keys}
+            ai11_projected_points = stat_values.pop("ai11_projected_points", None)
             profiles.append({"player_id": pid, "player_name": name, "team": team, "role": role,
                 "format": fmt, "ai11_captain_pct": captain_pct, "ai11_vice_captain_pct": vice_pct,
                 "ai11_selection_pct": selection, "ai11_statistics": stat_values,
                 "ai11_series_summary": series_summary,
+                "ai11_projected_points": ai11_projected_points,
+                "ai11_projection_data_type": "AI11 source projection; not verified Dream11 fantasy points",
                 "ai11_row": cells, "source": "AI11",
                 "data_type": "career_or_series_aggregate_not_match_level"})
         if players:
