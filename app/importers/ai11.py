@@ -325,7 +325,8 @@ def parse_analysis(html: str):
             captain_pct = _number(cells[captain_idx]) if captain_idx is not None and captain_idx < len(cells) else None
             vice_pct = _number(cells[vice_idx]) if vice_idx is not None and vice_idx < len(cells) else None
             lineup = cells[status_idx].strip().lower() if status_idx is not None and status_idx < len(cells) else ""
-            status = "confirmed" if "✓" in lineup or "confirmed" in lineup else "unknown"
+            # AI11's checkmark is a source-table selection marker, not proof of an official XI.
+            status = "confirmed" if re.search(r"\\b(?:confirmed|playing\\s*xi|in\\s*playing\\s*xi)\\b", lineup) else "unknown"
             pid = _player_id(name)
             if any(p["id"] == pid for p in players):
                 continue
@@ -431,7 +432,7 @@ def parse_analysis(html: str):
         intelligence["venue_name"] = venue
 
     pitch_match = re.search(
-        r"(?:the )?pitch (?:favou?rs?|is|looks) ([^.]+)", text, re.I
+        r"pitch (?:favou?rs?|is|looks) ([^.]+)", text, re.I
     )
     if pitch_match:
         pitch_notes = pitch_match.group(0).strip()
