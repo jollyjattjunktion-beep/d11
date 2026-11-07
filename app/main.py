@@ -1109,6 +1109,44 @@ def model_status(db: Session = Depends(get_db)):
 
 
 
+def _save_ai11_match_performance(db: Session, match_id: str, player_id: str,
+                                  match_format: str, performance: dict,
+                                  match_date: str | None = None) -> str:
+    """Import source-reported completed-match PTS as history, never for that same match."""
+    if not isinstance(performance, dict):
+        return "not_available"
+    points = performance.get("fantasy_points")
+    try:
+        points = float(points) if points is not None else None
+    except (TypeError, ValueError):
+        points = None
+    if points is None:
+        return "not_available"
+    existing = db.scalars(
+        select(PlayerMatchStats).where(
+            PlayerMatchStats.match_id == match_id,
+            PlayerMatchStats.player_id == player_id,
+        )
+    ).first()
+    if existing is not None:
+        if (existing.source or "").upper() == "AI11_MATCH_PERFORMANCE":
+            existing.fantasy_points = points
+            existing.match_date = match_date or existing.match_date
+            existing.format = match_format or existing.format
+            return "updated"
+        # A verified/manual scorecard always takes precedence over a provider copy.
+        return "preserved"
+    db.add(PlayerMatchStats(
+        match_id=match_id,
+        player_id=player_id,
+        format=match_format or "T20",
+        fantasy_points=points,
+        match_date=match_date,
+        source="AI11_MATCH_PERFORMANCE",
+    ))
+    return "inserted"
+
+
 @app.post("/api/v1/admin/import/ai11")
 def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin),
                 db: Session = Depends(get_db)):
@@ -1275,7 +1313,10 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
             if profile.get("player_id")
         }
         matched_count = 0
-        unmatched = []
+        match_points_imported = 0
+        match_points_updated = 0
+        match_points_preserved = 0
+        source_intelligence = dict(parsed.get("intelligence") or {})
         for item in parsed["players"]:
             matched = match_squad_player(item.get("name"))
             if not matched:
@@ -1305,9 +1346,20 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
                 ))
             else:
                 profile.data = {**(profile.data or {}), **profile_data}
+            if source_intelligence.get("match_completed"):
+                result = _save_ai11_match_performance(
+                    db,
+                    payload.target_match_id,
+                    squad.player_id,
+                    target_match.format or parsed["format"],
+                    profile_data.get("ai11_match_performance") or {},
+                    source_intelligence.get("match_date") or target_match.start_time,
+                )
+                match_points_imported += int(result == "inserted")
+                match_points_updated += int(result == "updated")
+                match_points_preserved += int(result == "preserved")
             matched_count += 1
 
-        source_intelligence = dict(parsed.get("intelligence") or {})
         for key in ("toss_winner", "batting_first_team", "chasing_team"):
             source_team = source_intelligence.get(key)
             if source_team:
@@ -1339,6 +1391,8 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
         existing_intelligence["ai11_source_urls"] = [analysis_url] + ([fantasy_url] if fantasy_url else [])
         existing_intelligence["ai11_profiles_linked"] = matched_count
         existing_intelligence["ai11_profiles_unmatched"] = unmatched
+        existing_intelligence["ai11_match_completed"] = bool(source_intelligence.get("match_completed"))
+        existing_intelligence["ai11_match_points_imported"] = match_points_imported
         existing_intelligence["ai11_imported_at"] = datetime.now(timezone.utc).isoformat()
         if intelligence_row is None:
             db.add(MatchIntelligence(match_id=payload.target_match_id, data=existing_intelligence))
@@ -1373,6 +1427,10 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
             "players_matched": matched_count,
             "players_unmatched": unmatched,
             "profiles_saved": matched_count,
+            "match_performance_records_imported": match_points_imported,
+            "match_performance_records_updated": match_points_updated,
+            "existing_verified_match_records_preserved": match_points_preserved,
+            "match_completed": bool(source_intelligence.get("match_completed")),
             "match_context_fields_saved": sorted(source_intelligence.keys()),
             "credits_verified_count": sum(1 for squad in target_squads if squad.credits is not None),
             "credits_missing_count": len(missing_credits),
@@ -1380,7 +1438,7 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
             "credits_ready_for_team_builder": bool(target_squads) and not missing_credits,
             "fantasy_fetch_status": fantasy_data.get("fantasy_fetch_status", "not_requested"),
             "note": "AI11 profiles and match context are attached to the selected D11 match. Team Generation credits and official lineup status are preserved.",
-            "warning": "AI11 career/current-series aggregates and source selection trends are ranking signals, not verified match-by-match fantasy points.",
+            "warning": "AI11 career/current-series aggregates and source selection trends are profile signals. Completed-match PTS rows are imported separately as match-level historical records; the predictor excludes the current match ID to prevent result leakage.",
         }
 
     # Standalone AI11 imports remain supported when no target match is supplied.
@@ -1403,6 +1461,10 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
             setattr(match, key, value)
 
     saved, credits_saved = 0, 0
+    match_points_imported = 0
+    match_points_updated = 0
+    match_points_preserved = 0
+    standalone_intelligence = dict(parsed.get("intelligence") or {})
     for item in parsed["players"]:
         pid = item["id"]
         player = db.get(Player, pid)
@@ -1436,6 +1498,18 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
             db.add(PlayerSourceProfile(match_id=match_id, player_id=pid, source="AI11", data=profile_data))
         else:
             profile.data = profile_data
+        if standalone_intelligence.get("match_completed"):
+            result = _save_ai11_match_performance(
+                db,
+                match_id,
+                pid,
+                parsed["format"],
+                profile_data.get("ai11_match_performance") or {},
+                standalone_intelligence.get("match_date") or match.start_time,
+            )
+            match_points_imported += int(result == "inserted")
+            match_points_updated += int(result == "updated")
+            match_points_preserved += int(result == "preserved")
         saved += 1
 
     intel = db.get(MatchIntelligence, match_id)
@@ -1468,6 +1542,10 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
         "credits_ready_for_team_builder": bool(squad_rows) and len(missing) == 0,
         "fantasy_page_requires_browser": fantasy_data["dynamic_content_may_require_browser"],
         "profiles_saved": saved,
+        "match_performance_records_imported": match_points_imported,
+        "match_performance_records_updated": match_points_updated,
+        "existing_verified_match_records_preserved": match_points_preserved,
+        "match_completed": bool(standalone_intelligence.get("match_completed")),
         "statistics_profiles_saved": sum(1 for profile in parsed.get("profiles", []) if profile.get("ai11_statistics") or profile.get("ai11_series_summary")),
         "career_statistics_fields": sorted({key for profile in parsed.get("profiles", []) for key in (profile.get("ai11_statistics") or {}).keys()}),
         "series_statistics_fields": sorted({key for profile in parsed.get("profiles", []) for key in (profile.get("ai11_series_summary") or {}).keys()}),
