@@ -27,7 +27,8 @@ from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_se
     fetch_cricbuzz_series_index, parse_cricbuzz_venue, parse_cricbuzz_series_venues,
     parse_cricbuzz_series_index)
 from app.venue_analysis import analyse_venue, compare_squad_strength, analysis_context_fields
-from app.public_feed import normalize_fixture, sort_fixture_key, classify_fixture_status, parse_source_datetime
+from app.public_feed import (normalize_fixture, sort_fixture_key, classify_fixture_status,
+    parse_source_datetime, manual_venue_is_locked, should_update_venue_from_feed)
 from app.public_page import render_home, render_sitemap
 from app.match_page import render_match_detail
 
@@ -77,6 +78,8 @@ def _sync_public_match_feed(db: Session, force: bool = False) -> dict:
             match_id = record["id"]
             seen_ids.add(match_id)
             match = db.get(Match, match_id)
+            intel = db.get(MatchIntelligence, match_id)
+            intel_data = dict(intel.data or {}) if intel and isinstance(intel.data, dict) else {}
             values = {
                 "name": record["name"],
                 "format": record["format"],
@@ -93,14 +96,16 @@ def _sync_public_match_feed(db: Session, force: bool = False) -> dict:
                 created += 1
             else:
                 for key, value in values.items():
-                    if key == "venue" and value is None and match.venue:
+                    if key == "venue" and not should_update_venue_from_feed(
+                        match.venue, value, intel_data
+                    ):
                         continue
                     setattr(match, key, value)
                 updated += 1
 
             db.flush()
-            intel = db.get(MatchIntelligence, match_id)
-            intel_data = dict(intel.data or {}) if intel and isinstance(intel.data, dict) else {}
+            # Retain the most recent provider value separately. Admins can
+            # explicitly unlock a manual stadium and return to this feed value.
             intel_data["public_feed"] = {
                 "source": "Team Generation",
                 "series": record["series"],
@@ -110,6 +115,7 @@ def _sync_public_match_feed(db: Session, force: bool = False) -> dict:
                 "team_b_image": record["team_b_image"],
                 "source_status": record["source_status"],
                 "lineup_status": record["lineup_status"],
+                "feed_venue": record["venue"],
                 "public_listed": bool(record["visible"]),
                 "last_seen_at": synced_at,
                 "synced_at": synced_at,
@@ -575,7 +581,13 @@ def sitemap_xml(request: Request, db: Session = Depends(get_db)):
 
 @app.get("/health")
 def health():
-    return {"status":"ok","service":"preet-fantasy-api","model_version":MODEL_VERSION}
+    return {
+        "status": "ok",
+        "service": "preet-fantasy-api",
+        "model_version": MODEL_VERSION,
+        "database_backend": engine.dialect.name,
+        "durable_sql_storage": engine.dialect.name == "postgresql",
+    }
 
 @app.post("/api/v1/matches")
 def upsert_match(payload: MatchIn, db: Session = Depends(get_db)):
@@ -707,6 +719,7 @@ def admin_list_matches(q: str | None = None, status: str | None = None,
             "venue_data_available": bool(analysis and analysis.get("available")),
             "venue_pitch_recommendation": analysis.get("pitch_recommendation") if analysis else None,
             "venue_innings_recommendation": analysis.get("recommended_innings_label") if analysis else None,
+            "venue_manual_override": manual_venue_is_locked(intel, match.venue),
         })
     return {"count": len(results), "total_matches": len(rows), "matches": results, "fixture_sync": fixture_sync}
 
@@ -719,6 +732,12 @@ def admin_update_match(match_id: str, payload: AdminMatchUpdate,
     if match is None:
         raise HTTPException(404, "Match not found")
     changes = payload.model_dump(exclude_unset=True)
+    use_feed_venue = bool(changes.pop("use_feed_venue", False))
+    if use_feed_venue:
+        # The reset is explicit: ignore the editor's current text field and
+        # any catalogue selection, then release the manual venue lock.
+        changes.pop("venue", None)
+        changes.pop("venue_id", None)
     venue_id_supplied = "venue_id" in changes
     venue_id = changes.pop("venue_id", None)
     venue_changed = "venue" in changes
@@ -730,7 +749,19 @@ def admin_update_match(match_id: str, payload: AdminMatchUpdate,
     venue_row = None
     report = None
 
-    if venue_id_supplied:
+    if use_feed_venue:
+        public_feed = dict(data.get("public_feed") or {})
+        match.venue = public_feed.get("feed_venue")
+        data.pop("manual_venue_override", None)
+        data.pop("venue_id", None)
+        data.pop("venue_provider", None)
+        data.pop("venue_report_source_url", None)
+        data.pop("cricbuzz_venue_report", None)
+        data.pop("auto_venue_analysis", None)
+        data.pop("pitch_type", None)
+        data.pop("batting_friendly", None)
+        data.pop("venue_matches", None)
+    elif venue_id_supplied:
         if venue_id:
             venue_row = db.get(Venue, venue_id)
             if venue_row is None:
@@ -782,6 +813,11 @@ def admin_update_match(match_id: str, payload: AdminMatchUpdate,
                 data["venue_report_source_url"] = (venue_row.source_urls or [None])[0]
                 data["cricbuzz_venue_report"] = report
 
+    if venue_changed or venue_id_supplied:
+        data["manual_venue_override"] = True
+    elif use_feed_venue:
+        data.pop("manual_venue_override", None)
+
     if report:
         venue_analysis = analyse_venue(report, match.format)
         data["auto_venue_analysis"] = venue_analysis
@@ -804,6 +840,7 @@ def admin_update_match(match_id: str, payload: AdminMatchUpdate,
             "status": match.status, "source": match.source,
         },
         "venue_id": data.get("venue_id"),
+        "venue_manual_override": manual_venue_is_locked(data, match.venue),
         "venue_analysis": data.get("auto_venue_analysis"),
         "note": "Match details saved. Venue recommendations are recalculated from the selected stadium's matching-format records."
     }
