@@ -28,6 +28,7 @@ from app.importers.crex import fetch_crex_page, parse_crex_venue_report
 from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_series_page,
     fetch_cricbuzz_series_index, parse_cricbuzz_venue, parse_cricbuzz_series_venues,
     parse_cricbuzz_series_index)
+from app.importers.cricsheet import parse_t20_json_bytes
 from app.venue_analysis import analyse_venue, compare_squad_strength, analysis_context_fields
 from app.public_feed import (normalize_fixture, sort_fixture_key, classify_fixture_status,
     parse_source_datetime, manual_venue_is_locked, should_update_venue_from_feed)
@@ -128,6 +129,10 @@ def _sync_public_match_feed(db: Session, force: bool = False) -> dict:
                 intel.data = intel_data
             if not record["visible"]:
                 hidden += 1
+
+        existing_rows = db.scalars(
+            select(Match).where(Match.source == "Team Generation")
+        ).all()
 
         # Hide provider-omitted fixtures from the public list but keep their
         # Match, squad, scorecards and player-history rows in SQL.
