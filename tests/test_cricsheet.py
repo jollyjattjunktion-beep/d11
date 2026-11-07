@@ -11,6 +11,7 @@ from app.database import Base
 from app import main
 from app.importers.cricsheet import parse_t20_match, parse_t20_json_bytes
 from app.models import CricsheetMatch, CricsheetPlayerMatch, Match, Player
+from app.predictor import _cricsheet_history_profile
 
 
 def sample_match():
@@ -157,6 +158,39 @@ def test_archive_validation_failure_does_not_write_any_rows(monkeypatch):
             main.import_cricsheet_t20(main.CricsheetImportRequest(dry_run=False), _admin=True, db=db)
         assert db.scalar(select(CricsheetMatch)) is None
         assert db.scalar(select(CricsheetPlayerMatch)) is None
+    finally:
+        db.close()
+        engine.dispose()
+
+
+
+def test_cricsheet_opportunity_profile_uses_only_prior_exact_identity_records():
+    engine, db = make_db()
+    try:
+        for index in range(1, 7):
+            match_id = f"cricsheet:history-{index}"
+            db.add(CricsheetMatch(
+                source_match_id=match_id, source_file=f"history-{index}.json",
+                source_sha256=str(index).zfill(64), match_date=f"2024-01-{index:02d}",
+                gender="male", venue="Example Ground", team_a="Alpha", team_b="Beta",
+                innings=[],
+            ))
+            db.add(CricsheetPlayerMatch(
+                source_match_id=match_id, player_key="cricsheet:player-1",
+                player_name="A Batter", team="Alpha", gender="male",
+                runs=30, balls_faced=24, dismissals=1, batting_innings=1,
+                batting_position=2,
+            ))
+        db.commit()
+        profile = _cricsheet_history_profile(db, "A Batter", "BAT", "2024-01-08")
+        assert profile["available"] is True
+        assert profile["matches_used"] == 6
+        assert profile["opportunity_score"] == 100.0
+        assert profile["fantasy_points_used"] is False
+
+        early = _cricsheet_history_profile(db, "A Batter", "BAT", "2024-01-04")
+        assert early["matches_used"] == 3
+        assert early["opportunity_score"] is None
     finally:
         db.close()
         engine.dispose()
