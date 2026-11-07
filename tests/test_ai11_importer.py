@@ -21,7 +21,7 @@ def test_parse_ai11_player_table_maps_selection_and_role():
     assert data["format"] == "ODI"
     assert data["team_a"] == "New Zealand"
     assert data["players"][0]["role"] == "BAT"
-    assert data["players"][0]["status"] == "confirmed"
+    assert data["players"][0]["status"] == "unknown"
     assert data["players"][0]["selection_pct"] == 44.5
     assert data["profiles"][0]["ai11_captain_pct"] == 5.2
 
@@ -224,3 +224,40 @@ def test_parse_ai11_current_t20_series_summary_and_grouped_batting_bowling_table
     assert profile["ai11_vice_captain_pct"] == 16.87
     assert "fantasy_points" not in stats
     assert "fantasy_points" not in series
+
+
+def test_ai11_parse_team_code_mapping_pitch_toss_and_both_innings_averages():
+    html = """
+    <html><head><title>NAM-W vs USA-W 3rd Match Fantasy AI Predictions | AI11</title></head>
+    <body>
+      <img alt="NAM Women"><img alt="USA Women">
+      <p>Women's Victoria T20 Series USA-W vs NAM-W players T20 past performance,
+      current series performance, projected points and selection percentage.</p>
+      <p>Jivana Aras USA-W ALL ✓ 11 34 77.27</p>
+      <table>
+        <tr><th>Name</th><th>T</th><th>R</th><th>S</th><th>M#</th><th>Bat</th><th>S%</th><th>C</th><th>VC</th></tr>
+        <tr><td>Jivana Aras</td><td>USA-W</td><td>ALL</td><td>✓</td><td>11</td><td>LHB</td><td>10.68</td><td>0.04</td><td>0.17</td></tr>
+        <tr><td>Wilka Mwatile</td><td>NAM-W</td><td>ALL</td><td>✓</td><td>110</td><td>RHB</td><td>94.15</td><td>34.18</td><td>16.87</td></tr>
+      </table>
+      <p>The Entebbe Cricket Oval pitch favours fast bowlers heavily.</p>
+      <p>Who won the toss in Namibia Women vs USA Women? USA-W elected to field first</p>
+      <p>The average first-innings score in T20 matches is 93 and the average second-innings score is 76, based on 5 matches.</p>
+      <p>Chance of rain 39% Humidity 72% Dew is unlikely</p>
+    </body></html>
+    """
+    data = ai11.parse_analysis(html)
+    assert data["team_a"] == "NAM Women"
+    assert data["team_b"] == "USA Women"
+    assert [p["team"] for p in data["players"]] == ["USA Women", "NAM Women"]
+    intel = data["intelligence"]
+    assert intel["average_first_innings"] == 93
+    assert intel["average_second_innings"] == 76
+    assert intel["venue_matches"] == 5
+    assert intel["pitch_type"] == "pace"
+    assert intel["toss_completed"] is True
+    assert intel["toss_winner"] == "USA Women"
+    assert intel["toss_decision"] == "bowl"
+    assert intel["batting_first_team"] == "NAM Women"
+    assert intel["chasing_team"] == "USA Women"
+    assert intel["dew_likely"] is False
+    assert data["players"][0]["status"] == "unknown"
