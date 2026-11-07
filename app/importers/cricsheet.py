@@ -52,7 +52,7 @@ def _empty_player(name: str, registry: dict[str, str], team: str) -> dict:
 
 
 def parse_t20_match(document: dict, source_file: str) -> dict:
-    """Validate and aggregate one Cricsheet JSON match; reject non-T20 inputs."""
+    """Validate and aggregate one Cricsheet T20 match; return None for other formats."""
     if not isinstance(document, dict) or not isinstance(document.get("info"), dict):
         raise ValueError("Match JSON must contain an info object.")
     info = document["info"]
@@ -84,8 +84,8 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
         innings_balls = 0
         batters_seen: set[str] = set()
         batting_order: list[str] = []
-        over_runs: dict[int, int] = defaultdict(int)
-        over_legal: dict[int, int] = defaultdict(int)
+        over_bowler_runs: dict[tuple[int, str], int] = defaultdict(int)
+        over_bowler_legal: dict[tuple[int, str], int] = defaultdict(int)
         for over in innings.get("overs") or []:
             over_number = _as_int(over.get("over")) + 1
             phase = _phase(over_number)
@@ -114,10 +114,8 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
                 penalty = _as_int(extras.get("penalty"))
                 legal = wides == 0 and no_balls == 0
                 innings_runs += total_runs
-                over_runs[over_number] += total_runs
                 if legal:
                     innings_balls += 1
-                    over_legal[over_number] += 1
 
                 for participant in (batter, non_striker):
                     if participant:
@@ -151,12 +149,15 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
                 matchup["sixes"] += int(batter_runs == 6)
 
                 bowl = players[bowler]
-                bowl["runs_conceded"] += total_runs - byes - legbyes - penalty
+                conceded = total_runs - byes - legbyes - penalty
+                bowl["runs_conceded"] += conceded
+                over_bowler_runs[(over_number, bowler)] += conceded
                 if legal:
                     bowl["bowling_legal_balls"] += 1
+                    over_bowler_legal[(over_number, bowler)] += 1
                 if phase in bowl["bowling_phases"]:
                     item = bowl["bowling_phases"][phase]
-                    item["runs_conceded"] += total_runs - byes - legbyes - penalty
+                    item["runs_conceded"] += conceded
                     if legal:
                         item["legal_balls"] += 1
 
@@ -181,13 +182,16 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
                                 players[fname]["run_outs"] += 1
                     for fielder in wicket.get("fielders") or []:
                         fname = fielder.get("name") if isinstance(fielder, dict) else fielder
-                        if fname not in players:
+                        if fname and fname not in players:
                             players[fname] = _empty_player(fname, registry, bowling_team)
-                        if kind == "caught":
+                        if fname and kind == "caught":
                             players[fname]["catches"] += 1
-                        elif kind == "stumped":
+                        elif fname and kind == "stumped":
                             players[fname]["stumpings"] += 1
 
+        for (over_number, bowler_name), legal_count in over_bowler_legal.items():
+            if legal_count == 6 and over_bowler_runs[(over_number, bowler_name)] == 0:
+                players[bowler_name]["maidens"] += 1
         # Count batting/bowling participation once per innings.
         for name in batters_seen:
             players[name]["batting_innings"] += 1
