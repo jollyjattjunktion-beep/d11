@@ -79,3 +79,30 @@ def test_ai11_analysis_keeps_innings_scenarios_conditional_when_toss_missing():
     assert analysis["innings"]["chasing_team"] is None
     assert analysis["recommendations"]["first_innings"]["suggestions"] == []
     assert analysis["recommendations"]["chasing"]["suggestions"] == []
+
+
+def test_ai11_current_series_runs_wickets_and_points_drive_role_score_over_popularity():
+    players = [
+        _player("in-form", "In Form Allrounder", "MR", "AR", {
+            "matches": 28, "batting_innings": 24, "batting_average": 35,
+            "batting_strike_rate": 132, "bowling_innings": 21, "wickets": 25,
+            "economy": 5.8, "bowling_type": "OB",
+        }, {"series_matches": 3, "series_average_points": 96,
+            "series_runs": 145, "series_wickets": 7}, selection=28),
+        _player("popular", "Popular Allrounder", "AS", "AR", {
+            "matches": 25, "batting_innings": 22, "batting_average": 21,
+            "batting_strike_rate": 92, "bowling_innings": 14, "wickets": 10,
+            "economy": 8.9, "bowling_type": "RM",
+        }, {"series_matches": 3, "series_average_points": 24,
+            "series_runs": 42, "series_wickets": 2}, selection=96),
+    ]
+    enriched, analysis = build_ai11_match_analysis(
+        players,
+        {"team_a": "MR", "team_b": "AS", "format": "T20"},
+        {"pitch_type": "spin", "pitch_recommendation": "Spin-friendly"},
+    )
+    ranked = {p["player_id"]: p for p in enriched}
+    assert ranked["in-form"]["ai11_recent_form_score"] > ranked["popular"]["ai11_recent_form_score"]
+    assert ranked["in-form"]["ai11_role_score"] > ranked["popular"]["ai11_role_score"]
+    assert ranked["in-form"]["ai11_two_skill_profile"] is True
+    assert analysis["recommendations"]["all_rounders"][0]["player_id"] == "in-form"
