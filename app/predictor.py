@@ -1,4 +1,5 @@
 from math import sqrt
+from datetime import datetime, timezone
 from statistics import mean
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
@@ -163,6 +164,7 @@ def _cricsheet_history_profile(db: Session, player_name: str, role: str,
                                before_date: str | None = None) -> dict:
     """Exact-name, unambiguous identity lookup using only prior Cricsheet T20 matches."""
     name = str(player_name or "").strip()
+    before_date = (before_date or datetime.now(timezone.utc).date().isoformat())[:10]
     if not name:
         return {"available": False, "reason": "player name missing"}
     identities = db.execute(
@@ -203,10 +205,16 @@ def _cricsheet_history_profile(db: Session, player_name: str, role: str,
         if bowl_workload is not None:
             components.append(min(100.0, bowl_workload / 24.0 * 100.0))
     weighted_position, weighted_runs = weighted([row.batting_position for row in rows]), weighted(runs_per_innings)
-    opportunity = round(sum(components) / len(components), 1) if components and len(rows) >= 5 else None
+    batting_sample = sum(1 for row in rows if row.batting_innings > 0)
+    bowling_sample = sum(1 for row in rows if row.bowling_innings > 0)
+    sample_ready = (batting_sample >= 5 if role in {"BAT", "WK"} else
+                    bowling_sample >= 5 if role == "BOWL" else
+                    batting_sample >= 3 and bowling_sample >= 3 if role == "AR" else False)
+    opportunity = round(sum(components) / len(components), 1) if components and sample_ready else None
     return {
         "available": True, "identity_key": key, "gender": next(iter(genders), "unknown"),
-        "matches_used": len(rows), "sample_window": "last 20 prior T20 matches",
+        "matches_used": len(rows), "batting_innings_sample": batting_sample, "bowling_innings_sample": bowling_sample,
+        "sample_window": "last 20 prior T20 matches",
         "weighted_balls_faced_per_batting_innings": round(bat_workload, 2) if bat_workload is not None else None,
         "weighted_bowling_balls_per_bowling_innings": round(bowl_workload, 2) if bowl_workload is not None else None,
         "weighted_runs_per_batting_innings": round(weighted_runs, 2) if weighted_runs is not None else None,
@@ -236,7 +244,9 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
     usage = _role_context(squad, context)
     cricsheet_history = _cricsheet_history_profile(db, player.name, squad.role, match.start_time if match else None)
     cricsheet_opportunity = cricsheet_history.get("opportunity_score")
-    involvement_score = usage.get("involvement_score") if usage.get("involvement_score") is not None else cricsheet_opportunity
+    involvement_score = (usage.get("involvement_score") if usage.get("involvement_score") is not None
+                         else tg_data.get("involvement_score") if tg_data.get("involvement_score") is not None
+                         else cricsheet_opportunity)
     ai11_factor, ai11_reasons = _ai11_profile_adjustment(squad.role, fmt, source_data)
     ai11_statistics = source_data.get("ai11_statistics") or {}
     ai11_series_summary = source_data.get("ai11_series_summary") or {}
@@ -278,7 +288,7 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
             )
         if cricsheet_history.get("available"):
             reasons.append("Cricsheet T20 workload profile uses " + str(cricsheet_history["matches_used"]) + " prior matches; it is not fantasy points")
-        if cricsheet_opportunity is not None and usage.get("involvement_score") is None:
+        if cricsheet_opportunity is not None and usage.get("involvement_score") is None and tg_data.get("involvement_score") is None:
             reasons.append("Cricsheet role workload contributes a bounded player-opportunity score")
         warnings = ["Expected/floor/ceiling points remain unavailable until at least three format-matched historical fantasy-point records are imported"]
         if not context:
