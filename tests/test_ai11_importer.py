@@ -163,3 +163,63 @@ def test_ai11_grouped_batting_bowling_stats_are_saved_as_aggregates_not_fantasy_
     assert stats["source_reported_points"] == 320
     assert "fantasy_points" not in stats
     assert profile["data_type"] == "career_or_series_aggregate_not_match_level"
+
+
+def test_parse_ai11_current_t20_series_summary_and_grouped_batting_bowling_table():
+    html = """
+    <html>
+      <head><title>NAM-W vs USA-W 3rd Match Fantasy AI Predictions | AI11</title></head>
+      <body>
+        <img alt="NAM Women"><img alt="USA Women">
+        <p>Women's Victoria T20 Series USA-W vs NAM-W players T20 past performance,
+        current series performance, projected points and selection percentage.</p>
+        <table>
+          <tr>
+            <th colspan="5">Player</th><th colspan="9">Batting</th>
+            <th colspan="10">Bowling</th><th colspan="7">Series Performance</th>
+            <th colspan="3">Lineup selection</th>
+          </tr>
+          <tr>
+            <th>Name</th><th>T</th><th>R</th><th>S</th><th>M#</th>
+            <th>Bat</th><th>Inn</th><th>NO</th><th>Runs</th><th>HS</th>
+            <th>Avg</th><th>SR</th><th>50+</th><th>4/6</th>
+            <th>Bowl</th><th>Inn</th><th>Wk</th><th>Ov</th><th>Avg</th>
+            <th>Eco</th><th>SR</th><th>4w</th><th>Best</th><th>C/St</th>
+            <th>M</th><th>A. Pt</th><th>Pts</th><th>Run</th><th>Wk</th><th>DT</th><th>P</th>
+            <th>S%</th><th>C</th><th>VC</th>
+          </tr>
+          <tr>
+            <td>Wilka Mwatile</td><td>NAM-W</td><td>ALL</td><td>✓</td><td>110</td>
+            <td>RHB</td><td>89</td><td>19</td><td>984</td><td>54</td><td>14.05</td>
+            <td>83.17</td><td>1</td><td>100</td>
+            <td>RM</td><td>104</td><td>91</td><td>3.4</td><td>17.26</td><td>4.46</td>
+            <td>23.1</td><td>3</td><td>5/6</td><td>35/0</td>
+            <td>1</td><td>110</td><td>110</td><td>6</td><td>3</td><td>100</td><td>1</td>
+            <td>94.15</td><td>34.18</td><td>16.87</td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """
+    data = ai11.parse_analysis(html)
+    assert data["format"] == "T20"
+    profile = data["profiles"][0]
+    stats = profile["ai11_statistics"]
+    series = profile["ai11_series_summary"]
+    assert stats["matches"] == 110
+    assert stats["runs"] == 984
+    assert stats["batting_average"] == 14.05
+    assert stats["bowling_innings"] == 104
+    assert stats["wickets"] == 91
+    assert stats["bowling_average"] == 17.26
+    assert stats["best_bowling"] == "5/6"
+    assert series["series_matches"] == 1
+    assert series["series_average_points"] == 110
+    assert series["ai11_series_points_reported"] == 110
+    assert series["series_runs"] == 6
+    assert series["series_wickets"] == 3
+    assert profile["ai11_selection_pct"] == 94.15
+    assert profile["ai11_captain_pct"] == 34.18
+    assert profile["ai11_vice_captain_pct"] == 16.87
+    assert "fantasy_points" not in stats
+    assert "fantasy_points" not in series
