@@ -747,6 +747,10 @@ function renderAI11Analysis(data){
  stats.forEach(([label,value])=>{const cell=document.createElement('div');cell.className='stat';const small=document.createElement('small');small.textContent=label;const strong=document.createElement('b');strong.textContent=String(value);cell.append(small,strong);statGrid.append(cell);});
  body.append(statGrid);
  if(pitch.notes){const note=document.createElement('div');note.className='notice';note.textContent='Pitch evidence: '+pitch.notes;body.append(note);}
+ [['Recent form',data.recent_form],['Head to head',data.head_to_head]].forEach(([label,value])=>{
+  if(!value)return;
+  const note=document.createElement('div');note.className='notice';note.textContent=label+': '+value;body.append(note);
+ });
  const rec=data.recommendations||{};
  const grid=document.createElement('div');grid.style.display='grid';grid.style.gridTemplateColumns='repeat(auto-fit,minmax(220px,1fr))';grid.style.gap='10px';grid.style.marginTop='12px';
  const sections=[
