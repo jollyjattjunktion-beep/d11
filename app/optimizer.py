@@ -32,6 +32,74 @@ def _role_opportunity(p):
     return max(0.25, min(1.0, prior))
 
 
+def _player_opportunity_profile(p, match_format="T20"):
+    """Source-aware batting/bowling involvement index (0-100), not fantasy points."""
+    role = p.get("role")
+    fmt = str(match_format or "T20").upper()
+    max_overs = {"T20": 4.0, "ODI": 10.0, "TEST": 20.0}.get(fmt, 4.0)
+    evidence = []
+    components = {}
+
+    position = p.get("batting_position")
+    try:
+        position = int(position) if position is not None else None
+    except (TypeError, ValueError):
+        position = None
+    if position is not None and position > 0:
+        batting_position_score = 100 if position <= 2 else 92 if position <= 3 else 78 if position <= 5 else 55 if position <= 7 else 30
+        components["batting_position"] = batting_position_score
+        evidence.append((batting_position_score, 0.40))
+
+    batting_skill = p.get("ai11_batting_score")
+    if batting_skill is not None:
+        try:
+            components["batting_skill"] = max(0.0, min(100.0, float(batting_skill)))
+            evidence.append((components["batting_skill"], 0.25))
+        except (TypeError, ValueError):
+            pass
+
+    overs = p.get("expected_overs")
+    if overs is not None:
+        try:
+            workload = max(0.0, min(1.0, float(overs) / max_overs)) * 100.0
+            components["bowling_workload"] = workload
+            evidence.append((workload, 0.35))
+        except (TypeError, ValueError):
+            pass
+
+    bowling_skill = p.get("ai11_bowling_score")
+    if bowling_skill is not None:
+        try:
+            components["bowling_skill"] = max(0.0, min(100.0, float(bowling_skill)))
+            evidence.append((components["bowling_skill"], 0.25))
+        except (TypeError, ValueError):
+            pass
+
+    if p.get("involvement_score") is not None:
+        try:
+            value = float(p["involvement_score"])
+            value = value * 100.0 if 0 <= value <= 1 else value
+            components["source_involvement"] = max(0.0, min(100.0, value))
+            evidence.append((components["source_involvement"], 0.30))
+        except (TypeError, ValueError):
+            pass
+
+    if evidence:
+        score = sum(value * weight for value, weight in evidence) / sum(weight for _, weight in evidence)
+        confidence = min(1.0, len(evidence) / 3.0)
+    else:
+        # Conservative fallback: role alone is not enough to claim high opportunity.
+        score = {"WK": 58.0, "BAT": 55.0, "AR": 58.0, "BOWL": 55.0}.get(role, 50.0)
+        confidence = 0.0
+
+    return {
+        "score": round(max(0.0, min(100.0, score)), 1),
+        "confidence": round(confidence, 2),
+        "components": components,
+        "evidence_count": len(evidence),
+    }
+
+
 def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
                    scenario_score=None, match_format="T20", provisional=False):
     """Strategy score from form/range, role opportunity and match context."""
@@ -137,14 +205,10 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
         pass
 
     role = p.get("role")
-    opportunity = _role_opportunity(p)
-    try:
-        involvement = p.get("involvement_score")
-        if involvement is not None:
-            n = float(involvement)
-            opportunity = max(0.0, min(1.0, n / 100.0 if n > 1 else n))
-    except (TypeError, ValueError):
-        pass
+    opportunity_profile = _player_opportunity_profile(p, match_format)
+    opportunity = opportunity_profile["score"] / 100.0
+    # Opportunity is a bounded adjustment, not a substitute for role/form/history.
+    # With sparse inputs the fallback remains deliberately modest.
 
     condition = 1.0
     # With no historical fantasy-point sample, retain the predictor's bounded
@@ -265,6 +329,10 @@ def _captain_score(p, strategy, scenario, innings_mode, score_team, scenario_sco
             score += min(100.0, max(0.0, source_c)) * (0.02 if strategy == "strongest" else 0.12)
         except (TypeError, ValueError):
             pass
+    opportunity = _player_opportunity_profile(p, match_format)["score"] / 100.0
+    # Captaincy rewards credible involvement (top-order batting / real overs /
+    # two-skill contribution), not popularity alone.
+    score *= 0.92 + 0.16 * opportunity
     return score
 
 
@@ -301,6 +369,8 @@ def _vice_score(p, strategy, scenario, innings_mode, score_team, scenario_score,
             score += min(100.0, max(0.0, source_vc)) * (0.02 if strategy == "strongest" else 0.12)
         except (TypeError, ValueError):
             pass
+    opportunity = _player_opportunity_profile(p, match_format)["score"] / 100.0
+    score *= 0.94 + 0.12 * opportunity
     return score
 
 
