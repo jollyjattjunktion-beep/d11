@@ -60,22 +60,27 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
                 base += max(0.0, min(30.0, float(ai11_projection))) * 0.25
         except (TypeError, ValueError):
             pass
-        # Career/series aggregates add only a small role-aware nudge when the
-        # source provides a usable sample; they do not create fantasy points.
+        # Career and current-series aggregates add a small role-aware ranking
+        # signal. They are never converted into expected/floor/ceiling fantasy points.
         metrics = p.get("ai11_metrics") if isinstance(p.get("ai11_metrics"), dict) else {}
         try:
-            sample = float(metrics.get("career_matches") or 0)
+            career_matches = float(metrics.get("career_matches") or 0)
             profile_deltas = []
             role = p.get("role")
-            if sample >= 3 and role in {"BAT", "WK", "AR"}:
+            fmt = str(match_format or "T20").upper()
+            if career_matches >= 3 and role in {"BAT", "WK", "AR"}:
                 avg = metrics.get("batting_average")
                 sr = metrics.get("batting_strike_rate")
                 if avg is not None:
-                    profile_deltas.append(max(-1.0, min(1.0, (float(avg) - 20.0) / 20.0)) * 0.025)
+                    baseline_avg = 30.0 if fmt == "ODI" else 22.0 if fmt == "T20" else 28.0
+                    profile_deltas.append(max(-1.0, min(1.0, (float(avg) - baseline_avg) / baseline_avg)) * 0.025)
                 if sr is not None:
-                    baseline_sr = 110.0 if match_format == "T20" else 80.0
+                    baseline_sr = 110.0 if fmt == "T20" else 80.0 if fmt == "ODI" else 55.0
                     profile_deltas.append(max(-1.0, min(1.0, (float(sr) - baseline_sr) / baseline_sr)) * 0.015)
-            if sample >= 3 and role in {"BOWL", "AR"}:
+                fifties = float(metrics.get("fifties_plus") or 0)
+                if fifties:
+                    profile_deltas.append(min(1.0, fifties / max(1.0, career_matches * 0.20)) * 0.01)
+            if career_matches >= 3 and role in {"BOWL", "AR"}:
                 wickets = metrics.get("wickets")
                 bowling_innings = float(metrics.get("bowling_innings") or 0)
                 economy = metrics.get("economy")
@@ -83,8 +88,26 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
                     rate = float(wickets) / bowling_innings
                     profile_deltas.append(max(-1.0, min(1.0, (rate - 0.8) / 0.8)) * 0.025)
                 if economy is not None:
-                    baseline_eco = 8.5 if match_format == "T20" else 6.0
+                    baseline_eco = 8.5 if fmt == "T20" else 6.0 if fmt == "ODI" else 3.5
                     profile_deltas.append(max(-1.0, min(1.0, (baseline_eco - float(economy)) / baseline_eco)) * 0.015)
+
+            # Current-series A.Pt is useful form evidence, but a one-match
+            # sample is deliberately discounted. It remains a ranking signal.
+            series_matches = float(metrics.get("series_matches") or 0)
+            series_avg_points = metrics.get("series_average_points")
+            if series_matches > 0 and series_avg_points is not None:
+                sample_confidence = min(1.0, series_matches / 3.0)
+                series_delta = max(-1.0, min(1.0, (float(series_avg_points) - 40.0) / 40.0))
+                profile_deltas.append(series_delta * 0.025 * sample_confidence)
+
+            # All-rounders receive a modest involvement bonus only when the
+            # imported series shows both batting and bowling contributions.
+            if role == "AR" and series_matches > 0:
+                series_runs = float(metrics.get("series_runs") or 0)
+                series_wickets = float(metrics.get("series_wickets") or 0)
+                if series_runs > 0 and series_wickets > 0:
+                    profile_deltas.append(min(1.0, (series_runs / 100.0 + series_wickets / 4.0) / 2.0) * 0.02)
+
             if profile_deltas:
                 profile_factor = max(0.94, min(1.06, 1.0 + sum(profile_deltas)))
                 base *= profile_factor
@@ -324,6 +347,10 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
         if a_count > rules.team_a_count or len(locked)-a_count > rules.team_size-rules.team_a_count:
             raise ValueError("Locked players conflict with the required team split.")
     made, usage = [], Counter()
+    # Rotate leadership across a multi-team portfolio. The first team follows
+    # the strongest match-specific captain score; later teams get a measured
+    # exposure penalty so C/VC do not repeat mechanically.
+    captain_usage, vice_usage = Counter(), Counter()
     states = [(locked, 0.0)]
     score_args = (innings_mode, score_team, scenario_score, match_format)
     for _ in range(rules.team_size-len(locked)):
@@ -400,15 +427,21 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
         cands = [p for p in chosen if not captain_pool or p["player_id"] in captain_pool]
         vcands = [p for p in chosen if not vice_captain_pool or p["player_id"] in vice_captain_pool]
         captain_key = lambda p: _captain_score(p, strategy, scenario, *score_args)
-        captain = next((p for p in cands if p["player_id"] == manual_captain_id), None) or (sorted(cands, key=captain_key, reverse=True)[0] if cands else None)
+        captain_exposure_penalty = 0.16 if strategy == "grand_league" else 0.10 if strategy == "balanced" else 0.05
+        captain_rank = lambda p: captain_key(p) * (1.0 - min(0.28, captain_usage[p["player_id"]] * captain_exposure_penalty))
+        captain = next((p for p in cands if p["player_id"] == manual_captain_id), None) or (sorted(cands, key=captain_rank, reverse=True)[0] if cands else None)
         vice_key = lambda p: _vice_score(p, strategy, scenario, *score_args)
-        vice = next((p for p in vcands if p["player_id"] == manual_vice_captain_id), None) or (sorted([p for p in vcands if not captain or p["player_id"] != captain["player_id"]], key=vice_key, reverse=True)[0] if vcands else None)
+        vice_exposure_penalty = 0.14 if strategy == "grand_league" else 0.09 if strategy == "balanced" else 0.045
+        vice_rank = lambda p: vice_key(p) * (1.0 - min(0.25, vice_usage[p["player_id"]] * vice_exposure_penalty))
+        vice = next((p for p in vcands if p["player_id"] == manual_vice_captain_id), None) or (sorted([p for p in vcands if not captain or p["player_id"] != captain["player_id"]], key=vice_rank, reverse=True)[0] if vcands else None)
         if not captain or not vice:
             raise ValueError("Captain and vice-captain pools must contain two different selected players.")
         if captain["player_id"] not in ids or vice["player_id"] not in ids:
             raise ValueError("Captain and vice-captain must be selected in the team.")
         for p in chosen:
             usage[p["player_id"]] += 1
+        captain_usage[captain["player_id"]] += 1
+        vice_usage[vice["player_id"]] += 1
         total = sum(float(p["credits"]) for p in chosen)
         projected = None if provisional else round(sum(float(p["expected_points"]) for p in chosen) + float(captain["expected_points"]) + 0.5 * float(vice["expected_points"]), 2)
         captain_alternatives = sorted([p for p in chosen if p["player_id"] != captain["player_id"]], key=captain_key, reverse=True)[:2]
