@@ -82,6 +82,7 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
         innings_runs = 0
         innings_wickets = 0
         innings_balls = 0
+        batters_seen: set[str] = set()
         over_runs: dict[int, int] = defaultdict(int)
         over_legal: dict[int, int] = defaultdict(int)
         for over in innings.get("overs") or []:
@@ -117,6 +118,9 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
                     innings_balls += 1
                     over_legal[over_number] += 1
 
+                batters_seen.add(batter)
+                if non_striker:
+                    batters_seen.add(non_striker)
                 bat = players[batter]
                 bat["runs"] += batter_runs
                 bat["fours"] += int(batter_runs == 4)
@@ -150,9 +154,12 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
                         if phase in bowl["bowling_phases"]:
                             bowl["bowling_phases"][phase]["wickets"] += 1
                     if kind == "run_out":
-                        target = players.get(dismissed)
-                        if target:
-                            target["run_outs"] += 1
+                        for fielder in wicket.get("fielders") or []:
+                            fname = fielder.get("name") if isinstance(fielder, dict) else fielder
+                            if fname:
+                                if fname not in players:
+                                    players[fname] = _empty_player(fname, registry, bowling_team)
+                                players[fname]["run_outs"] += 1
                     for fielder in wicket.get("fielders") or []:
                         fname = fielder.get("name") if isinstance(fielder, dict) else fielder
                         if fname not in players:
@@ -162,10 +169,9 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
                         elif kind == "stumped":
                             players[fname]["stumpings"] += 1
 
-        # Mark player participation from innings-level batting/bowling appearances.
-        for row in players.values():
-            if row["team"] == batting_team and row["batting_innings"] == innings_index:
-                row["batting_innings"] += 1
+        # Count batting/bowling participation once per innings.
+        for name in batters_seen:
+            players[name]["batting_innings"] += 1
         for name in {d.get("bowler") for over in innings.get("overs") or [] for d in over.get("deliveries") or [] if d.get("bowler")}:
             players[name]["bowling_innings"] += 1
         innings_rows.append({"team": batting_team, "runs": innings_runs, "wickets": innings_wickets,
