@@ -1,6 +1,7 @@
 from collections import Counter
 
 STRATEGY_WEIGHTS = {
+    "strongest": (0.76, 0.08, 0.16),
     "safe": (0.55, 0.35, 0.10),
     "balanced": (0.65, 0.20, 0.15),
     "grand_league": (0.45, 0.05, 0.50),
@@ -50,10 +51,34 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
         popularity = 50.0 if ownership is None else ownership
         source_c = float(p.get("captain_pct") or p.get("ai11_captain_pct") or 0.0)
         source_vc = float(p.get("vice_captain_pct") or p.get("ai11_vice_captain_pct") or 0.0)
-        # Provisional score is a selection-priority index, never fantasy points.
-        base = _role_opportunity(p) * 35.0 + popularity * 0.10 + min(source_c, 100) * 0.025 + min(source_vc, 100) * 0.015
-        # AI11 career/series aggregates can refine a provisional selection
-        # index slightly, but never become expected/floor/ceiling fantasy points.
+        role_score = p.get("ai11_role_score")
+        recent_score = p.get("ai11_recent_form_score")
+        # Provisional scores are selection-priority indices, never fantasy points.
+        if strategy == "strongest":
+            # Performance-first: career role strength and current-series form
+            # drive selection. Ownership and provider C/VC are deliberately
+            # capped to a small tie-break contribution.
+            evidence = []
+            if role_score is not None:
+                evidence.append((float(role_score), 0.60))
+            if recent_score is not None:
+                evidence.append((float(recent_score), 0.40))
+            if evidence:
+                performance = sum(value * weight for value, weight in evidence) / sum(
+                    weight for _, weight in evidence
+                )
+                base = 34.0 + performance * 0.66 + _role_opportunity(p) * 10.0
+            else:
+                # Do not invent a good performance profile when AI11 fields
+                # are missing. Keep a transparent lower-confidence role prior.
+                base = 34.0 + _role_opportunity(p) * 34.0
+            if ownership is not None:
+                base += max(0.0, min(100.0, popularity)) * 0.025
+            base += min(source_c, 100.0) * 0.006 + min(source_vc, 100.0) * 0.004
+        else:
+            # Other strategies retain a popularity-aware provisional prior.
+            base = _role_opportunity(p) * 35.0 + popularity * 0.10 + min(source_c, 100) * 0.025 + min(source_vc, 100) * 0.015
+        # A small profile factor supports profiles that have no component score.
         try:
             ai11_factor = max(0.97, min(1.03, float(p.get("ai11_profile_factor") or 1.0)))
             base *= ai11_factor
@@ -76,15 +101,26 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
         if profile_scores:
             profile_strength = sum(score * weight for score, weight in profile_scores) / sum(weight for _, weight in profile_scores)
             profile_multiplier = max(0.80, min(1.20, 1.0 + (profile_strength - 50.0) * 0.004))
-            base *= profile_multiplier
+            # With no match-history projection, the strongest strategy has
+            # already converted these profile scores into its base index. Do
+            # not count the same evidence twice. In history-backed mode, scale
+            # expected, floor and ceiling together so the range stays coherent.
+            if expected is not None or strategy != "strongest":
+                base *= profile_multiplier
+                floor_v *= profile_multiplier
+                upside *= profile_multiplier
         if p.get("role") == "AR" and p.get("ai11_two_skill_profile"):
             bat_score = p.get("ai11_batting_score")
             bowl_score = p.get("ai11_bowling_score")
             if bat_score is not None and bowl_score is not None:
                 if min(float(bat_score), float(bowl_score)) >= 70:
                     base *= 1.04
+                    floor_v *= 1.04
+                    upside *= 1.04
                 elif min(float(bat_score), float(bowl_score)) >= 60:
                     base *= 1.02
+                    floor_v *= 1.02
+                    upside *= 1.02
     except (TypeError, ValueError):
         pass
 
@@ -145,7 +181,13 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
     if p.get("toss_batting_team") and p.get("team") == p.get("toss_batting_team") and role in {"BAT", "WK"}:
         scenario_factor *= 1.015
 
-    if strategy == "safe":
+    if strategy == "strongest":
+        # Maximize the modelled contribution/role profile, retaining a small
+        # floor component while still valuing upside.
+        raw = 0.78 * base + 0.08 * floor_v + 0.14 * upside
+        if p.get("risk") == "high":
+            raw *= 0.97
+    elif strategy == "safe":
         raw = 0.72 * base + 0.22 * floor_v + 0.06 * upside
         raw *= 1.0 + 0.10 * consistency
         if p.get("risk") == "high":
@@ -182,7 +224,9 @@ def _captain_score(p, strategy, scenario, innings_mode, score_team, scenario_sco
     else:
         floor_component = float(p.get("floor_points") if p.get("floor_points") is not None else expected * 0.6)
         ceiling_component = float(ceiling if ceiling is not None else expected * 1.25)
-    if strategy == "safe":
+    if strategy == "strongest":
+        score = 0.78 * signal + 0.08 * floor_component + 0.14 * ceiling_component
+    elif strategy == "safe":
         score = 0.62 * signal + 0.30 * floor_component + 0.08 * ceiling_component
     elif strategy == "grand_league":
         score = 0.35 * signal + 0.55 * ceiling_component + 0.10 * _role_opportunity(p) * signal
@@ -223,7 +267,9 @@ def _vice_score(p, strategy, scenario, innings_mode, score_team, scenario_score,
     else:
         floor_component = float(floor if floor is not None else expected * 0.6)
         ceiling_component = float(ceiling if ceiling is not None else expected * 1.25)
-    if strategy == "safe":
+    if strategy == "strongest":
+        score = 0.76 * signal + 0.12 * floor_component + 0.12 * ceiling_component
+    elif strategy == "safe":
         score = 0.68 * signal + 0.25 * floor_component + 0.07 * ceiling_component
     elif strategy == "grand_league":
         score = 0.42 * signal + 0.48 * ceiling_component + 0.10 * _role_opportunity(p) * signal
@@ -547,24 +593,28 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
     selected_lineups = []
     remaining_valid = list(valid)
     min_unique_players = {
+        "strongest": 1,
         "safe": 1,
         "balanced": 2,
         "scenario": 3,
         "grand_league": 3,
     }.get(strategy, 2)
     quality_floor = {
+        "strongest": 0.96,
         "safe": 0.90,
         "balanced": 0.84,
         "scenario": 0.82,
         "grand_league": 0.76,
     }.get(strategy, 0.84)
     overlap_weight = {
+        "strongest": 0.10,
         "safe": 0.12,
         "balanced": 0.22,
         "scenario": 0.25,
         "grand_league": 0.30,
     }.get(strategy, 0.22)
     captain_pair_weight = {
+        "strongest": 0.02,
         "safe": 0.035,
         "balanced": 0.075,
         "scenario": 0.09,
