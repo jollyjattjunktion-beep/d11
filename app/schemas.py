@@ -140,6 +140,9 @@ class TeamRequest(BaseModel):
 class AI11ImportRequest(BaseModel):
     analysis_url: str
     fantasy_url: str | None = None
+    # Attach AI11 intelligence to the existing Team Generation fixture rather
+    # than creating an isolated AI11-only match with no matching squad IDs.
+    target_match_id: str | None = Field(default=None, max_length=100)
 
 class HistoricalBatchImport(BaseModel):
     records: list[StatsIn] = Field(min_length=1, max_length=10000)
