@@ -5,6 +5,7 @@ from urllib.parse import urljoin, urlparse
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 import secrets
+import re
 import httpx
 import os
 import time
@@ -1051,6 +1052,134 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
         raise HTTPException(502, f"AI11 upstream fetch failed: {str(exc)[:300]}")
     if not parsed["players"]:
         raise HTTPException(422, "No player rows were extracted from the AI11 analysis page. Page markup may have changed or content may require browser rendering.")
+
+    if payload.target_match_id:
+        # Link source profiles onto the already imported Team Generation match.
+        # Creating a standalone AI11 match would leave the optimizer looking up
+        # AI11 profiles under the wrong match_id, so it would see no data at all.
+        target_match = db.get(Match, payload.target_match_id)
+        if target_match is None:
+            raise HTTPException(404, "Target D11 match not found. Import the Team Generation fixture first.")
+        target_squads = db.scalars(
+            select(MatchSquad).where(MatchSquad.match_id == payload.target_match_id)
+        ).all()
+        if not target_squads:
+            raise HTTPException(422, "The target D11 match has no squad players. Import its squad before linking AI11.")
+
+        def normalized_name(value):
+            return re.sub(r"[^a-z0-9]+", "", str(value or "").casefold())
+
+        def name_parts(value):
+            words = re.findall(r"[a-z0-9]+", str(value or "").casefold())
+            return words[0] if words else "", words[-1] if words else ""
+
+        squad_rows = []
+        exact_name_map = {}
+        for squad in target_squads:
+            player_row = db.get(Player, squad.player_id)
+            if player_row is None:
+                continue
+            squad_rows.append((squad, player_row))
+            exact_name_map.setdefault(normalized_name(player_row.name), []).append((squad, player_row))
+
+        def match_player(source_name):
+            exact = exact_name_map.get(normalized_name(source_name), [])
+            if len(exact) == 1:
+                return exact[0]
+            source_first, source_last = name_parts(source_name)
+            if not source_first or not source_last:
+                return None
+            candidates = []
+            for squad, player_row in squad_rows:
+                target_first, target_last = name_parts(player_row.name)
+                # Supports provider initials such as "G Wareham" vs "Georgia Wareham".
+                if target_last == source_last and target_first and target_first[0] == source_first[0]:
+                    candidates.append((squad, player_row))
+            return candidates[0] if len(candidates) == 1 else None
+
+        profile_by_source_id = {
+            profile.get("player_id"): profile
+            for profile in parsed.get("profiles", [])
+            if profile.get("player_id")
+        }
+        matched_count = 0
+        unmatched = []
+        for item in parsed["players"]:
+            matched = match_player(item.get("name"))
+            if not matched:
+                unmatched.append(item.get("name") or item.get("id"))
+                continue
+            squad, player_row = matched
+            source_profile = dict(profile_by_source_id.get(item.get("id")) or {})
+            # Preserve D11 identifiers, credits, team assignment and role.
+            # AI11 career/series stats and P are linked as separate signals.
+            source_profile.update({
+                "player_id": squad.player_id,
+                "player_name": player_row.name,
+                "team": squad.team,
+                "role": squad.role,
+                "ai11_source_player_id": item.get("id"),
+                "ai11_source_player_name": item.get("name"),
+                "ai11_source_team": item.get("team"),
+                "ai11_projected_points": source_profile.get("ai11_projected_points"),
+                "linked_to_match_id": payload.target_match_id,
+            })
+            profile = db.get(PlayerSourceProfile, (payload.target_match_id, squad.player_id, "AI11"))
+            if profile is None:
+                db.add(PlayerSourceProfile(
+                    match_id=payload.target_match_id,
+                    player_id=squad.player_id,
+                    source="AI11",
+                    data=source_profile,
+                ))
+            else:
+                profile.data = {**(profile.data or {}), **source_profile}
+            matched_count += 1
+
+        intelligence_row = db.get(MatchIntelligence, payload.target_match_id)
+        existing_intelligence = (
+            dict(intelligence_row.data or {})
+            if intelligence_row and isinstance(intelligence_row.data, dict)
+            else {}
+        )
+        ai11_context = dict(parsed.get("intelligence") or {})
+        # Existing D11/Cricbuzz venue values win; AI11 fills missing values.
+        for key, value in ai11_context.items():
+            if value is not None and key not in existing_intelligence:
+                existing_intelligence[key] = value
+        existing_intelligence["ai11_source_context"] = ai11_context
+        existing_intelligence["ai11_source_urls"] = [analysis_url] + ([fantasy_url] if fantasy_url else [])
+        existing_intelligence["ai11_profiles_linked"] = matched_count
+        existing_intelligence["ai11_profiles_unmatched"] = unmatched
+        existing_intelligence["ai11_imported_at"] = datetime.now(timezone.utc).isoformat()
+        if intelligence_row is None:
+            db.add(MatchIntelligence(match_id=payload.target_match_id, data=existing_intelligence))
+        else:
+            intelligence_row.data = existing_intelligence
+        db.commit()
+
+        return {
+            "imported": True,
+            "linked_to_existing_match": True,
+            "match_id": payload.target_match_id,
+            "match": {
+                "name": target_match.name,
+                "format": target_match.format,
+                "venue": target_match.venue,
+                "team_a": target_match.team_a,
+                "team_b": target_match.team_b,
+            },
+            "players_in_ai11": len(parsed["players"]),
+            "players_matched": matched_count,
+            "players_unmatched": unmatched,
+            "profiles_saved": matched_count,
+            "match_context_fields_saved": sorted(ai11_context.keys()),
+            "credits_preserved": True,
+            "playing_xi_status_preserved": True,
+            "fantasy_fetch_status": fantasy_data.get("fantasy_fetch_status", "not_requested"),
+            "warning": "AI11 career/series metrics and source P values are ranking signals, not verified match-by-match Dream11 fantasy points.",
+        }
+
     match_id=parsed["match_id"]
     match=db.get(Match,match_id)
     match_values={"name":parsed["title"],"format":parsed["format"],
