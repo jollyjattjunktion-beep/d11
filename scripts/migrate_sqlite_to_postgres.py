@@ -67,7 +67,20 @@ def main() -> int:
                 if source_table is None:
                     continue
 
-                result = source.execute(select(source_table))
+                # Older SQLite files can have a slightly different
+                # schema. Copy only columns known to the current ORM model;
+                # omitted newer columns use their SQLAlchemy defaults.
+                shared_columns = [
+                    column.name
+                    for column in target_table.columns
+                    if column.name in source_table.c
+                ]
+                if not shared_columns:
+                    continue
+                source_statement = select(
+                    *(source_table.c[name] for name in shared_columns)
+                )
+                result = source.execute(source_statement)
                 total = 0
                 while True:
                     batch = result.mappings().fetchmany(500)
@@ -75,7 +88,10 @@ def main() -> int:
                         break
                     target.execute(
                         target_table.insert(),
-                        [dict(row) for row in batch],
+                        [
+                            {name: row[name] for name in shared_columns}
+                            for row in batch
+                        ],
                     )
                     total += len(batch)
                 if total:
