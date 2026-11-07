@@ -298,7 +298,7 @@ def _vice_score(p, strategy, scenario, innings_mode, score_team, scenario_score,
     if expected is None:
         try:
             source_vc = float(p.get("vice_captain_pct") or p.get("ai11_vice_captain_pct") or 0)
-            score += min(100.0, max(0.0, source_vc)) * (0.02 if strategy == "strongest" else 0.06)
+            score += min(100.0, max(0.0, source_vc)) * (0.02 if strategy == "strongest" else 0.12)
         except (TypeError, ValueError):
             pass
     return score
