@@ -940,7 +940,11 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
         "team_b": match.team_b,
         "format": match.format,
     })
-    combined, ai11_analysis = build_ai11_match_analysis(combined, match_context, match_context)
+    combined, ai11_analysis = build_ai11_match_analysis(
+        combined,
+        {"team_a": match.team_a, "team_b": match.team_b, "format": match.format},
+        match_context,
+    )
     history_ready = bool(combined) and all(p.get("expected_points") is not None for p in combined)
 
     # Interpret innings scenarios from explicit user selection or source-backed
