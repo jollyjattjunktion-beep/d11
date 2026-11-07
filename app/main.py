@@ -981,18 +981,23 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
         batting_first_team = batting_first_team or (
             payload.score_team if payload.score_team in {match.team_a, match.team_b} else None
         )
+        first_average = payload.scenario_score or _auto_scenario_score("average_first_innings")
+        second_average = _auto_scenario_score("average_second_innings")
         if batting_first_team is None:
-            raise HTTPException(422, detail={
-                "message": "Both innings mode needs the batting-first team.",
-                "action": "Choose which team bats first, or import toss information from AI11/official match data."
-            })
-        chasing_team = match.team_b if batting_first_team == match.team_a else match.team_a
-        scenario_specs = [
-            ("first_innings", batting_first_team,
-             payload.scenario_score or _auto_scenario_score("average_first_innings")),
-            ("chasing", chasing_team,
-             _auto_scenario_score("average_second_innings")),
-        ]
+            # Toss not known: make both possible innings orders explicit rather
+            # than silently assuming a toss result or blocking team generation.
+            scenario_specs = [
+                ("first_innings", match.team_a, first_average),
+                ("chasing", match.team_b, second_average),
+                ("first_innings", match.team_b, first_average),
+                ("chasing", match.team_a, second_average),
+            ]
+        else:
+            chasing_team = match.team_b if batting_first_team == match.team_a else match.team_a
+            scenario_specs = [
+                ("first_innings", batting_first_team, first_average),
+                ("chasing", chasing_team, second_average),
+            ]
     elif payload.score_mode == "first_innings":
         scenario_team = payload.score_team or batting_first_team
         if scenario_team not in {match.team_a, match.team_b}:
