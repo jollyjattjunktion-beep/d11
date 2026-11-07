@@ -53,15 +53,30 @@ def _condition_adjustment(role, context, fmt):
     return _bounded(factor, 0.82, 1.18), reasons
 
 
-def _form_profile(rows):
+def _form_profile(rows, match_format="T20"):
     values = [float(r.fantasy_points) for r in rows if r.fantasy_points is not None]
-    # Require a minimum match-level sample before emitting any fantasy-point
-    # estimate. One or two scores are too fragile to call a projection.
+    fmt = str(match_format or "T20").upper()
+    # Small match-by-match samples help rank players before three records
+    # exist, but do not unlock expected/floor/ceiling fantasy-point estimates.
+    format_baselines = {"T20": 42.0, "ODI": 52.0, "TEST": 60.0}
+    baseline = format_baselines.get(fmt, 42.0)
+    recent_mean = _weighted_mean(values) if values else None
+    recent_history_score = None
+    if recent_mean is not None:
+        raw_score = max(0.0, min(100.0, 50.0 + ((recent_mean / baseline) - 1.0) * 32.0))
+        reliability = min(1.0, len(values) / 3.0)
+        recent_history_score = round(50.0 + (raw_score - 50.0) * reliability, 1)
+
     if len(values) < 3:
-        return {"expected_points": None, "floor_points": None, "ceiling_points": None,
-                "consistency": 0.0, "upside": 0.0, "confidence_score": 0,
-                "confidence": "insufficient_data", "risk": "unknown", "matches_used": len(values)}
-    mu = _weighted_mean(values)
+        return {
+            "expected_points": None, "floor_points": None, "ceiling_points": None,
+            "consistency": 0.0, "upside": 0.0, "confidence_score": 0,
+            "confidence": "insufficient_data", "risk": "unknown",
+            "matches_used": len(values),
+            "recent_history_score": recent_history_score,
+            "recent_history_mean": round(recent_mean, 2) if recent_mean is not None else None,
+        }
+    mu = recent_mean
     variance = _weighted_mean([(v - mu) ** 2 for v in values])
     sd = sqrt(max(variance, 0))
     expected = max(0.0, mu)
@@ -72,10 +87,13 @@ def _form_profile(rows):
     confidence_score = round(100 * (0.55 * coverage + 0.45 * stability))
     confidence = "high" if confidence_score >= 75 else "medium" if confidence_score >= 50 else "low"
     risk = "high" if sd > max(mu * 0.8, 1) else "medium" if sd > max(mu * 0.4, 1) else "low"
-    return {"expected_points": expected, "floor_points": floor, "ceiling_points": ceiling,
-            "consistency": stability, "upside": ceiling, "confidence_score": confidence_score,
-            "confidence": confidence, "risk": risk, "matches_used": len(values)}
-
+    return {
+        "expected_points": expected, "floor_points": floor, "ceiling_points": ceiling,
+        "consistency": stability, "upside": ceiling, "confidence_score": confidence_score,
+        "confidence": confidence, "risk": risk, "matches_used": len(values),
+        "recent_history_score": recent_history_score,
+        "recent_history_mean": round(recent_mean, 2) if recent_mean is not None else None,
+    }
 
 def _role_context(squad, context):
     """Return only imported player involvement features; never infer a batting order or overs."""
@@ -184,11 +202,17 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
             "expected_overs":usage.get("expected_overs", tg_data.get("expected_overs")),
             "involvement_score":usage.get("involvement_score", tg_data.get("involvement_score")),
             "matchup_score":usage.get("matchup_score", tg_data.get("matchup_score"))}
-    form = _form_profile(rows)
+    form = _form_profile(rows, fmt)
     if form["expected_points"] is None:
         condition_factor, condition_reasons = _condition_adjustment(squad.role, context, fmt)
-        reasons = ["No imported historical fantasy-point records for this format"]
-        warnings = ["Prediction unavailable until format-specific history is imported"]
+        reasons = ["Fewer than three imported match-level records; a fantasy-point projection is not available"]
+        if form.get("matches_used", 0) > 0:
+            reasons.append(
+                f"Recent match-level history: {form['matches_used']} record(s), "
+                f"weighted mean {form.get('recent_history_mean')}, "
+                f"provisional form score {form.get('recent_history_score')}/100"
+            )
+        warnings = ["Expected/floor/ceiling points remain unavailable until at least three format-matched historical records are imported"]
         if not context:
             warnings.append("No pitch/weather/venue intelligence imported")
         return {**base, **form, "median_points":None, "condition_factor":round(condition_factor,3),
