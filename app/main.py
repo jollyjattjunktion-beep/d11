@@ -1128,7 +1128,18 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
             if parts:
                 fantasy_url = f"https://www.ai11.in/fantasy/cricket/{parts[-1]}"
         if fantasy_url:
-            fantasy_data=parse_fantasy(fetch_page(fantasy_url))
+            try:
+                fantasy_data=parse_fantasy(fetch_page(fantasy_url))
+                fantasy_data["fantasy_fetch_status"] = "fetched"
+            except AI11RateLimitError as exc:
+                # Keep the successful analysis-page import even if the optional
+                # dynamic fantasy/credits page is temporarily rate-limited.
+                fantasy_data["fantasy_fetch_status"] = "rate_limited"
+                fantasy_data["fantasy_fetch_error"] = str(exc)
+                fantasy_data["fantasy_retry_after_seconds"] = exc.retry_after
+            except Exception as exc:
+                fantasy_data["fantasy_fetch_status"] = "unavailable"
+                fantasy_data["fantasy_fetch_error"] = type(exc).__name__
     except AI11RateLimitError as exc:
         raise HTTPException(
             429,
@@ -1168,7 +1179,12 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
         if squad is None: db.add(MatchSquad(match_id=match_id,player_id=pid,**values))
         else:
             for key,value in values.items():
-                if value is not None: setattr(squad,key,value)
+                # The AI11 table tick is a selection marker, not an official
+                # Playing XI status. Never downgrade confirmed TG/admin lineup data.
+                if key == "status" and value == "unknown":
+                    continue
+                if value is not None:
+                    setattr(squad,key,value)
         if credit is not None: credits_saved+=1
         profile=db.get(PlayerSourceProfile,(match_id,pid,"AI11"))
         profile_data=next((p for p in parsed["profiles"] if p["player_id"]==pid),{})
