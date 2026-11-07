@@ -89,7 +89,7 @@ def _player_opportunity_profile(p, match_format="T20"):
         confidence = min(1.0, len(evidence) / 3.0)
     else:
         # Conservative fallback: role alone is not enough to claim high opportunity.
-        score = {"WK": 58.0, "BAT": 55.0, "AR": 58.0, "BOWL": 55.0}.get(role, 50.0)
+        score = 55.0
         confidence = 0.0
 
     return {
