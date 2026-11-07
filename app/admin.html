@@ -244,7 +244,7 @@
           <div class="panelbody">
             <div class="row">
               <label style="flex:1;min-width:180px">Pitch / conditions<select class="field" id="ai11PitchScenario"><option value="auto">Automatic from match data</option><option value="batting_friendly">Batting-friendly</option><option value="pace_friendly">Pace-friendly</option><option value="spin_friendly">Spin-friendly</option><option value="bowling_friendly">Bowling-friendly</option><option value="neutral">Balanced / neutral</option></select></label>
-              <label style="flex:1;min-width:180px">Innings scenario<select class="field" id="inningsScenario"><option value="none">Match conditions / no innings split</option><option value="first_innings">Batting first</option><option value="chasing">Chasing second</option><option value="both">Generate both scenarios</option></select></label>
+              <label style="flex:1;min-width:180px">Innings scenario<select class="field" id="inningsScenario"><option value="both" selected>Generate both scenarios</option><option value="none">Match conditions / no innings split</option><option value="first_innings">Batting first</option><option value="chasing">Chasing second</option></select></label>
               <label style="flex:1;min-width:180px">Scenario team<select class="field" id="scenarioTeam"><option value="auto">Auto from toss / AI11</option></select></label>
               <label style="flex:1;min-width:160px">Score assumption (optional)<input class="field" type="number" id="scenarioScore" min="1" max="600" placeholder="Auto from innings average"></label>
             </div>
@@ -652,7 +652,7 @@ function addPitchPlayer(row,p,t){
 function renderDreamTeamPreview(t,strategy,mode,index){
  const wrap=document.createElement('article');wrap.className='dream-team-result';
  const top=document.createElement('div');top.className='result-card-head';
- const title=document.createElement('strong');title.textContent=strategy.toUpperCase().replaceAll('_',' ')+' • '+mode.toUpperCase()+(t.scenario_label?' • '+t.scenario_label:'')+' • TEAM '+(index+1);
+ const rankLabel=(t.portfolio_rank||index+1)===1?'BEST RANKED XI':'ALTERNATIVE XI '+(t.portfolio_rank||index+1);\n const title=document.createElement('strong');title.textContent=rankLabel+' • '+strategy.toUpperCase().replaceAll('_',' ')+' • '+mode.toUpperCase()+(t.scenario_label?' • '+t.scenario_label:'');
  const actions=document.createElement('div');actions.className='result-card-actions';
  const copy=document.createElement('button');copy.className='btn outline';copy.textContent='Copy team';copy.onclick=()=>{const lines=(t.players||[]).map(p=>p.player_name+' ('+p.role+', '+p.team+', '+p.credits+' cr)'+(p.player_id===t.captain_id?' — C':p.player_id===t.vice_captain_id?' — VC':''));const textOut=lines.join('\n')+'\nTotal credits: '+t.total_credits;if(navigator.clipboard?.writeText)navigator.clipboard.writeText(textOut).then(()=>{copy.textContent='Copied';setTimeout(()=>copy.textContent='Copy team',1400)}).catch(()=>alert(textOut));else alert(textOut);};
  actions.append(copy);top.append(title,actions);wrap.append(top);
@@ -679,7 +679,7 @@ function renderDreamTeamPreview(t,strategy,mode,index){
  const captain=(t.players||[]).find(p=>p.player_id===t.captain_id);
  const vice=(t.players||[]).find(p=>p.player_id===t.vice_captain_id);
  const c=document.createElement('div');c.innerHTML='<strong>C:</strong> '+esc(captain?.player_name||'—')+' &nbsp; <strong>VC:</strong> '+esc(vice?.player_name||'—');
- const score=document.createElement('div');score.textContent=t.points_available&&t.projected_points!=null?'Estimated fantasy points: '+t.projected_points:'Provisional selection build • fantasy points not available';
+ const score=document.createElement('div');score.textContent=t.points_available&&t.projected_points!=null?'Modelled fantasy-point estimate (not a guarantee): '+t.projected_points:'AI11 / role / pitch selection index: '+(t.selection_score==null?'—':Number(t.selection_score).toFixed(1))+' • verified fantasy-point history unavailable';
  foot.append(c,score);field.append(foot);wrap.append(field);
  if(t.captain_reason||t.vice_captain_reason){const leadership=document.createElement('div');leadership.className='helper';leadership.style.padding='10px 14px';leadership.textContent='Captain: '+(t.captain_reason||'')+' Vice-captain: '+(t.vice_captain_reason||'');wrap.append(leadership);}
  const detail=document.createElement('details');detail.className='team-details';const summary=document.createElement('summary');summary.textContent='View player list and selection percentages';detail.append(summary);
@@ -716,7 +716,7 @@ function updateScenarioTeamOptions(){
   none:'Uses match conditions and player intelligence without forcing a batting-first or chase assumption.',
   first_innings:'Choose the team batting first. If the toss is recorded, Auto uses that team and the AI11 / venue first-innings average.',
   chasing:'Choose the team batting second. If the toss is recorded, Auto uses the chasing side and the second-innings average.',
-  both:'Creates two distinct portfolios: one for the batting-first team and one for the chasing team. Auto requires source-backed toss information; otherwise choose the batting-first team.'
+  both:'With toss data, creates one batting-first and one chasing portfolio. Without a toss, creates both possible toss orders (four conditional portfolios) so you do not have to guess which team bats first.'
  };
  $('scenarioHelp').textContent=help[mode]||help.none;
 }
