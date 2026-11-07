@@ -182,3 +182,17 @@ class CricbuzzSeriesIndexImportRequest(BaseModel):
 
 class VenueEnrichRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=20)
+
+
+class CricsheetImportRequest(BaseModel):
+    source_url: str = Field(
+        default="https://cricsheet.org/downloads/t20_json.zip",
+        min_length=20,
+        max_length=500,
+    )
+    dry_run: bool = True
+    max_matches: int = Field(default=5000, ge=1, le=10000)
+
+
+class CricsheetPlayerQuery(BaseModel):
+    player_key: str = Field(min_length=1, max_length=180)
