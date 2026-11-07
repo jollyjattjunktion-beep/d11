@@ -125,3 +125,24 @@ def test_analysis_reports_rankable_score_coverage_not_just_source_rows():
     assert coverage["coverage_pct"] == 50.0
     assert coverage["quality"] == "low"
     assert coverage["players_missing_ai11_profile"][0]["player_name"] == "Empty Player"
+
+
+def test_ai11_source_projected_points_contribute_to_role_score_without_becoming_expected_points():
+    players = [
+        {
+            "player_id": "projection-only", "player_name": "Projection Only",
+            "team": "A", "role": "BAT", "status": "unknown",
+            "expected_points": None, "ai11_projected_points": 105,
+            "ai11_metrics": {}, "ai11_series_summary": {},
+            "ai11_selection_pct": 12,
+        }
+    ]
+    enriched, analysis = build_ai11_match_analysis(
+        players, {"team_a": "A", "team_b": "B", "format": "T20"}, {}
+    )
+    item = enriched[0]
+    assert item["ai11_projection_score"] is not None
+    assert item["ai11_role_score"] == item["ai11_projection_score"]
+    assert item["expected_points"] is None
+    assert analysis["recommendations"]["projected_points"][0]["player_id"] == "projection-only"
+    assert analysis["data_integrity"]["fantasy_point_projections_from_ai11"] is False
