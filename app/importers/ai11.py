@@ -173,6 +173,33 @@ def _parse_ai11_stat_value(value: str):
     return value[:80]
 
 
+def _normal_team_code(value: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def _team_code_matches_name(code: str, display_name: str) -> bool:
+    """Map short AI11 codes such as USA-W, NAM-W and IND19 to display names."""
+    code_key = _normal_team_code(code)
+    words = re.findall(r"[A-Za-z0-9]+", str(display_name or "").lower())
+    age_match = re.search(r"(?:u|under)[- ]?(\\d{1,2})", str(display_name or ""), re.I)
+    age = age_match.group(1) if age_match else ""
+    women = bool(re.search(r"\\bwomen|\\bwomens|\\bwoman", str(display_name or ""), re.I))
+    men = bool(re.search(r"\\bmen|\\bmens", str(display_name or ""), re.I))
+    ignored = {"women", "womens", "woman", "men", "mens", "under", "u"}
+    country_words = [word for word in words if word not in ignored and not re.fullmatch(r"u?\\d+", word)]
+    acronym = "".join(word[0] for word in country_words)
+    first = country_words[0] if country_words else ""
+    candidates = {acronym, first[:2], first[:3], first[:4]}
+    if women:
+        candidates |= {acronym + "W", first[:3] + "W", first[:2] + "W"}
+    if men:
+        candidates |= {acronym + "M", first[:3] + "M"}
+    if age:
+        candidates |= {acronym + age, first[:3] + age}
+    candidates = {_normal_team_code(value) for value in candidates if value}
+    return code_key in candidates
+
+
 def parse_analysis(html: str):
     soup = BeautifulSoup(html, "html.parser")
     page_title = soup.title.get_text(" ", strip=True) if soup.title else "AI11 match"
@@ -360,28 +387,102 @@ def parse_analysis(html: str):
         if players:
             break
 
-    intelligence = {}
+    # AI11 logos use display labels while the detailed table uses team codes.
+    # Map codes to display labels only where the abbreviation match is clear.
+    team_codes = list(dict.fromkeys(
+        str(player.get("team") or "").strip() for player in players
+        if player.get("team") and player.get("team") != "UNKNOWN"
+    ))
+    team_code_map = {}
+    for code in team_codes:
+        matches = [name for name in teams if _team_code_matches_name(code, name)]
+        if len(matches) == 1:
+            team_code_map[code] = matches[0]
+    if len(team_codes) >= 2 and len(team_code_map) < 2:
+        # Avoid a mixed full-name/code team split when a provider uses a new code.
+        team_a, team_b = team_codes[0], team_codes[1]
+        team_code_map = {code: code for code in team_codes}
+    for player in players:
+        player["team"] = team_code_map.get(player.get("team"), player.get("team"))
+    for profile in profiles:
+        profile["team"] = team_code_map.get(profile.get("team"), profile.get("team"))
+
+    intelligence = {"team_display_names": team_code_map, "team_codes": team_codes}
 
     def find_num(pattern):
         match = re.search(pattern, text, re.I)
         return _number(match.group(1)) if match else None
 
-    intelligence["average_first_innings"] = find_num(r"average first[- ]innings score[^0-9]{0,50}(\d{2,3})")
-    intelligence["rain_probability"] = find_num(r"Chance of rain\s*(\d+(?:\.\d+)?)\s*%?")
-    intelligence["humidity"] = find_num(r"Humidity\s*(\d+(?:\.\d+)?)\s*%?")
-    intelligence["wind_kmh"] = find_num(r"Wind\s*(\d+(?:\.\d+)?)\s*km/h")
+    intelligence["average_first_innings"] = find_num(
+        r"average first[- ]innings score[^0-9]{0,80}(\\d{2,3})"
+    )
+    intelligence["average_second_innings"] = find_num(
+        r"average second[- ]innings score[^0-9]{0,80}(\\d{2,3})"
+    )
+    sample_match = re.search(
+        r"average (?:first|second)[- ]innings score.*?based on (\\d+) matches", text, re.I
+    )
+    if sample_match:
+        intelligence["venue_matches"] = int(sample_match.group(1))
+    intelligence["rain_probability"] = find_num(r"Chance of rain\\s*(\\d+(?:\\.\\d+)?)\\s*%?")
+    intelligence["humidity"] = find_num(r"Humidity\\s*(\\d+(?:\\.\\d+)?)\\s*%?")
+    intelligence["wind_kmh"] = find_num(r"Wind\\s*(\\d+(?:\\.\\d+)?)\\s*km/h")
     if venue:
         intelligence["venue_name"] = venue
-    pitch_match = re.search(r"pitch (?:favou?rs?|is) ([^.]+)", text, re.I)
+
+    pitch_match = re.search(
+        r"(?:the )?pitch (?:favou?rs?|is|looks) ([^.]+)", text, re.I
+    )
     if pitch_match:
-        intelligence["pitch_notes"] = pitch_match.group(0).strip()
+        pitch_notes = pitch_match.group(0).strip()
+        intelligence["pitch_notes"] = pitch_notes[:500]
+        lower_pitch = pitch_notes.casefold()
+        if any(word in lower_pitch for word in ("fast bowler", "seam", "pace")):
+            intelligence["pitch_type"] = "pace"
+            intelligence["pitch_recommendation"] = "Pace-friendly"
+        elif any(word in lower_pitch for word in ("spinner", "spin", "turn")):
+            intelligence["pitch_type"] = "spin"
+            intelligence["pitch_recommendation"] = "Spin-friendly"
+        elif any(word in lower_pitch for word in ("batting", "batter", "batsman", "flat pitch")):
+            intelligence["pitch_type"] = "batting"
+            intelligence["pitch_recommendation"] = "Batting-friendly"
+        elif any(word in lower_pitch for word in ("bowler", "bowling")):
+            intelligence["pitch_type"] = "bowling"
+            intelligence["pitch_recommendation"] = "Bowling-friendly"
+        else:
+            intelligence["pitch_type"] = "balanced"
+            intelligence["pitch_recommendation"] = "Balanced"
+        intelligence["pitch_confidence"] = "source-description"
+
+    toss_match = re.search(
+        r"Who won the toss.*?\\s+([A-Za-z0-9-]+)\\s+elected to (bat|field|bowl)(?: first)?",
+        text, re.I
+    )
+    if toss_match:
+        toss_code = toss_match.group(1)
+        toss_winner = team_code_map.get(toss_code, toss_code)
+        decision = "bat" if toss_match.group(2).casefold() == "bat" else "bowl"
+        intelligence.update({
+            "toss_completed": True,
+            "toss_winner": toss_winner,
+            "toss_decision": decision,
+        })
+        other = team_b if toss_winner == team_a else team_a if toss_winner == team_b else None
+        if other:
+            intelligence["batting_first_team"] = toss_winner if decision == "bat" else other
+            intelligence["chasing_team"] = other if decision == "bat" else toss_winner
+
+    if re.search(r"Dew is likely", text, re.I):
+        intelligence["dew_likely"] = True
+    elif re.search(r"Dew is unlikely", text, re.I):
+        intelligence["dew_likely"] = False
     form_match = re.search(r"Recent Form(.*?)(?:Head to Head|Pitch Report)", text, re.I)
     if form_match:
-        intelligence["recent_form_source_text"] = form_match.group(1).strip()[:500]
-    h2h_match = re.search(r"Head to Head \(last 5\)(.*?)(?:Pitch Report|Weather)", text, re.I)
+        intelligence["recent_form_source_text"] = form_match.group(1).strip()[:700]
+    h2h_match = re.search(r"Head to Head \\(last 5\\)(.*?)(?:Pitch Report|Weather)", text, re.I)
     if h2h_match:
-        intelligence["h2h_source_text"] = h2h_match.group(1).strip()[:500]
-    weather_match = re.search(r"Weather:.*?(?:Dew is likely[^.]*\.)?", text, re.I)
+        intelligence["h2h_source_text"] = h2h_match.group(1).strip()[:700]
+    weather_match = re.search(r"Weather:.*?(?:Dew is (?:likely|unlikely)[^.]*\\.)?", text, re.I)
     if weather_match:
         intelligence["weather_summary"] = weather_match.group(0)[:500]
     return {"match_id": match_id, "title": match_name, "format": fmt, "team_a": team_a, "team_b": team_b,
