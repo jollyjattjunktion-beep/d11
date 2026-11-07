@@ -228,14 +228,34 @@ def parse_analysis(html: str):
         if venue_match:
             venue = venue_match.group(1).strip()
     teams = []
+    # Prefer an explicit fixture title over image alt text: player headshots may
+    # also have alt labels and must never be mistaken for team names.
+    fixture_candidates = [page_title, heading_text]
+    for candidate in fixture_candidates:
+        match_vs = re.search(r"(.+?)\s+vs\s+(.+)", candidate, re.I)
+        if not match_vs:
+            continue
+        left = re.sub(r"\s*[|:–—].*$", "", match_vs.group(1)).strip(" -,:")
+        right = re.split(
+            r"\s*(?:[|:–—]|-\s*)?\s*(?:\d+(?:st|nd|rd|th)\s+(?:match|odi|t20i)|dream team|fantasy|pitch report|player stats).*",
+            match_vs.group(2), maxsplit=1, flags=re.I
+        )[0].strip(" -,:")
+        if left and right:
+            teams = [left, right]
+            break
+    image_team_alts = []
     for node in soup.select("img[alt]"):
         alt = node.get("alt", "").strip()
-        if alt and alt.lower() not in {"image", "logo"} and alt not in teams:
-            teams.append(alt)
-    if len(teams) < 2:
-        m = re.search(r"([A-Za-z ]+)\s+vs\s+([A-Za-z ]+)", page_title, re.I)
-        if m:
-            teams = [m.group(1).strip(), m.group(2).strip()]
+        if alt and alt.lower() not in {"image", "logo"} and alt not in image_team_alts:
+            image_team_alts.append(alt)
+    if len(teams) == 2:
+        mapped = []
+        for team_label in teams:
+            aliases = [name for name in image_team_alts if _team_code_matches_name(team_label, name)]
+            mapped.append(aliases[0] if len(aliases) == 1 else team_label)
+        teams = mapped
+    elif len(image_team_alts) >= 2:
+        teams = image_team_alts[:2]
     team_a, team_b = (teams[0], teams[1]) if len(teams) >= 2 else ("TEAM_A", "TEAM_B")
     match_name = re.sub(r"\s*\|\s*AI11.*$", "", page_title, flags=re.I).strip()
     match_name = re.sub(r"\s*[:–-]\s*(?:Fantasy Preview|Pitch Report|Player Stats).*$", "", match_name, flags=re.I).strip()
