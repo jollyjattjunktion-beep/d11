@@ -21,15 +21,19 @@ def fixture(match_id="public-sync-1"):
     }
 
 
-def test_public_fixture_sync_creates_then_hides_without_deleting_sql_history(monkeypatch):
+def _make_session():
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
     Base.metadata.create_all(bind=engine)
-    TestSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-    db = TestSession()
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    return engine, session
+
+
+def test_public_fixture_sync_retains_omitted_match_and_sql_history(monkeypatch):
+    engine, db = _make_session()
     try:
         monkeypatch.setattr(main, "_teamgeneration_request", lambda _url: [fixture()])
         created = main._sync_public_match_feed(db, force=True)
@@ -41,50 +45,48 @@ def test_public_fixture_sync_creates_then_hides_without_deleting_sql_history(mon
         assert match.status == "upcoming"
         assert len(main._public_match_records(db)) == 1
 
-        # Once the ODI's format-aware playing window has elapsed, an omitted
-        # fixture is marked complete and removed from the public list.
+        # Even after the expected ODI playing window, omission from the provider
+        # is metadata only. Do not delete or silently mutate the SQL match.
         match.start_time = (datetime.now(timezone.utc) - timedelta(hours=13)).isoformat()
         match.status = "upcoming"
         db.commit()
         monkeypatch.setattr(main, "_teamgeneration_request", lambda _url: [])
-        hidden = main._sync_public_match_feed(db, force=True)
-        assert hidden["ok"] is True
-        assert hidden["hidden"] == 1
+        result = main._sync_public_match_feed(db, force=True)
+        assert result["ok"] is True
 
         retained = db.get(Match, "public-sync-1")
         assert retained is not None
+        assert retained.status == "upcoming"
         intelligence = db.get(MatchIntelligence, "public-sync-1")
-        assert intelligence.data["public_feed"]["public_listed"] is False
-        assert main._public_match_records(db) == []
+        assert intelligence.data["public_feed"]["public_listed"] is True
+        assert intelligence.data["public_feed"]["provider_missing_in_latest_feed"] is True
+        assert len(main._public_match_records(db)) == 1
     finally:
         db.close()
         engine.dispose()
 
 
-
-def test_omitted_match_is_kept_live_during_playing_window(monkeypatch):
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(bind=engine)
-    TestSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-    db = TestSession()
+def test_omitted_match_is_retained_without_automatic_status_mutation(monkeypatch):
+    engine, db = _make_session()
     try:
         monkeypatch.setattr(main, "_teamgeneration_request", lambda _url: [fixture("public-live-2")])
         main._sync_public_match_feed(db, force=True)
         match = db.get(Match, "public-live-2")
+        assert match is not None
         match.start_time = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
         match.status = "upcoming"
         db.commit()
 
         monkeypatch.setattr(main, "_teamgeneration_request", lambda _url: [])
-        main._sync_public_match_feed(db, force=True)
+        result = main._sync_public_match_feed(db, force=True)
+        assert result["ok"] is True
 
         retained = db.get(Match, "public-live-2")
-        assert retained.status == "live"
-        assert db.get(MatchIntelligence, "public-live-2").data["public_feed"]["public_listed"] is True
+        assert retained is not None
+        assert retained.status == "upcoming"
+        feed = db.get(MatchIntelligence, "public-live-2").data["public_feed"]
+        assert feed["public_listed"] is True
+        assert feed["provider_missing_in_latest_feed"] is True
         assert len(main._public_match_records(db)) == 1
     finally:
         db.close()

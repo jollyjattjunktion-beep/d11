@@ -89,6 +89,7 @@ class AdminMatchUpdate(BaseModel):
     team_b: str | None = Field(default=None, max_length=100)
     status: str | None = Field(default=None, max_length=30)
     venue_id: str | None = Field(default=None, max_length=160)
+    use_feed_venue: bool = False
 
 
 class SquadPlayerEdit(BaseModel):
