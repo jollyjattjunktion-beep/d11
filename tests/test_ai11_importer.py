@@ -160,8 +160,9 @@ def test_ai11_grouped_batting_bowling_stats_are_saved_as_aggregates_not_fantasy_
     assert stats["bowling_average"] == 24.5
     assert stats["best_bowling"] == "2/18"
     assert stats["catches_stumpings"] == "5/1"
-    assert stats["source_reported_points"] == 320
+    assert profile["ai11_series_summary"]["ai11_series_points_reported"] == 320
     assert "fantasy_points" not in stats
+    assert "fantasy_points" not in profile["ai11_series_summary"]
     assert profile["data_type"] == "career_or_series_aggregate_not_match_level"
 
 
