@@ -155,3 +155,75 @@ def test_score_scenario_is_recorded_as_user_assumption_not_projection():
         "mode": "chasing", "team": "B", "scenario_score": 190, "format": "T20"
     }
     assert team["projected_points"] is None
+
+
+def test_strongest_strategy_prefers_high_performance_profiles_over_popularity():
+    from app.optimizer import _player_signal
+
+    base = {
+        "team": "A", "role": "BAT", "status": "unknown",
+        "expected_points": None, "floor_points": None, "ceiling_points": None,
+        "ai11_projected_points": 8,
+    }
+    high_performance = {
+        **base,
+        "player_id": "performance-first",
+        "selection_pct": 12.0,
+        "ai11_metrics": {
+            "career_matches": 24, "batting_innings": 22,
+            "batting_average": 48, "batting_strike_rate": 145,
+            "runs": 1056, "series_average_points": 96,
+            "series_runs": 180, "series_wickets": 0,
+        },
+    }
+    popular_low_performance = {
+        **base,
+        "player_id": "popular-player",
+        "selection_pct": 98.0,
+        "ai11_metrics": {
+            "career_matches": 18, "batting_innings": 16,
+            "batting_average": 14, "batting_strike_rate": 78,
+            "runs": 224, "series_average_points": 15,
+            "series_runs": 24, "series_wickets": 0,
+        },
+    }
+    first = _player_signal(
+        high_performance, "strongest", "neutral", match_format="T20", provisional=True
+    )
+    second = _player_signal(
+        popular_low_performance, "strongest", "neutral", match_format="T20", provisional=True
+    )
+    assert first > second
+
+
+def test_strongest_strategy_generates_legal_team_and_performance_first_captaincy():
+    players = sample_players()
+    for i, player in enumerate(players):
+        player["expected_points"] = None
+        player["floor_points"] = None
+        player["ceiling_points"] = None
+        player["selection_pct"] = 10 if i == 0 else 90
+        player["ai11_projected_points"] = 8 if i == 0 else 1
+        player["ai11_metrics"] = {
+            "career_matches": 20,
+            "batting_innings": 18 if player["role"] in {"BAT", "WK", "AR"} else 0,
+            "batting_average": 52 if i == 0 else 21,
+            "batting_strike_rate": 145 if i == 0 else 105,
+            "runs": 900 if i == 0 else 300,
+            "bowling_innings": 16 if player["role"] in {"BOWL", "AR"} else 0,
+            "wickets": 30 if i == 0 else 6,
+            "economy": 5.5 if i == 0 else 8.5,
+            "bowling_average": 18 if i == 0 else 38,
+            "series_average_points": 90 if i == 0 else 25,
+        }
+    team = build_teams(
+        players, "strongest", TeamRules(), 1,
+        mode="provisional", match_format="T20"
+    )[0]
+    selected = {p["player_id"] for p in team["players"]}
+    assert len(selected) == 11
+    assert team["captain_id"] in selected
+    assert team["vice_captain_id"] in selected
+    assert team["captain_id"] != team["vice_captain_id"]
+    assert team["projected_points"] is None
+    assert team["points_available"] is False
