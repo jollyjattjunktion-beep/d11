@@ -129,43 +129,16 @@ def _sync_public_match_feed(db: Session, force: bool = False) -> dict:
 
         # Hide provider-omitted fixtures from the public list but keep their
         # Match, squad, scorecards and player-history rows in SQL.
-        existing_rows = db.scalars(
-            select(Match).where(Match.source == "Team Generation")
-        ).all()
+        # No hard delete or status mutation for records missing upstream.
+        # Preserve all match, squad, player history, predictions and venue rows.
         for match in existing_rows:
             if match.id in seen_ids:
                 continue
             intel = db.get(MatchIntelligence, match.id)
             intel_data = dict(intel.data or {}) if intel and isinstance(intel.data, dict) else {}
             public_feed = dict(intel_data.get("public_feed") or {})
-
-            # Some fixture feeds list only upcoming games and drop a match as
-            # soon as it starts. Keep an omitted match visible through a
-            # format-aware playing window instead of removing it at kickoff.
-            if match.status not in {"completed", "cancelled"}:
-                time_status = classify_fixture_status("", match.start_time, match.format)
-            else:
-                time_status = match.status
-
-            if time_status == "upcoming":
-                match.status = "postponed" if match.status == "postponed" else "upcoming"
-                public_feed["public_listed"] = True
-                public_feed["visibility_basis"] = "scheduled_start_time"
-                public_feed["source_status"] = public_feed.get("source_status") or "not_returned_in_latest_feed"
-            elif time_status == "live":
-                match.status = "live"
-                public_feed["public_listed"] = True
-                public_feed["visibility_basis"] = "format_playing_window"
-                public_feed["source_status"] = public_feed.get("source_status") or "not_returned_in_latest_feed"
-            else:
-                if public_feed.get("public_listed") is not False:
-                    hidden += 1
-                match.status = "cancelled" if time_status == "cancelled" else "completed"
-                public_feed["public_listed"] = False
-                public_feed["removed_from_public_list_at"] = synced_at
-                public_feed["visibility_basis"] = "provider_completion_or_expired_playing_window"
-
             public_feed["last_sync_check_at"] = synced_at
+            public_feed["provider_missing_in_latest_feed"] = True
             intel_data["public_feed"] = public_feed
             if intel is None:
                 db.add(MatchIntelligence(match_id=match.id, data=intel_data))
