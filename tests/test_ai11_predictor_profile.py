@@ -71,8 +71,9 @@ def test_ai11_grouped_headers_with_rowspan_extract_full_player_row():
     assert stats["bowling_average"] == 24.5
     assert stats["best_bowling"] == "2/18"
     assert stats["catches_stumpings"] == "5/1"
-    assert stats["source_reported_points"] == 320
+    assert profile["ai11_series_summary"]["ai11_series_points_reported"] == 320
     assert "fantasy_points" not in stats
+    assert "fantasy_points" not in profile["ai11_series_summary"]
 
 
 def test_fantasy_projection_requires_three_match_level_records():
