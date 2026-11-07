@@ -241,6 +241,11 @@ def build_ai11_match_analysis(players: list[dict], match: dict, intelligence: di
         enriched.append(player)
 
     available = [p for p in enriched if p.get("ai11_profile_metrics_available")]
+    missing_profiles = [
+        {"player_name": p.get("player_name"), "team": p.get("team"), "role": p.get("role")}
+        for p in enriched if not p.get("ai11_profile_metrics_available")
+    ]
+    coverage_pct = round(100.0 * len(available) / max(1, len(enriched)), 1)
     pitch_type = str(intelligence.get("pitch_type") or "unknown").lower()
     first_avg = _num(intelligence.get("average_first_innings"))
     second_avg = _num(intelligence.get("average_second_innings"))
@@ -306,7 +311,13 @@ def build_ai11_match_analysis(players: list[dict], match: dict, intelligence: di
         "source": "AI11",
         "available": bool(available),
         "format": fmt,
-        "profile_coverage": {"players_with_ai11_profiles": len(available), "squad_players": len(enriched)},
+        "profile_coverage": {
+            "players_with_ai11_profiles": len(available),
+            "squad_players": len(enriched),
+            "coverage_pct": coverage_pct,
+            "players_missing_ai11_profile": missing_profiles,
+            "quality": "complete" if coverage_pct >= 95 else "partial" if coverage_pct >= 70 else "low",
+        },
         "pitch": {
             "type": pitch_type,
             "notes": intelligence.get("pitch_notes"),
