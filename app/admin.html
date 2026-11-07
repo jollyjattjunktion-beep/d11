@@ -219,8 +219,8 @@
         <div class="section-label">Both teams — analysis at this venue</div>
         <div class="helper" style="margin-bottom:10px">Historical stats are matched to the current squad by player name. Team figures below are current-squad player records at this venue, not team win percentages.</div>
         <div id="venueTeamAnalysis" class="team-columns"></div>
-        <div class="section-label" style="margin-top:22px">Fixed players — include in every generated team</div>
-        <div class="helper">Fixed players are forced into every generated team. Use only players you genuinely want locked; the Strongest strategy will select the rest by performance, series form and role opportunity rather than popularity alone.</div>
+        <div class="section-label" style="margin-top:22px">Saved high-selection picks — optional locks</div>
+        <div class="helper">Saved high-selection picks are optional locks. Strongest ranks the full squad using performance, series form and role opportunity; it does not force popular picks by default.</div>
         <div class="row" style="justify-content:space-between;margin:12px 0">
           <button class="btn outline" id="autoPickHighSelection">Auto-pick top 5 (80%+)</button>
           <button class="btn" id="openSuggestions">Review suggested fixed players</button>
@@ -229,7 +229,7 @@
         <div class="section-label" style="margin-top:20px">Full squad — select eligible fixed players</div>
         <div class="inline-options" id="fixedFilters" style="margin:10px 0"></div>
         <div class="team-columns" id="fixedTeams"></div>
-        <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn green" id="saveFixed">Save eligible fixed players & continue</button></div>
+        <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn green" id="saveFixed">Save preferred picks & continue</button></div>
       </section>
       <section class="step-view" id="view5">
         <div class="match-grid" id="finalSummary"></div>
@@ -640,7 +640,7 @@ $('saveFixed').onclick=async()=>{
   await saveContext();renderFinalSummary();setStep(5);
  }catch(e){alert(e.message)}
 };
-function renderFinalSummary(){const s=[['MATCH',state.match.name],['PITCH',state.venueAnalysis?.pitch_recommendation||'Not analysed'],['TOSS EDGE',state.venueAnalysis?.toss_recommendation||'Not analysed'],['STRONG TEAM',state.teamStrengthAnalysis?.strong_team||'Insufficient evidence'],['FIXED PLAYERS',state.fixed.size],['PLAYING XI',state.lineupConfirmed?'Confirmed':'Provisional']];$('finalSummary').innerHTML=s.map(x=>'<div class="stat"><small>'+esc(x[0])+'</small><b style="font-size:14px">'+esc(x[1])+'</b></div>').join('');}
+function renderFinalSummary(){const s=[['MATCH',state.match.name],['PITCH',state.venueAnalysis?.pitch_recommendation||'Not analysed'],['TOSS EDGE',state.venueAnalysis?.toss_recommendation||'Not analysed'],['STRONG TEAM',state.teamStrengthAnalysis?.strong_team||'Insufficient evidence'],['SAVED PICKS',state.fixed.size],['PLAYING XI',state.lineupConfirmed?'Confirmed':'Provisional']];$('finalSummary').innerHTML=s.map(x=>'<div class="stat"><small>'+esc(x[0])+'</small><b style="font-size:14px">'+esc(x[1])+'</b></div>').join('');}
 function addPitchPlayer(row,p,t){
  const card=document.createElement('div');card.className='pitch-player';
  const isCaptain=p.player_id===t.captain_id,isVice=p.player_id===t.vice_captain_id;
