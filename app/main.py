@@ -1381,7 +1381,7 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
             "toss_completed", "toss_winner", "toss_decision",
             "batting_first_team", "chasing_team", "recent_form_source_text",
             "h2h_source_text", "weather_summary", "rain_probability", "humidity",
-            "wind_kmh", "dew_likely",
+            "wind_kmh", "dew_likely", "match_completed", "match_date",
         }
         for key in context_keys:
             value = source_intelligence.get(key)
