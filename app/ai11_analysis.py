@@ -104,8 +104,11 @@ def _profile_scores(player: dict, fmt: str) -> dict:
     series_matches = _num(series.get("series_matches")) or 0.0
     series_avg = _num(series.get("series_average_points"))
     series_points_score = metric_score(series_avg, base["points"])
-    projected_points = _num(player.get("ai11_projected_points") or metrics.get("ai11_projected_points"))
-    projection_score = metric_score(projected_points, base["points"])
+    # AI11's compact P column is a provider-side metric, not fantasy points.
+    # The completed-match PTS column is parsed separately as match-level data.
+    source_p_raw = _num(player.get("ai11_source_p_raw"))
+    projected_points = None
+    projection_score = None
     series_runs = _num(series.get("series_runs"))
     series_wickets = _num(series.get("series_wickets"))
     series_runs_score = None
@@ -185,8 +188,10 @@ def _profile_scores(player: dict, fmt: str) -> dict:
         "ai11_series_score": series_form_score,
         "ai11_recent_form_score": series_form_score,
         "ai11_series_points_score": series_points_score,
-        "ai11_projected_points": projected_points,
-        "ai11_projection_score": projection_score,
+        "ai11_projected_points": None,
+        "ai11_projection_score": None,
+        "ai11_source_p_raw": source_p_raw,
+        "ai11_match_performance": player.get("ai11_match_performance") or {},
         "ai11_series_runs_score": series_runs_score,
         "ai11_series_wickets_score": series_wickets_score,
         "ai11_role_score": role_score,
@@ -240,8 +245,8 @@ def _player_reason(player: dict, score_key: str) -> str:
         if style in {"pace", "spin"}:
             facts.append(f"{style} bowling profile")
     else:
-        if player.get("ai11_projected_points") is not None:
-            facts.append(f"AI11 source projection: {player['ai11_projected_points']} points")
+        if player.get("ai11_source_p_raw") is not None:
+            facts.append(f"AI11 source P field (unscaled provider metric): {player['ai11_source_p_raw']}")
         if series.get("series_average_points") is not None:
             facts.append(f"AI11 series average: {series['series_average_points']}")
         if series.get("series_matches") is not None:
@@ -304,6 +309,23 @@ def build_ai11_match_analysis(players: list[dict], match: dict, intelligence: di
          and float(p["ai11_selection_pct"]) <= 35 and float(p["ai11_role_score"]) >= 58],
         key=lambda p: float(p.get("ai11_role_score") or 0), reverse=True
     )[:5]
+    completed_match_players = []
+    for player in enriched:
+        performance = player.get("ai11_match_performance") or {}
+        points = _num(performance.get("fantasy_points"))
+        if intelligence.get("match_completed") and points is not None:
+            completed_match_players.append({
+                "player_id": player.get("player_id"),
+                "player_name": player.get("player_name"),
+                "team": player.get("team"),
+                "role": player.get("role"),
+                "actual_match_points": points,
+                "batting_points": _num(performance.get("batting_points")),
+                "bowling_points": _num(performance.get("bowling_points")),
+                "fielding_points": _num(performance.get("fielding_points")),
+            })
+    completed_match_players.sort(key=lambda p: p["actual_match_points"], reverse=True)
+
     captaincy = sorted(
         [p for p in enriched if p.get("ai11_role_score") is not None],
         key=lambda p: (
@@ -366,6 +388,13 @@ def build_ai11_match_analysis(players: list[dict], match: dict, intelligence: di
         },
         "recent_form": intelligence.get("recent_form_source_text"),
         "head_to_head": intelligence.get("h2h_source_text"),
+        "match_performance": {
+            "available": bool(intelligence.get("match_completed") and completed_match_players),
+            "completed": bool(intelligence.get("match_completed")),
+            "match_date": intelligence.get("match_date"),
+            "players": completed_match_players[:10],
+            "note": "Retrospective AI11 Match Performance PTS, shown only after the match is completed. Excluded from predictions for this same match; can train future matches.",
+        },
         "weather": {
             "summary": intelligence.get("weather_summary"),
             "rain_probability": intelligence.get("rain_probability"),
@@ -391,8 +420,9 @@ def build_ai11_match_analysis(players: list[dict], match: dict, intelligence: di
             },
         },
         "data_integrity": {
-            "note": "AI11 source projected-points values, career/series aggregates and selection/C/VC trends are ranking signals, not verified match-by-match Dream11 fantasy points.",
+            "note": "AI11 career/series aggregates and selection/C/VC trends are profile signals. Completed-match PTS is a separate match-level source record and is excluded from same-match predictions.",
             "fantasy_point_projections_from_ai11": False,
+            "completed_match_points_are_retrospective": True,
         },
     }
     return enriched, analysis
