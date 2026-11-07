@@ -2957,7 +2957,7 @@ def _parse_cricsheet_archive(archive_bytes: bytes, max_matches: int) -> tuple[li
 
 def _cricsheet_match_values(record: dict) -> dict:
     return {key: record[key] for key in (
-        "source_file", "source_sha256", "match_date", "season", "competition",
+        "source_file", "source_sha256", "match_date", "gender", "season", "competition",
         "venue", "city", "team_a", "team_b", "toss_winner", "toss_decision",
         "winner", "result_method", "innings"
     )}
@@ -3049,6 +3049,7 @@ def import_cricsheet_t20(payload: CricsheetImportRequest,
                 for player in record["players"]:
                     old = existing_players.get((record["source_match_id"], player["player_key"]))
                     values = {k: v for k, v in player.items() if k != "player_key"}
+                    values["gender"] = record.get("gender", "unknown")
                     if old is None:
                         db.add(CricsheetPlayerMatch(
                             source_match_id=record["source_match_id"],
