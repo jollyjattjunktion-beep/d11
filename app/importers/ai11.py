@@ -271,10 +271,10 @@ def parse_analysis(html: str):
         return _number(match.group(1)) if match else None
 
     intelligence["average_first_innings"] = find_num(
-        r"average first[- ]innings score[^0-9]{0,80}(\d{2,3})"
+        r"average first[- ]innings score.{0,120}?(\d{2,3})"
     )
     intelligence["average_second_innings"] = find_num(
-        r"average second[- ]innings score[^0-9]{0,80}(\d{2,3})"
+        r"average second[- ]innings score.{0,120}?(\d{2,3})"
     )
     intelligence["rain_probability"] = find_num(r"Chance of rain\s*(\d+(?:\.\d+)?)\s*%?")
     intelligence["humidity"] = find_num(r"Humidity\s*(\d+(?:\.\d+)?)\s*%?")
