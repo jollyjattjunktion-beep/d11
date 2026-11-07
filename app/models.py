@@ -148,5 +148,24 @@ class CricsheetPlayerMatch(Base):
     run_outs: Mapped[int] = mapped_column(Integer, default=0)
     batting_innings: Mapped[int] = mapped_column(Integer, default=0)
     bowling_innings: Mapped[int] = mapped_column(Integer, default=0)
+    batting_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
     batting_phases: Mapped[dict] = mapped_column(JSON, default=dict)
     bowling_phases: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class CricsheetMatchup(Base):
+    """Per-match batter-vs-bowler totals; no ball-by-ball rows are retained."""
+    __tablename__ = "cricsheet_matchups"
+    __table_args__ = (UniqueConstraint("source_match_id", "batter_key", "bowler_key",
+                                       name="uq_cricsheet_matchup_pair"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_match_id: Mapped[str] = mapped_column(ForeignKey("cricsheet_matches.source_match_id"), index=True)
+    batter_key: Mapped[str] = mapped_column(String(180), index=True)
+    batter_name: Mapped[str] = mapped_column(String(180), index=True)
+    bowler_key: Mapped[str] = mapped_column(String(180), index=True)
+    bowler_name: Mapped[str] = mapped_column(String(180), index=True)
+    runs: Mapped[int] = mapped_column(Integer, default=0)
+    balls: Mapped[int] = mapped_column(Integer, default=0)
+    fours: Mapped[int] = mapped_column(Integer, default=0)
+    sixes: Mapped[int] = mapped_column(Integer, default=0)
+    dismissals: Mapped[int] = mapped_column(Integer, default=0)
