@@ -909,8 +909,18 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
         ai11_data=ai11_profile.data if ai11_profile and isinstance(ai11_profile.data,dict) else {}
         captain_pct=tg_data.get("captain_pct",ai11_data.get("captain_pct",ai11_data.get("captain")))
         vice_pct=tg_data.get("vice_captain_pct",ai11_data.get("vice_captain_pct",ai11_data.get("vice_captain")))
-        combined.append({**prediction,"credits":s.credits,"selection_pct":s.selection_pct,"status":s.status,
+        ai11_metrics = ai11_data.get("ai11_metrics") if isinstance(ai11_data.get("ai11_metrics"),dict) else {}
+        combined.append({**prediction,"credits":s.credits,
+                         "selection_pct":s.selection_pct if s.selection_pct is not None else ai11_data.get("ai11_selection_pct"),
+                         "status":s.status,
                          "captain_pct":captain_pct,"vice_captain_pct":vice_pct,
+                         # These source fields are essential to ranking. They must
+                         # be forwarded explicitly from SQL into the optimizer.
+                         "ai11_metrics":ai11_metrics,
+                         "ai11_projected_points":ai11_data.get("ai11_projected_points"),
+                         "ai11_selection_pct":ai11_data.get("ai11_selection_pct"),
+                         "ai11_captain_pct":ai11_data.get("ai11_captain_pct"),
+                         "ai11_vice_captain_pct":ai11_data.get("ai11_vice_captain_pct"),
                          "team_generation_image":tg_data.get("image"),
                          "team_generation_fantasy_ids":tg_data.get("fantasy_ids"),
                          "batting_position":tg_data.get("batting_position",prediction.get("batting_position")),
@@ -970,8 +980,9 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
             "excluded":payload.excluded_player_ids,
             "captain_pool":payload.captain_pool,"vice_captain_pool":payload.vice_captain_pool},
         "warnings":[
-            "AI Prediction Mode uses format-matched historical statistical estimates; it is not a trained machine-learning model."
-        ] + (["Provisional teams use AI11 career batting/bowling metrics, AI11's separate source projection, selection percentage and C/VC trends as bounded supporting signals. These do not become D11 fantasy-point estimates; projected fantasy points remain null without verified match-by-match history."] if not history_ready or "provisional" in modes else [])
+            "AI Prediction Mode uses format-matched historical statistical estimates; it is not a trained machine-learning model.",
+            f"AI11 profiles supplied to the optimizer for {sum(1 for p in combined if p.get('ai11_metrics') or p.get('ai11_projected_points'))} of {len(combined)} squad players."
+        ] + (["Provisional team scores are selection rankings, not verified Dream11 fantasy-point projections. AI11 source metrics and its P field are kept separate from match-by-match points."] if not history_ready or "provisional" in modes else [])
     }
 
 @app.get("/api/v1/model/status")
