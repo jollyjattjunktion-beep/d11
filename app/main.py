@@ -2932,6 +2932,8 @@ def _parse_cricsheet_archive(archive_bytes: bytes, max_matches: int) -> tuple[li
                 continue
             try:
                 record = parse_t20_json_bytes(archive.read(entry), entry.filename)
+            if record is None:
+                continue
             except (ValueError, KeyError, TypeError) as exc:
                 invalid.append({"file": entry.filename[:180], "reason": str(exc)[:240]})
                 continue
@@ -3020,13 +3022,14 @@ def import_cricsheet_t20(payload: CricsheetImportRequest,
     try:
         for record in records:
             match = existing_matches.get(record["source_match_id"])
+            changed = match is None or match.source_sha256 != record["source_sha256"]
             if match is None:
                 match = CricsheetMatch(source_match_id=record["source_match_id"], **_cricsheet_match_values(record))
                 db.add(match)
-            elif match.source_sha256 != record["source_sha256"]:
+            elif changed:
                 for key, value in _cricsheet_match_values(record).items():
                     setattr(match, key, value)
-            if match.source_sha256 != record["source_sha256"] or match.source_match_id not in existing_matches:
+            if changed:
                 for player in record["players"]:
                     old = existing_players.get((record["source_match_id"], player["player_key"]))
                     values = {k: v for k, v in player.items() if k != "player_key"}
