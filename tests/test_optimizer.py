@@ -155,3 +155,43 @@ def test_score_scenario_is_recorded_as_user_assumption_not_projection():
         "mode": "chasing", "team": "B", "scenario_score": 190, "format": "T20"
     }
     assert team["projected_points"] is None
+
+
+def test_ai11_current_series_average_points_improve_provisional_rank_without_becoming_points():
+    from app.optimizer import _player_signal
+    base = {
+        "player_id": "form-player", "role": "AR", "team": "A", "status": "confirmed",
+        "credits": 8.5, "selection_pct": 40, "expected_points": None,
+        "floor_points": None, "ceiling_points": None,
+    }
+    ordinary = _player_signal(base, "balanced", "neutral", match_format="ODI", provisional=True)
+    informed = _player_signal({
+        **base,
+        "ai11_metrics": {
+            "career_matches": 18, "batting_average": 35, "batting_strike_rate": 92,
+            "bowling_innings": 14, "wickets": 19, "economy": 4.8,
+            "series_matches": 3, "series_average_points": 95,
+            "series_runs": 120, "series_wickets": 7,
+        },
+        "ai11_projected_points": 15,
+    }, "balanced", "neutral", match_format="ODI", provisional=True)
+    assert informed > ordinary
+    assert base["expected_points"] is None
+    assert base.get("fantasy_points") is None
+
+
+def test_multi_team_portfolio_rotates_captain_and_vice_captain_exposure():
+    players = sample_players()
+    for p in players:
+        p["expected_points"] = None
+        p["floor_points"] = None
+        p["ceiling_points"] = None
+        p["ai11_captain_pct"] = 10
+        p["ai11_vice_captain_pct"] = 10
+    teams = build_teams(
+        players, "grand_league", TeamRules(), 3,
+        mode="provisional",
+    )
+    assert len(teams) == 3
+    assert len({t["captain_id"] for t in teams}) > 1
+    assert len({t["vice_captain_id"] for t in teams}) > 1
