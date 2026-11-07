@@ -406,3 +406,51 @@ def test_strongest_strategy_uses_recent_completed_match_form_without_projection(
     ) > _player_signal(
         low_recent, "strongest", "neutral", provisional=True
     )
+
+
+def test_strongest_provisional_score_does_not_default_boost_one_skill_allrounders():
+    from app.optimizer import _player_signal
+
+    common = {
+        "team": "A", "status": "unknown", "selection_pct": 40,
+        "expected_points": None, "floor_points": None, "ceiling_points": None,
+        "ai11_profile_factor": 1.0, "ai11_role_score": 70.0,
+        "ai11_recent_form_score": 70.0,
+    }
+    allrounder_without_two_skills = {
+        **common, "player_id": "ar-no-two-skill", "role": "AR",
+        "ai11_two_skill_profile": False,
+    }
+    batter_same_evidence = {
+        **common, "player_id": "bat-same-evidence", "role": "BAT",
+        "ai11_two_skill_profile": False,
+    }
+    ar_score = _player_signal(
+        allrounder_without_two_skills, "strongest", "neutral", provisional=True
+    )
+    bat_score = _player_signal(
+        batter_same_evidence, "strongest", "neutral", provisional=True
+    )
+    assert ar_score == bat_score
+
+
+def test_strongest_team_role_mix_can_select_four_specialist_bowlers_and_max_three_allrounders():
+    players = sample_players()
+    for index, player in enumerate(players):
+        player["expected_points"] = None
+        player["floor_points"] = None
+        player["ceiling_points"] = None
+        player["ai11_profile_factor"] = 1.0
+        player["ai11_role_score"] = 90.0 - index
+        player["ai11_recent_form_score"] = 85.0 - index
+    rules = TeamRules(
+        min_role={"WK": 1, "BAT": 3, "AR": 1, "BOWL": 4},
+        max_role={"WK": 4, "BAT": 6, "AR": 3, "BOWL": 6},
+    )
+    team = build_teams(
+        players, "strongest", rules, count_teams=1,
+        mode="provisional", match_format="T20",
+    )[0]
+    assert team["role_counts"]["BOWL"] >= 4
+    assert team["role_counts"]["AR"] <= 3
+    assert sum(team["role_counts"].values()) == 11
