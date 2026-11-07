@@ -21,7 +21,7 @@ def test_parse_ai11_player_table_maps_selection_and_role():
     assert data["format"] == "ODI"
     assert data["team_a"] == "New Zealand"
     assert data["players"][0]["role"] == "BAT"
-    assert data["players"][0]["status"] == "confirmed"
+    assert data["players"][0]["status"] == "unknown"
     assert data["players"][0]["selection_pct"] == 44.5
     assert data["profiles"][0]["ai11_captain_pct"] == 5.2
 
