@@ -567,9 +567,19 @@ def upsert_match(payload: MatchIn, db: Session = Depends(get_db)):
     row=db.get(Match,payload.id)
     data=payload.model_dump()
     if row is None:
-        row=Match(**data); db.add(row)
+        row=Match(**data)
+        db.add(row)
     else:
-        for key,value in data.items(): setattr(row,key,value)
+        # Public/import upserts may refresh fixture metadata, but never erase a
+        # manually selected stadium. Admin edits use the protected admin route.
+        intel = db.get(MatchIntelligence, payload.id)
+        intel_data = dict(intel.data or {}) if intel and isinstance(intel.data, dict) else {}
+        for key,value in data.items():
+            if key == "venue" and not should_update_venue_from_feed(
+                row.venue, value, intel_data
+            ):
+                continue
+            setattr(row,key,value)
     db.commit()
     return {"saved":True,"match_id":row.id}
 
