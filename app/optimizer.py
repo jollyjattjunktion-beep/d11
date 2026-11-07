@@ -89,7 +89,11 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
             base *= ai11_factor
         except (TypeError, ValueError):
             pass
-        floor_v, upside, consistency = base * 0.55, base * (1.18 if p.get("role") in {"AR", "WK"} else 1.08), 0.35
+        provisional_upside = (
+            1.12 if p.get("role") == "AR" and p.get("ai11_two_skill_profile")
+            else 1.08
+        )
+        floor_v, upside, consistency = base * 0.55, base * provisional_upside, 0.35
 
     # AI11 performance profiles influence selection in BOTH modes while
     # never being converted into a fantasy-point estimate. Current-series form
@@ -228,7 +232,7 @@ def _captain_score(p, strategy, scenario, innings_mode, score_team, scenario_sco
     ceiling = p.get("ceiling_points") or p.get("upside")
     if expected is None:
         floor_component = signal * 0.82
-        ceiling_component = signal * (1.10 if p.get("role") in {"AR", "WK"} else 1.0)
+        ceiling_component = signal * (1.08 if p.get("role") == "AR" and p.get("ai11_two_skill_profile") else 1.0)
     else:
         floor_component = float(p.get("floor_points") if p.get("floor_points") is not None else expected * 0.6)
         ceiling_component = float(ceiling if ceiling is not None else expected * 1.25)
