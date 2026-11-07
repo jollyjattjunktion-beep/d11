@@ -460,7 +460,7 @@ def test_pre_generation_diagnostic_flags_batting_friendly_bowling_gap_and_explai
     from app.optimizer import build_team_diagnostic
 
     players = []
-    roles = ["WK", "BAT", "BAT", "BAT", "AR", "AR", "AR",
+    roles = ["WK", "BAT", "BAT", "BAT", "AR", "AR", "AR", "AR",
              "BOWL", "BOWL", "BOWL", "BOWL", "BOWL"]
     for index, role in enumerate(roles):
         players.append({
@@ -475,7 +475,7 @@ def test_pre_generation_diagnostic_flags_batting_friendly_bowling_gap_and_explai
             "expected_overs": 4 if role == "BOWL" else 2 if role == "AR" else None,
             "selection_pct": 50,
         })
-    chosen = players[:10] + [players[7]]
+    chosen = players[:11]
     team = {
         "players": chosen, "captain_id": "diag-0", "vice_captain_id": "diag-1",
     }
@@ -514,3 +514,26 @@ def test_pre_generation_diagnostic_does_not_label_provisional_captain_index_as_p
     )
     assert diagnostic["captaincy_check"]["is_provisional_index"] is True
     assert "not fantasy points" in diagnostic["interpretation"]
+
+
+def test_player_opportunity_profile_rewards_top_order_and_confirmed_bowling_workload():
+    from app.optimizer import _player_opportunity_profile
+
+    top_order = {
+        "player_id": "top", "role": "BAT", "batting_position": 2,
+        "ai11_batting_score": 82,
+    }
+    lower_order = {
+        "player_id": "lower", "role": "BAT", "batting_position": 8,
+        "ai11_batting_score": 82,
+    }
+    four_over_bowler = {
+        "player_id": "bowler", "role": "BOWL", "expected_overs": 4,
+        "ai11_bowling_score": 80,
+    }
+    top_profile = _player_opportunity_profile(top_order, "T20")
+    lower_profile = _player_opportunity_profile(lower_order, "T20")
+    bowling_profile = _player_opportunity_profile(four_over_bowler, "T20")
+    assert top_profile["score"] > lower_profile["score"]
+    assert bowling_profile["components"]["bowling_workload"] == 100
+    assert bowling_profile["confidence"] > 0
