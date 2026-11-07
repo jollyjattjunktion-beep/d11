@@ -186,12 +186,12 @@ class VenueEnrichRequest(BaseModel):
 
 class CricsheetImportRequest(BaseModel):
     source_url: str = Field(
-        default="https://cricsheet.org/downloads/t20_json.zip",
+        default="https://cricsheet.org/downloads/all_json.zip",
         min_length=20,
         max_length=500,
     )
     dry_run: bool = True
-    max_matches: int = Field(default=5000, ge=1, le=10000)
+    max_matches: int = Field(default=30000, ge=1, le=30000)
 
 
 class CricsheetPlayerQuery(BaseModel):
