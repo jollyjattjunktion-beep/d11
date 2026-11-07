@@ -219,6 +219,7 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
         "source_file": source_file,
         "source_sha256": hashlib.sha256(raw).hexdigest(),
         "match_date": match_date,
+        "gender": str(info.get("gender") or "unknown").lower(),
         "season": str(info.get("season") or ""),
         "competition": str((info.get("event") or {}).get("name") or ""),
         "venue": venue,
