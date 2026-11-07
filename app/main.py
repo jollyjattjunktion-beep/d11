@@ -552,35 +552,6 @@ def sitemap_xml(request: Request, db: Session = Depends(get_db)):
         media_type="application/xml",
     )
 
-@app.get("/api/v1/admin/database/snapshot")
-def admin_database_snapshot(_admin: bool = Depends(require_admin), db: Session = Depends(get_db)):
-    """Export every application SQL row as JSON for a verified backup."""
-    from sqlalchemy import inspect as sa_inspect
-
-    inspector = sa_inspect(engine)
-    tables = []
-    for table_name in inspector.get_table_names():
-        if table_name.startswith("sqlite_"):
-            continue
-        columns = [column["name"] for column in inspector.get_columns(table_name)]
-        quoted_table = engine.dialect.identifier_preparer.quote(table_name)
-        statement = text(f"SELECT * FROM {quoted_table}")
-        rows = db.execute(statement).mappings().all()
-        tables.append({
-            "name": table_name,
-            "columns": columns,
-            "rows": [dict(row) for row in rows],
-            "row_count": len(rows),
-        })
-    return {
-        "format": "preet-fantasy-sql-snapshot-v1",
-        "database_backend": engine.dialect.name,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "tables": tables,
-        "total_rows": sum(table["row_count"] for table in tables),
-    }
-
-
 @app.get("/health")
 def health():
     return {
@@ -856,6 +827,36 @@ def admin_update_match(match_id: str, payload: AdminMatchUpdate,
         "venue_analysis": data.get("auto_venue_analysis"),
         "note": "Match details saved. Venue recommendations are recalculated from the selected stadium's matching-format records."
     }
+
+
+@app.get("/api/v1/admin/database/snapshot")
+def admin_database_snapshot(_admin: bool = Depends(require_admin), db: Session = Depends(get_db)):
+    """Export every application SQL row as JSON for a verified backup."""
+    from sqlalchemy import inspect as sa_inspect
+
+    inspector = sa_inspect(engine)
+    tables = []
+    for table_name in inspector.get_table_names():
+        if table_name.startswith("sqlite_"):
+            continue
+        columns = [column["name"] for column in inspector.get_columns(table_name)]
+        quoted_table = engine.dialect.identifier_preparer.quote(table_name)
+        statement = text(f"SELECT * FROM {quoted_table}")
+        rows = db.execute(statement).mappings().all()
+        tables.append({
+            "name": table_name,
+            "columns": columns,
+            "rows": [dict(row) for row in rows],
+            "row_count": len(rows),
+        })
+    return {
+        "format": "preet-fantasy-sql-snapshot-v1",
+        "database_backend": engine.dialect.name,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "tables": tables,
+        "total_rows": sum(table["row_count"] for table in tables),
+    }
+
 
 
 @app.post("/api/v1/admin/public-matches/sync")
