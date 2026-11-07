@@ -127,12 +127,12 @@ def test_analysis_reports_rankable_score_coverage_not_just_source_rows():
     assert coverage["players_missing_ai11_profile"][0]["player_name"] == "Empty Player"
 
 
-def test_ai11_source_projected_points_contribute_to_role_score_without_becoming_expected_points():
+def test_ai11_unscaled_source_p_field_is_not_treated_as_projected_points():
     players = [
         {
-            "player_id": "projection-only", "player_name": "Projection Only",
+            "player_id": "raw-p", "player_name": "Raw P Player",
             "team": "A", "role": "BAT", "status": "unknown",
-            "expected_points": None, "ai11_projected_points": 105,
+            "expected_points": None, "ai11_source_p_raw": 1,
             "ai11_metrics": {}, "ai11_series_summary": {},
             "ai11_selection_pct": 12,
         }
@@ -141,8 +141,44 @@ def test_ai11_source_projected_points_contribute_to_role_score_without_becoming_
         players, {"team_a": "A", "team_b": "B", "format": "T20"}, {}
     )
     item = enriched[0]
-    assert item["ai11_projection_score"] is not None
-    assert item["ai11_role_score"] == item["ai11_projection_score"]
+    assert item["ai11_source_p_raw"] == 1
+    assert item["ai11_projection_score"] is None
+    assert item["ai11_role_score"] is None
     assert item["expected_points"] is None
-    assert analysis["recommendations"]["projected_points"][0]["player_id"] == "projection-only"
+    assert analysis["recommendations"]["projected_points"] == []
     assert analysis["data_integrity"]["fantasy_point_projections_from_ai11"] is False
+
+
+def test_completed_match_performance_points_are_reported_retrospectively_only():
+    players = [
+        {
+            "player_id": "wareham", "player_name": "Georgia Wareham",
+            "team": "MR", "role": "AR", "status": "unknown",
+            "expected_points": None,
+            "ai11_metrics": {}, "ai11_series_summary": {},
+            "ai11_match_performance": {
+                "fantasy_points": 189, "batting_points": 135,
+                "bowling_points": 42, "fielding_points": 12,
+            },
+        },
+        {
+            "player_id": "matthews", "player_name": "Hayley Matthews",
+            "team": "MR", "role": "AR", "status": "unknown",
+            "expected_points": None,
+            "ai11_metrics": {}, "ai11_series_summary": {},
+            "ai11_match_performance": {"fantasy_points": 138},
+        },
+    ]
+    enriched, analysis = build_ai11_match_analysis(
+        players,
+        {"team_a": "MR", "team_b": "AS", "format": "T20"},
+        {"match_completed": True, "match_date": "2026-11-07"},
+    )
+    retrospective = analysis["match_performance"]
+    assert retrospective["available"] is True
+    assert retrospective["completed"] is True
+    assert retrospective["players"][0]["player_id"] == "wareham"
+    assert retrospective["players"][0]["actual_match_points"] == 189
+    assert retrospective["match_date"] == "2026-11-07"
+    assert all(player.get("expected_points") is None for player in enriched)
+    assert analysis["data_integrity"]["completed_match_points_are_retrospective"] is True
