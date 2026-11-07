@@ -171,6 +171,7 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
             "ai11_selection_pct":source_data.get("ai11_selection_pct"),
             "ai11_captain_pct":source_data.get("ai11_captain_pct"),
             "ai11_vice_captain_pct":source_data.get("ai11_vice_captain_pct"),
+            "ai11_projected_points":source_data.get("ai11_projected_points"),
             "source_profile_available":bool(source_data),
             "ai11_statistics":ai11_statistics,
             "ai11_series_summary":ai11_series_summary,
