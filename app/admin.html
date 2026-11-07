@@ -731,7 +731,8 @@ function renderAI11Analysis(data){
  const outer=document.createElement('section');outer.className='panel';outer.style.boxShadow='none';
  const head=document.createElement('div');head.className='panelhead';
  const heading=document.createElement('div');const h=document.createElement('h2');h.textContent='AI11 player intelligence analysis';
- const sub=document.createElement('div');sub.className='helper';sub.textContent=(data.profile_coverage?.players_with_ai11_profiles??0)+' of '+(data.profile_coverage?.squad_players??0)+' players have AI11 profile statistics • '+(data.format||state.match.format)+'';
+ const coverage=data.profile_coverage||{};
+ const sub=document.createElement('div');sub.className='helper';sub.textContent=(coverage.players_with_ai11_profiles??0)+' of '+(coverage.squad_players??0)+' players linked ('+(coverage.coverage_pct??0)+'% coverage) • '+(data.format||state.match.format)+'';
  heading.append(h,sub);const pill=document.createElement('span');pill.className='pill';pill.textContent='SOURCE-BASED';head.append(heading,pill);outer.append(head);
  const body=document.createElement('div');body.className='panelbody';
  const pitch=data.pitch||{},innings=data.innings||{},weather=data.weather||{};
@@ -748,6 +749,12 @@ function renderAI11Analysis(data){
  ];
  stats.forEach(([label,value])=>{const cell=document.createElement('div');cell.className='stat';const small=document.createElement('small');small.textContent=label;const strong=document.createElement('b');strong.textContent=String(value);cell.append(small,strong);statGrid.append(cell);});
  body.append(statGrid);
+ if(coverage.quality!=='complete'){
+  const warning=document.createElement('div');warning.className='notice warn';
+  const missing=(coverage.players_missing_ai11_profile||[]).map(p=>p.player_name).filter(Boolean);
+  warning.textContent='AI11 player data is '+(coverage.quality||'incomplete')+'. '+missing.length+' player profile(s) are missing: '+(missing.slice(0,10).join(', ')||'profile fields were not found')+'. The Strongest strategy cannot fully compare players without these records.';
+  body.append(warning);
+ }
  if(pitch.notes){const note=document.createElement('div');note.className='notice';note.textContent='Pitch evidence: '+pitch.notes;body.append(note);}
  [['Recent form',data.recent_form],['Head to head',data.head_to_head]].forEach(([label,value])=>{
   if(!value)return;
