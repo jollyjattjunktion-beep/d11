@@ -219,8 +219,8 @@
         <div class="section-label">Both teams — analysis at this venue</div>
         <div class="helper" style="margin-bottom:10px">Historical stats are matched to the current squad by player name. Team figures below are current-squad player records at this venue, not team win percentages.</div>
         <div id="venueTeamAnalysis" class="team-columns"></div>
-        <div class="section-label" style="margin-top:22px">Fixed players — include in every generated team</div>
-        <div class="helper">Choose exactly 4–5 players with provider selection percentage of 80% or higher. Venue history is a supporting signal when records exist.</div>
+        <div class="section-label" style="margin-top:22px">Saved high-selection picks — optional locks</div>
+        <div class="helper">Save popular players as preferred picks. Strongest selects the rest by performance; saved picks are only forced into every team when you enable the lock option in Step 5.</div>
         <div class="row" style="justify-content:space-between;margin:12px 0">
           <button class="btn outline" id="autoPickHighSelection">Auto-pick top 5 (80%+)</button>
           <button class="btn" id="openSuggestions">Review suggested fixed players</button>
@@ -229,18 +229,22 @@
         <div class="section-label" style="margin-top:20px">Full squad — select eligible fixed players</div>
         <div class="inline-options" id="fixedFilters" style="margin:10px 0"></div>
         <div class="team-columns" id="fixedTeams"></div>
-        <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn green" id="saveFixed">Save eligible fixed players & continue</button></div>
+        <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn green" id="saveFixed">Save preferred picks & continue</button></div>
       </section>
       <section class="step-view" id="view5">
         <div class="match-grid" id="finalSummary"></div>
         <div class="section-label">Team generation settings</div>
         <div class="row">
           <label style="flex:1;min-width:150px">Teams per strategy<select class="field" id="teamCount"><option>1</option><option>2</option><option>3</option><option>5</option></select></label>
-          <label style="flex:1;min-width:150px">Strategy<select class="field" id="strategy"><option value="safe">Safe</option><option value="balanced">Balanced</option><option value="grand_league">Grand League</option><option value="all">All strategies</option></select></label>
+          <label style="flex:1;min-width:150px">Strategy<select class="field" id="strategy"><option value="strongest" selected>Strongest — Performance first</option><option value="safe">Safe — Higher floor</option><option value="balanced">Balanced</option><option value="grand_league">Grand League — Differential upside</option><option value="all">All strategies</option></select></label>
           <label style="flex:1;min-width:190px">Team A : Team B split<select class="field" id="teamSplit"><option value="auto">Automatic / flexible</option><option value="6-5">Team A 6 — Team B 5</option><option value="5-6">Team A 5 — Team B 6</option><option value="7-4">Team A 7 — Team B 4</option><option value="4-7">Team A 4 — Team B 7</option></select></label>
         </div>
+        <label class="row" style="align-items:center;gap:8px;margin-top:12px">
+          <input type="checkbox" id="lockFixedPlayers" style="width:17px;height:17px">
+          <span><strong>Force saved high-selection picks into every team</strong><span class="helper" style="display:block;margin:0">Leave unchecked for the pure Strongest XI. Saved picks are suggestions, not mandatory selections.</span></span>
+        </label>
         <div class="notice warn" id="generationModeNotice">Historical fantasy point coverage will be checked at generation time. If history is missing, only provisional selection-score teams can be created.</div>
-        <div class="row" style="margin-top:18px"><button class="btn green" id="generateTeams">Generate fantasy teams</button><button class="btn secondary" id="printTeams" disabled>Print / Save PDF</button><span class="helper">Fixed players are locked into every generated team. Each team is previewed as a Dream11-style ground card.</span></div>
+        <div class="row" style="margin-top:18px"><button class="btn green" id="generateTeams">Generate fantasy teams</button><button class="btn secondary" id="printTeams" disabled>Print / Save PDF</button><span class="helper">Strongest ranks the full squad by AI11 performance and role evidence. Automatic split is flexible; saved picks are optional locks.</span></div>
         <div id="generationError" class="notice error" style="display:none"></div>
         <div id="teamResults" class="results" style="margin-top:18px"></div>
         <div class="controls"><button class="btn secondary" data-back>Back</button><button class="btn outline" id="restart">Start another match</button></div>
@@ -685,16 +689,16 @@ $('generateTeams').onclick=async()=>{
  $('generateTeams').disabled=true;$('generateTeams').textContent='Generating teams…';
  try{
   const strategy=$('strategy').value;
-  const strategies=strategy==='all'?['safe','balanced','grand_league']:[strategy];
+  const strategies=strategy==='all'?['strongest','safe','balanced','grand_league']:[strategy];
   const split=$('teamSplit').value;let team_a_count=null;
+  // Automatic means the optimizer is free to choose any legal split up to 7–4.
+  // Never force 6–5 from a separate "strong team" flag.
   if(split!=='auto')team_a_count=Number(split.split('-')[0]);
-  else if(state.strongTeam===state.match.team_a)team_a_count=6;
-  else if(state.strongTeam===state.match.team_b)team_a_count=5;
   const req={
    strategies,teams_per_strategy:Number($('teamCount').value),
    rules:{team_size:11,max_from_one_team:7,max_credits:100,min_role:{WK:1,BAT:3,AR:1,BOWL:3},max_role:{WK:4,BAT:6,AR:4,BOWL:6},playing_xi_only:state.lineupConfirmed,team_a_count},
    scenario:state.pitch==='batting'?'batting_friendly':state.pitch==='bowling'?'bowling_friendly':'neutral',
-   locked_player_ids:[...state.fixed],excluded_player_ids:[],captain_pool:[],vice_captain_pool:[],
+   locked_player_ids:$('lockFixedPlayers').checked?[...state.fixed]:[],excluded_player_ids:[],captain_pool:[],vice_captain_pool:[],
    team_mode:'automatic',generation_mode:'both'
   };
   const d=await api('/api/v1/matches/'+encodeURIComponent(state.matchId)+'/teams',{method:'POST',body:JSON.stringify(req)});
