@@ -238,7 +238,11 @@ def parse_analysis(html: str):
                 header_index = index
                 # AI11 uses rowspans for identity columns and colspans for
                 # Batting/Bowling groups. Reconstruct a flat logical header.
-                if not any(x in {"name", "player"} for x in candidate) and index > 0:
+                has_group_header = index > 0 and any(
+                    int(cell.get("colspan", 1) or 1) > 1
+                    for cell in rows[index - 1].find_all(["th", "td"])
+                )
+                if has_group_header:
                     group_cells = rows[index - 1].find_all(["th", "td"])
                     sub_cells = row.find_all(["th", "td"])
                     expanded = []
