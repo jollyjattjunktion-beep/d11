@@ -260,7 +260,7 @@
       </section>
     </div>
   </section>
-  <details style="margin-top:16px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px"><summary style="cursor:pointer;font-weight:800">Other provider — AI11 import</summary><p class="helper">AI11 remains separate from Team Generation. Paste the AI11 analysis or fantasy URL to import its player profiles.</p><div class="urlbox"><input class="field" id="ai11Url" type="url" placeholder="https://www.ai11.in/..."><button class="btn secondary" id="ai11Import">Import AI11</button></div><pre id="ai11Out" style="white-space:pre-wrap;background:#17212b;color:#e8fff4;padding:12px;border-radius:8px;display:none"></pre></details>
+  <details style="margin-top:16px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px"><summary style="cursor:pointer;font-weight:800">Other provider — AI11 import</summary><p class="helper">With a D11 match already open, AI11 profiles will be matched by player name and attached to that same match. Existing Team Generation credits, roles and confirmed Playing XI status are preserved. Without an open match, the importer creates a separate AI11 match.</p><div class="urlbox"><input class="field" id="ai11Url" type="url" placeholder="https://www.ai11.in/..."><button class="btn secondary" id="ai11Import">Import & link AI11</button></div><pre id="ai11Out" style="white-space:pre-wrap;background:#17212b;color:#e8fff4;padding:12px;border-radius:8px;display:none"></pre></details>
 <div class="footer">PREET FANTASY AI • Source-backed cricket data • No guaranteed fantasy points or outcomes</div>
 </main>
 <div class="suggest-modal" id="suggestModal">
@@ -828,7 +828,22 @@ $('generateTeams').onclick=async()=>{
 };
 $('printTeams').onclick=()=>window.print();
 $('restart').onclick=()=>{location.reload()};
-$('ai11Import').onclick=async()=>{const out=$('ai11Out');out.style.display='block';try{const url=$('ai11Url').value.trim();if(!url)throw new Error('Paste an AI11 URL first.');$('ai11Import').disabled=true;const d=await api('/api/v1/admin/import/ai11',{method:'POST',body:JSON.stringify({analysis_url:url})});out.textContent=JSON.stringify(d,null,2);state.matchId=d.match_id;await loadWizard();setStep(1);}catch(e){out.textContent=e.message;}finally{$('ai11Import').disabled=false;}};
+$('ai11Import').onclick=async()=>{
+ const out=$('ai11Out');out.style.display='block';
+ try{
+  const url=$('ai11Url').value.trim();if(!url)throw new Error('Paste an AI11 URL first.');
+  const targetMatchId=state.matchId||null;const currentStep=state.step||1;
+  $('ai11Import').disabled=true;$('ai11Import').textContent='Importing & linking…';
+  const d=await api('/api/v1/admin/import/ai11',{method:'POST',body:JSON.stringify({analysis_url:url,target_match_id:targetMatchId})});
+  if(d.linked_to_existing_match){
+   state.matchId=targetMatchId;await loadWizard();setStep(currentStep);
+   out.textContent='AI11 linked to '+(d.match?.name||d.match_id)+'. Matched '+d.players_matched+' of '+d.players_in_ai11+' players. Unmatched: '+(d.players_unmatched||[]).join(', ')+'\nExisting D11 credits and confirmed lineup were preserved.\n'+JSON.stringify({match_context_fields_saved:d.match_context_fields_saved,credits_ready_for_team_builder:d.credits_ready_for_team_builder,credits_missing_players:d.credits_missing_players},null,2);
+  }else{
+   state.matchId=d.match_id;await loadWizard();setStep(1);out.textContent='Standalone AI11 match imported. '+JSON.stringify(d,null,2);
+  }
+ }catch(e){out.textContent=e.message;}
+ finally{$('ai11Import').disabled=false;$('ai11Import').textContent='Import & link AI11';}
+};
 </script>
 </body>
 </html>
