@@ -3104,22 +3104,27 @@ def cricsheet_player_search(q: str, limit: int = 20,
     needle = "%" + q.strip().replace("%", "") + "%"
     rows = db.scalars(select(CricsheetPlayerMatch).where(
         CricsheetPlayerMatch.player_name.ilike(needle)
-    ).limit(limit)).all()
+    )).all()
     grouped = {}
     for row in rows:
         item = grouped.setdefault(row.player_key, {
             "player_key": row.player_key, "player_name": row.player_name, "teams": set(),
-            "matches": 0, "runs": 0, "balls_faced": 0, "fours": 0, "sixes": 0,
+            "matches": 0, "runs": 0, "balls_faced": 0, "fours": 0, "sixes": 0, "dismissals": 0, "batting_position_total": 0, "batting_position_samples": 0,
             "wickets": 0, "bowling_legal_balls": 0, "runs_conceded": 0,
             "catches": 0, "stumpings": 0, "run_outs": 0,
         })
         item["teams"].add(row.team)
         item["matches"] += 1
-        for key in ("runs", "balls_faced", "fours", "sixes", "wickets",
+        if row.batting_position:
+            item["batting_position_total"] += row.batting_position
+            item["batting_position_samples"] += 1
+        for key in ("runs", "balls_faced", "fours", "sixes", "dismissals", "wickets",
                     "bowling_legal_balls", "runs_conceded", "catches", "stumpings", "run_outs"):
             item[key] += getattr(row, key)
     return {"results": [{**item, "teams": sorted(item["teams"]),
-                         "batting_average_per_match": round(item["runs"] / max(item["matches"], 1), 2),
+                         "batting_average": round(item["runs"] / max(item["dismissals"], 1), 2),
+                         "runs_per_match": round(item["runs"] / max(item["matches"], 1), 2),
+                         "average_batting_position": round(item["batting_position_total"] / max(item["batting_position_samples"], 1), 2) if item["batting_position_samples"] else None,
                          "strike_rate": round(100 * item["runs"] / max(item["balls_faced"], 1), 2),
                          "economy": round(6 * item["runs_conceded"] / max(item["bowling_legal_balls"], 1), 2)}
                         for item in grouped.values()]}
@@ -3131,7 +3136,7 @@ def cricsheet_venue_search(q: str, limit: int = 30,
                            db: Session = Depends(get_db)):
     limit = max(1, min(limit, 100))
     needle = "%" + q.strip().replace("%", "") + "%"
-    rows = db.scalars(select(CricsheetMatch).where(CricsheetMatch.venue.ilike(needle)).limit(limit)).all()
+    rows = db.scalars(select(CricsheetMatch).where(CricsheetMatch.venue.ilike(needle))).all()
     grouped = {}
     for row in rows:
         item = grouped.setdefault(row.venue, {"venue": row.venue, "matches": 0, "first_innings_runs": [],
@@ -3168,11 +3173,11 @@ def cricsheet_matchup_search(batter: str, bowler: str, limit: int = 100,
     rows = db.scalars(select(CricsheetMatchup).where(
         CricsheetMatchup.batter_name.ilike(batter_q),
         CricsheetMatchup.bowler_name.ilike(bowler_q)
-    ).limit(limit)).all()
+    )).all()
     totals = {"matches": len(rows), "runs": sum(r.runs for r in rows),
               "balls": sum(r.balls for r in rows), "fours": sum(r.fours for r in rows),
               "sixes": sum(r.sixes for r in rows), "dismissals": sum(r.dismissals for r in rows)}
     totals["strike_rate"] = round(100 * totals["runs"] / max(totals["balls"], 1), 2)
     return {"batter_query": batter, "bowler_query": bowler, "aggregate": totals,
             "sample_matches": [{"match_id": r.source_match_id, "runs": r.runs,
-                                "balls": r.balls, "dismissals": r.dismissals} for r in rows]}
+                                "balls": r.balls, "dismissals": r.dismissals} for r in rows[:limit]]}
