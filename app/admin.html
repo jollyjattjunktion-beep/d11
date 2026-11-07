@@ -414,7 +414,7 @@ async function loadWizard(){
  state.match=d.match;state.players=d.players||[];state.intelligence=d.intelligence||{};state.lineupConfirmed=!!d.lineup_confirmed;
  state.lineupSelected=new Set(d.selected_player_ids||state.players.filter(p=>p.status==='playing').map(p=>p.player_id));
  state.fixed=new Set((state.intelligence.fixed_player_ids||[]).filter(pid=>{const p=(d.players||[]).find(x=>x.player_id===pid);return p&&Number(p.selection_pct)>=80;} ).slice(0,5));
- state.venueAnalysis=state.intelligence.auto_venue_analysis||null;state.teamStrengthAnalysis=state.intelligence.team_strength_analysis||null;state.pitch=state.venueAnalysis?.pitch_type||state.intelligence.pitch_type||'balanced';state.strongTeam=state.teamStrengthAnalysis?.strong_team||state.intelligence.strong_team||'equal';
+ state.venueAnalysis=state.intelligence.auto_venue_analysis||null;state.teamStrengthAnalysis=state.intelligence.team_strength_analysis||null;state.pitch=state.venueAnalysis?.pitch_type||state.intelligence.pitch_type||'balanced';state.strongTeam=state.teamStrengthAnalysis?.strong_team||state.intelligence.strong_team||'equal';updateScenarioTeamOptions();
  $('workspaceStatus').textContent=state.match.team_a+' vs '+state.match.team_b;
  $('matchSummary').style.display='block';
  $('matchStats').innerHTML=[['PLAYERS',state.players.length],['FORMAT',state.match.format||'—'],['VENUE',state.match.venue||'Not provided'],['LINEUP',state.lineupConfirmed?'Confirmed':'Not confirmed']].map(x=>'<div class="stat"><small>'+esc(x[0])+'</small><b style="font-size:'+(x[0]==='VENUE'?'14':'19')+'px">'+esc(x[1])+'</b></div>').join('');
@@ -652,7 +652,7 @@ function addPitchPlayer(row,p,t){
 function renderDreamTeamPreview(t,strategy,mode,index){
  const wrap=document.createElement('article');wrap.className='dream-team-result';
  const top=document.createElement('div');top.className='result-card-head';
- const title=document.createElement('strong');title.textContent=strategy.toUpperCase().replaceAll('_',' ')+' • '+mode.toUpperCase()+' • TEAM '+(index+1);
+ const title=document.createElement('strong');title.textContent=strategy.toUpperCase().replaceAll('_',' ')+' • '+mode.toUpperCase()+(t.scenario_label?' • '+t.scenario_label:'')+' • TEAM '+(index+1);
  const actions=document.createElement('div');actions.className='result-card-actions';
  const copy=document.createElement('button');copy.className='btn outline';copy.textContent='Copy team';copy.onclick=()=>{const lines=(t.players||[]).map(p=>p.player_name+' ('+p.role+', '+p.team+', '+p.credits+' cr)'+(p.player_id===t.captain_id?' — C':p.player_id===t.vice_captain_id?' — VC':''));const textOut=lines.join('\n')+'\nTotal credits: '+t.total_credits;if(navigator.clipboard?.writeText)navigator.clipboard.writeText(textOut).then(()=>{copy.textContent='Copied';setTimeout(()=>copy.textContent='Copy team',1400)}).catch(()=>alert(textOut));else alert(textOut);};
  actions.append(copy);top.append(title,actions);wrap.append(top);
@@ -693,6 +693,95 @@ function renderDreamTeamPreview(t,strategy,mode,index){
   row.append(img,name,cr,pct);list.append(row);
  });detail.append(list);wrap.append(detail);return wrap;
 }
+function updateScenarioTeamOptions(){
+ const select=$('scenarioTeam');
+ if(!select||!state.match)return;
+ const previous=select.value;
+ const intelligence=state.intelligence||{};
+ const tossSide=intelligence.batting_first_team||
+   (intelligence.toss_completed&&intelligence.toss_winner&&intelligence.toss_decision
+    ? (intelligence.toss_decision==='bat'?intelligence.toss_winner:
+       intelligence.toss_winner===state.match.team_a?state.match.team_b:state.match.team_a)
+    : '');
+ select.innerHTML='';
+ const auto=document.createElement('option');auto.value='auto';
+ auto.textContent=tossSide?'Auto — '+tossSide+' bats first':'Auto from toss / AI11';select.append(auto);
+ [state.match.team_a,state.match.team_b].forEach(team=>{
+  const opt=document.createElement('option');opt.value=team;opt.textContent=team;select.append(opt);
+ });
+ if(previous&&[...select.options].some(o=>o.value===previous))select.value=previous;
+ const mode=$('inningsScenario').value;
+ const help={
+  none:'Uses match conditions and player intelligence without forcing a batting-first or chase assumption.',
+  first_innings:'Choose the team batting first. If the toss is recorded, Auto uses that team and the AI11 / venue first-innings average.',
+  chasing:'Choose the team batting second. If the toss is recorded, Auto uses the chasing side and the second-innings average.',
+  both:'Creates two distinct portfolios: one for the batting-first team and one for the chasing team. Auto requires source-backed toss information; otherwise choose the batting-first team.'
+ };
+ $('scenarioHelp').textContent=help[mode]||help.none;
+}
+$('inningsScenario').addEventListener('change',updateScenarioTeamOptions);
+$('scenarioTeam').addEventListener('change',()=>{});
+function renderAI11Analysis(data){
+ const root=$('ai11AnalysisPanel');
+ root.innerHTML='';
+ if(!data||!data.available){root.style.display='none';return;}
+ root.style.display='block';
+ const outer=document.createElement('section');outer.className='panel';outer.style.boxShadow='none';
+ const head=document.createElement('div');head.className='panelhead';
+ const heading=document.createElement('div');const h=document.createElement('h2');h.textContent='AI11 player intelligence analysis';
+ const sub=document.createElement('div');sub.className='helper';sub.textContent=(data.profile_coverage?.players_with_ai11_profiles??0)+' of '+(data.profile_coverage?.squad_players??0)+' players have AI11 profile statistics • '+(data.format||state.match.format)+'';
+ heading.append(h,sub);const pill=document.createElement('span');pill.className='pill';pill.textContent='SOURCE-BASED';head.append(heading,pill);outer.append(head);
+ const body=document.createElement('div');body.className='panelbody';
+ const pitch=data.pitch||{},innings=data.innings||{},weather=data.weather||{};
+ const statGrid=document.createElement('div');statGrid.className='match-grid';
+ const stats=[
+  ['PITCH',pitch.recommendation||pitch.type||'Not supplied'],
+  ['1ST INNINGS AVG',innings.average_first_innings??'—'],
+  ['2ND INNINGS AVG',innings.average_second_innings??'—'],
+  ['VENUE SAMPLE',innings.venue_matches?innings.venue_matches+' matches':'Not supplied'],
+  ['BATTING FIRST',innings.batting_first_team||'Not confirmed'],
+  ['CHASING',innings.chasing_team||'Not confirmed'],
+  ['TOSS',innings.toss_winner?(innings.toss_winner+' • '+(innings.toss_decision||'')):'Not supplied'],
+  ['WEATHER',weather.summary||'Not supplied']
+ ];
+ stats.forEach(([label,value])=>{const cell=document.createElement('div');cell.className='stat';const small=document.createElement('small');small.textContent=label;const strong=document.createElement('b');strong.textContent=String(value);cell.append(small,strong);statGrid.append(cell);});
+ body.append(statGrid);
+ if(pitch.notes){const note=document.createElement('div');note.className='notice';note.textContent='Pitch evidence: '+pitch.notes;body.append(note);}
+ const rec=data.recommendations||{};
+ const grid=document.createElement('div');grid.style.display='grid';grid.style.gridTemplateColumns='repeat(auto-fit,minmax(220px,1fr))';grid.style.gap='10px';grid.style.marginTop='12px';
+ const sections=[
+  ['Batting leaders',rec.batting,'ai11_batting_score'],
+  ['Bowling leaders',rec.bowling,'ai11_bowling_score'],
+  ['All-rounders',rec.all_rounders,'ai11_role_score'],
+  ['Current series form',rec.series_form,'ai11_series_score'],
+  ['Popular selection core',rec.popular_core,'ai11_role_score'],
+  ['Grand League differentials',rec.grand_league_differentials,'ai11_role_score'],
+  ['Captain / VC candidates',rec.captaincy_candidates,'ai11_role_score'],
+  ['Batting-first scenario',rec.first_innings?.suggestions,'ai11_role_score'],
+  ['Chasing scenario',rec.chasing?.suggestions,'ai11_role_score']
+ ];
+ sections.forEach(([title,rows,key])=>{
+  const card=document.createElement('div');card.className='team-box';card.style.padding='12px';
+  const label=document.createElement('strong');label.textContent=title;card.append(label);
+  const list=document.createElement('div');list.className='player-list';
+  if(!rows||!rows.length){const empty=document.createElement('div');empty.className='helper';empty.textContent='No source data for this section.';list.append(empty);}
+  else rows.slice(0,5).forEach(p=>{
+   const row=document.createElement('div');row.className='venue-stat-line';
+   const info=document.createElement('div');const name=document.createElement('b');name.textContent=p.player_name||p.name||'Player';
+   const meta=document.createElement('div');meta.className='helper';
+   const score=p.score??p.role_score??p[key]??'—';
+   const ownership=p.selection_pct??p.ai11_selection_pct;
+   meta.textContent=(p.team||'')+' • '+(p.role||'')+' • profile score '+score+'/100'+(ownership==null?'':' • selected '+Number(ownership).toFixed(1)+'%');
+   info.append(name,meta);row.append(info);list.append(row);
+   if(p.reason){const why=document.createElement('div');why.className='helper';why.textContent=p.reason;list.append(why);}
+  });
+  card.append(list);grid.append(card);
+ });
+ body.append(grid);
+ const integrity=document.createElement('div');integrity.className='notice warn';
+ integrity.textContent=(data.data_integrity?.note||'AI11 career/series profile signals are not verified fantasy-point history.')+' AI11 analysis scores are comparative source-based profile scores, not fantasy points or guaranteed outcomes.';
+ body.append(integrity);outer.append(body);root.append(outer);
+}
 $('generateTeams').onclick=async()=>{
  const out=$('teamResults'),err=$('generationError');err.style.display='none';out.innerHTML='';$('printTeams').disabled=true;
  $('generateTeams').disabled=true;$('generateTeams').textContent='Generating teams…';
@@ -706,11 +795,19 @@ $('generateTeams').onclick=async()=>{
   const req={
    strategies,teams_per_strategy:Number($('teamCount').value),
    rules:{team_size:11,max_from_one_team:7,max_credits:100,min_role:{WK:1,BAT:3,AR:1,BOWL:3},max_role:{WK:4,BAT:6,AR:4,BOWL:6},playing_xi_only:state.lineupConfirmed,team_a_count},
-   scenario:state.pitch==='batting'?'batting_friendly':state.pitch==='bowling'?'bowling_friendly':'neutral',
+   scenario:(()=>{
+    const choice=$('ai11PitchScenario').value;
+    if(choice!=='auto')return choice;
+    return ({batting:'batting_friendly',pace:'pace_friendly',spin:'spin_friendly',bowling:'bowling_friendly',balanced:'neutral'})[state.pitch]||'neutral';
+   })(),
+   score_mode:$('inningsScenario').value,
+   score_team:$('scenarioTeam').value==='auto'?null:$('scenarioTeam').value,
+   scenario_score:$('scenarioScore').value?Number($('scenarioScore').value):null,
    locked_player_ids:[...state.fixed],excluded_player_ids:[],captain_pool:[],vice_captain_pool:[],
    team_mode:'automatic',generation_mode:'both'
   };
   const d=await api('/api/v1/matches/'+encodeURIComponent(state.matchId)+'/teams',{method:'POST',body:JSON.stringify(req)});
+  renderAI11Analysis(d.ai11_analysis);
   $('generationModeNotice').textContent='History status: '+d.history_status+'. Available modes: '+(d.available_modes||[]).join(', ')+'. '+(d.warnings||[]).join(' ');
   const teams=d.teams||{};let rendered=0;
   for(const [mode,strategiesOut] of Object.entries(teams)){
