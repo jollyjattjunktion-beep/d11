@@ -2929,7 +2929,7 @@ def _parse_cricsheet_archive(archive_bytes: bytes, max_matches: int) -> tuple[li
             raise HTTPException(413, f"Archive has {len(entries)} JSON files; max_matches is {max_matches}.")
         total_size = sum(item.file_size for item in entries)
         if total_size > _CRICSHEET_MAX_UNCOMPRESSED_BYTES:
-            raise HTTPException(413, "Archive expands beyond the 500 MB safety limit.")
+            raise HTTPException(413, "Archive expands beyond the 1500 MB safety limit.")
         parsed, invalid, duplicates, skipped_non_t20 = [], [], 0, 0
         seen = set()
         for entry in entries:
@@ -2942,9 +2942,9 @@ def _parse_cricsheet_archive(archive_bytes: bytes, max_matches: int) -> tuple[li
                 continue
             try:
                 record = parse_t20_json_bytes(archive.read(entry), entry.filename)
-            if record is None:
-                skipped_non_t20 += 1
-                continue
+                if record is None:
+                    skipped_non_t20 += 1
+                    continue
             except (ValueError, KeyError, TypeError) as exc:
                 invalid.append({"file": entry.filename[:180], "reason": str(exc)[:240]})
                 continue
