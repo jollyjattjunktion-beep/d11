@@ -365,3 +365,27 @@ def test_strongest_strategy_can_build_a_complete_legal_lineup():
     assert team["points_available"] is False
     assert team["projected_points"] is None
     assert team["captain_id"] != team["vice_captain_id"]
+
+
+def test_strongest_strategy_uses_ai11_projected_points_before_selection_popularity():
+    from app.optimizer import _player_signal
+
+    common = {
+        "team": "A", "role": "BAT", "status": "confirmed",
+        "expected_points": None, "floor_points": None, "ceiling_points": None,
+        "ai11_profile_factor": 1.0, "ai11_role_score": 55.0,
+        "ai11_recent_form_score": 55.0,
+    }
+    high_projection = {
+        **common, "player_id": "source-projection", "selection_pct": 8.0,
+        "ai11_projection_score": 96.0, "ai11_projected_points": 108.0,
+    }
+    popular_low_projection = {
+        **common, "player_id": "popular-low-projection", "selection_pct": 96.0,
+        "ai11_projection_score": 25.0, "ai11_projected_points": 18.0,
+    }
+    assert _player_signal(
+        high_projection, "strongest", "neutral", provisional=True
+    ) > _player_signal(
+        popular_low_projection, "strongest", "neutral", provisional=True
+    )
