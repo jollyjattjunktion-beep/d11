@@ -687,6 +687,26 @@ function renderDreamTeamPreview(t,strategy,mode,index){
  const score=document.createElement('div');score.textContent=t.points_available&&t.projected_points!=null?'Modelled fantasy-point estimate (not a guarantee): '+t.projected_points:'AI11 / role / pitch selection index: '+(t.selection_score==null?'—':Number(t.selection_score).toFixed(1))+' • verified fantasy-point history unavailable';
  foot.append(c,score);field.append(foot);wrap.append(field);
  if(t.captain_reason||t.vice_captain_reason){const leadership=document.createElement('div');leadership.className='helper';leadership.style.padding='10px 14px';leadership.textContent='Captain: '+(t.captain_reason||'')+' Vice-captain: '+(t.vice_captain_reason||'');wrap.append(leadership);}
+ const diagnostic=t.pre_generation_diagnostic;
+ if(diagnostic){
+  const panel=document.createElement('details');panel.className='team-details';panel.open=true;
+  const head=document.createElement('summary');head.textContent='Pre-generation diagnostic • '+(diagnostic.pitch_scenario||'match conditions');panel.append(head);
+  const body=document.createElement('div');body.className='result-list';
+  const roles=document.createElement('div');roles.className='helper';
+  roles.textContent='Role balance — WK '+(diagnostic.role_counts?.WK||0)+' • BAT '+(diagnostic.role_counts?.BAT||0)+' • AR '+(diagnostic.role_counts?.AR||0)+' • BOWL '+(diagnostic.role_counts?.BOWL||0);
+  body.append(roles);
+  (diagnostic.warnings||[]).forEach(message=>{const row=document.createElement('div');row.className='notice warn';row.textContent='⚠ '+message;body.append(row);});
+  const cap=diagnostic.captaincy_check||{};
+  const capRow=document.createElement('div');capRow.className='helper';
+  capRow.textContent='Captain ceiling check: '+(cap.captain||'—')+' • rank '+(cap.captain_rank_in_xi||'—')+'/'+(t.players||[]).length+' in this XI • '+(cap.is_provisional_index?'provisional ranking index, not fantasy points':'historical estimate based');
+  body.append(capRow);
+  const selectedTitle=document.createElement('strong');selectedTitle.textContent='Why these players were selected';body.append(selectedTitle);
+  (diagnostic.selected_players||[]).forEach(p=>{const row=document.createElement('div');row.className='helper';row.textContent=p.player_name+' ('+p.role+') — '+p.reason;body.append(row);});
+  const rejectedTitle=document.createElement('strong');rejectedTitle.textContent='High-potential players not selected';body.append(rejectedTitle);
+  (diagnostic.high_potential_rejections||[]).forEach(p=>{const row=document.createElement('div');row.className='helper';row.textContent=p.player_name+' ('+p.role+') — '+p.reason;body.append(row);});
+  const note=document.createElement('div');note.className='helper';note.textContent=diagnostic.interpretation||'';body.append(note);
+  panel.append(body);wrap.append(panel);
+ }
  const detail=document.createElement('details');detail.className='team-details';const summary=document.createElement('summary');summary.textContent='View player list and selection percentages';detail.append(summary);
  const list=document.createElement('div');list.className='result-list';
  (t.players||[]).forEach(p=>{
