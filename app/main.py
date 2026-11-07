@@ -1338,7 +1338,7 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
                     "d11_format": target_match.format,
                 },
             )
-        source_date = source_intelligence_date = (parsed.get("intelligence") or {}).get("match_date")
+        source_date = (parsed.get("intelligence") or {}).get("match_date")
         if source_date and target_match.start_time:
             try:
                 target_date = datetime.fromisoformat(
