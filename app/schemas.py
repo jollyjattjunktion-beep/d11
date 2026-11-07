@@ -133,7 +133,7 @@ class TeamRequest(BaseModel):
     manual_vice_captain_id: str | None = None
     team_mode: Literal["manual", "automatic"] = "automatic"
     generation_mode: Literal["both", "ai_prediction", "provisional"] = "both"
-    score_mode: Literal["none", "first_innings", "chasing"] = "none"
+    score_mode: Literal["none", "first_innings", "chasing", "both"] = "none"
     score_team: str | None = Field(default=None, max_length=100)
     scenario_score: int | None = Field(default=None, ge=1, le=600)
 
