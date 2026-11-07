@@ -417,7 +417,6 @@ def parse_analysis(html: str):
                 if "match performance" in group:
                     match_aliases = {
                         "idt": "ai11_match_played",
-                        "#": "ai11_match_number",
                         "pts": "ai11_match_fantasy_points",
                         "bat": "ai11_match_batting_points",
                         "bowl": "ai11_match_bowling_points",
@@ -461,7 +460,6 @@ def parse_analysis(html: str):
             ai11_source_p_raw = stat_values.pop("ai11_source_p_raw", None)
             match_key_map = {
                 "ai11_match_played": "played",
-                "ai11_match_number": "match_number",
                 "ai11_match_fantasy_points": "fantasy_points",
                 "ai11_match_batting_points": "batting_points",
                 "ai11_match_bowling_points": "bowling_points",
