@@ -1,6 +1,7 @@
 from collections import Counter
 
 STRATEGY_WEIGHTS = {
+    "strongest": (0.76, 0.08, 0.16),
     "safe": (0.55, 0.35, 0.10),
     "balanced": (0.65, 0.20, 0.15),
     "grand_league": (0.45, 0.05, 0.50),
@@ -31,6 +32,97 @@ def _role_opportunity(p):
     return max(0.25, min(1.0, prior))
 
 
+def _ai11_performance_score(player, match_format="T20"):
+    """Role-normalized AI11 career/series score for ranking, never fantasy points."""
+    metrics = player.get("ai11_metrics") if isinstance(player.get("ai11_metrics"), dict) else {}
+    role = str(player.get("role") or "").upper()
+    fmt = str(match_format or "T20").upper()
+    baselines = {
+        "T20": {"bat_avg": 24.0, "bat_sr": 125.0, "runs": 24.0, "wickets": 0.85, "economy": 8.0, "bowl_avg": 26.0, "series": 55.0},
+        "ODI": {"bat_avg": 30.0, "bat_sr": 85.0, "runs": 30.0, "wickets": 0.75, "economy": 6.0, "bowl_avg": 32.0, "series": 65.0},
+        "TEST": {"bat_avg": 32.0, "bat_sr": 50.0, "runs": 32.0, "wickets": 0.65, "economy": 3.3, "bowl_avg": 35.0, "series": 60.0},
+    }.get(fmt, {"bat_avg": 24.0, "bat_sr": 110.0, "runs": 24.0, "wickets": 0.8, "economy": 8.0, "bowl_avg": 30.0, "series": 55.0})
+
+    def higher(value, baseline):
+        try:
+            number = float(value)
+            return max(0.0, min(100.0, 50.0 + (number / baseline - 1.0) * 50.0))
+        except (TypeError, ValueError, ZeroDivisionError):
+            return None
+
+    def lower(value, baseline):
+        try:
+            number = float(value)
+            if number <= 0:
+                return None
+            return max(0.0, min(100.0, 50.0 + (baseline / number - 1.0) * 50.0))
+        except (TypeError, ValueError, ZeroDivisionError):
+            return None
+
+    innings = metrics.get("batting_innings")
+    bowl_innings = metrics.get("bowling_innings")
+    runs_per_innings = None
+    wickets_per_innings = None
+    try:
+        if innings and float(innings) > 0 and metrics.get("runs") is not None:
+            runs_per_innings = higher(float(metrics["runs"]) / float(innings), baselines["runs"])
+    except (TypeError, ValueError, ZeroDivisionError):
+        pass
+    try:
+        if bowl_innings and float(bowl_innings) > 0 and metrics.get("wickets") is not None:
+            wickets_per_innings = higher(float(metrics["wickets"]) / float(bowl_innings), baselines["wickets"])
+    except (TypeError, ValueError, ZeroDivisionError):
+        pass
+
+    batting = [
+        (higher(metrics.get("batting_average"), baselines["bat_avg"]), 0.40),
+        (higher(metrics.get("batting_strike_rate"), baselines["bat_sr"]), 0.25),
+        (runs_per_innings, 0.20),
+    ]
+    bowling = [
+        (wickets_per_innings, 0.48),
+        (lower(metrics.get("economy"), baselines["economy"]), 0.27),
+        (lower(metrics.get("bowling_average"), baselines["bowl_avg"]), 0.25),
+    ]
+    series_score = higher(metrics.get("series_average_points"), baselines["series"])
+    source_projection = player.get("ai11_projected_points")
+    try:
+        # Keep the source P field deliberately bounded and secondary. It remains
+        # a source value, not verified Dream11 fantasy points.
+        projection_score = max(0.0, min(100.0, float(source_projection) * 2.0)) if source_projection is not None else None
+    except (TypeError, ValueError):
+        projection_score = None
+
+    if role in {"BAT", "WK"}:
+        components = batting + [(series_score, 0.20), (projection_score, 0.05)]
+    elif role == "BOWL":
+        components = bowling + [(series_score, 0.20), (projection_score, 0.05)]
+    elif role == "AR":
+        components = [
+            (higher(metrics.get("batting_average"), baselines["bat_avg"]), 0.20),
+            (higher(metrics.get("batting_strike_rate"), baselines["bat_sr"]), 0.10),
+            (runs_per_innings, 0.10),
+            (wickets_per_innings, 0.25),
+            (lower(metrics.get("economy"), baselines["economy"]), 0.10),
+            (series_score, 0.20),
+            (projection_score, 0.05),
+        ]
+    else:
+        components = batting + bowling + [(series_score, 0.10), (projection_score, 0.05)]
+
+    available = [(score, weight) for score, weight in components if score is not None]
+    if not available:
+        return None
+    total_weight = sum(weight for _, weight in available)
+    score = sum(value * weight for value, weight in available) / total_weight
+    sample = metrics.get("career_matches") or metrics.get("matches") or innings or bowl_innings or 0
+    try:
+        reliability = min(1.0, max(0.25, float(sample) / 12.0))
+    except (TypeError, ValueError):
+        reliability = 0.35
+    return round(50.0 + (score - 50.0) * reliability, 1)
+
+
 def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
                    scenario_score=None, match_format="T20", provisional=False):
     """Strategy score from form/range, role opportunity and match context."""
@@ -50,16 +142,23 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
         popularity = 50.0 if ownership is None else ownership
         source_c = float(p.get("captain_pct") or p.get("ai11_captain_pct") or 0.0)
         source_vc = float(p.get("vice_captain_pct") or p.get("ai11_vice_captain_pct") or 0.0)
-        # Provisional score is a selection-priority index, never fantasy points.
-        base = _role_opportunity(p) * 35.0 + popularity * 0.10 + min(source_c, 100) * 0.025 + min(source_vc, 100) * 0.015
-        # AI11's own projected-points field is a separate source signal. It is
-        # deliberately low-weight and is never copied into expected_points.
-        try:
-            ai11_projection = p.get("ai11_projected_points")
-            if ai11_projection is not None:
-                base += max(0.0, min(30.0, float(ai11_projection))) * 0.25
-        except (TypeError, ValueError):
-            pass
+        # Provisional scores are ranking indices, never fantasy points.
+        ai11_score = _ai11_performance_score(p, match_format)
+        if strategy == "strongest" and ai11_score is not None:
+            # Performance-first mode: role-normalized career + series form are
+            # the primary signal. Selection/C/VC are only small tie-breakers.
+            base = 30.0 + ai11_score * 0.70 + _role_opportunity(p) * 10.0
+            base += popularity * 0.015 + min(source_c, 100) * 0.004 + min(source_vc, 100) * 0.003
+        else:
+            base = _role_opportunity(p) * 35.0 + popularity * 0.10 + min(source_c, 100) * 0.025 + min(source_vc, 100) * 0.015
+            # AI11's P column is a secondary source signal. It is deliberately
+            # bounded and never copied into expected_points.
+            try:
+                ai11_projection = p.get("ai11_projected_points")
+                if ai11_projection is not None:
+                    base += max(0.0, min(30.0, float(ai11_projection))) * 0.25
+            except (TypeError, ValueError):
+                pass
         # Career/series aggregates add only a small role-aware nudge when the
         # source provides a usable sample; they do not create fantasy points.
         metrics = p.get("ai11_metrics") if isinstance(p.get("ai11_metrics"), dict) else {}
@@ -125,7 +224,11 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
     if p.get("toss_batting_team") and p.get("team") == p.get("toss_batting_team") and role in {"BAT", "WK"}:
         scenario_factor *= 1.015
 
-    if strategy == "safe":
+    if strategy == "strongest":
+        raw = 0.78 * base + 0.08 * floor_v + 0.14 * upside
+        if p.get("risk") == "high":
+            raw *= 0.97
+    elif strategy == "safe":
         raw = 0.72 * base + 0.22 * floor_v + 0.06 * upside
         raw *= 1.0 + 0.10 * consistency
         if p.get("risk") == "high":
@@ -162,6 +265,8 @@ def _captain_score(p, strategy, scenario, innings_mode, score_team, scenario_sco
     else:
         floor_component = float(p.get("floor_points") if p.get("floor_points") is not None else expected * 0.6)
         ceiling_component = float(ceiling if ceiling is not None else expected * 1.25)
+    if strategy == "strongest":
+        return 0.78 * signal + 0.08 * floor_component + 0.14 * ceiling_component
     if strategy == "safe":
         return 0.62 * signal + 0.30 * floor_component + 0.08 * ceiling_component
     if strategy == "grand_league":
@@ -180,6 +285,8 @@ def _vice_score(p, strategy, scenario, innings_mode, score_team, scenario_score,
     else:
         floor_component = float(floor if floor is not None else expected * 0.6)
         ceiling_component = float(ceiling if ceiling is not None else expected * 1.25)
+    if strategy == "strongest":
+        return 0.76 * signal + 0.12 * floor_component + 0.12 * ceiling_component
     if strategy == "safe":
         return 0.68 * signal + 0.25 * floor_component + 0.07 * ceiling_component
     if strategy == "grand_league":
