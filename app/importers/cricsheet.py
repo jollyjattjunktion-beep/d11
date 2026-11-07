@@ -45,7 +45,7 @@ def _empty_player(name: str, registry: dict[str, str], team: str) -> dict:
         "runs": 0, "balls_faced": 0, "fours": 0, "sixes": 0,
         "wickets": 0, "bowling_legal_balls": 0, "runs_conceded": 0,
         "maidens": 0, "catches": 0, "stumpings": 0, "run_outs": 0,
-        "batting_innings": 0, "bowling_innings": 0,
+        "batting_innings": 0, "bowling_innings": 0, "batting_position": None,
         "batting_phases": {p: {"runs": 0, "balls": 0, "fours": 0, "sixes": 0} for p in ("powerplay", "middle", "death")},
         "bowling_phases": {p: {"legal_balls": 0, "runs_conceded": 0, "wickets": 0} for p in ("powerplay", "middle", "death")},
     }
@@ -74,6 +74,7 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
             players[name] = _empty_player(name, registry, team)
 
     innings_rows = []
+    matchups: dict[tuple[str, str], dict] = {}
     innings_list = document.get("innings") or []
     if not innings_list:
         raise ValueError("Match has no innings data.")
@@ -85,6 +86,7 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
         innings_wickets = 0
         innings_balls = 0
         batters_seen: set[str] = set()
+        batting_order: list[str] = []
         over_runs: dict[int, int] = defaultdict(int)
         over_legal: dict[int, int] = defaultdict(int)
         for over in innings.get("overs") or []:
@@ -120,9 +122,11 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
                     innings_balls += 1
                     over_legal[over_number] += 1
 
-                batters_seen.add(batter)
-                if non_striker:
-                    batters_seen.add(non_striker)
+                for participant in (batter, non_striker):
+                    if participant:
+                        batters_seen.add(participant)
+                        if participant not in batting_order:
+                            batting_order.append(participant)
                 bat = players[batter]
                 bat["runs"] += batter_runs
                 bat["fours"] += int(batter_runs == 4)
@@ -136,6 +140,18 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
                         item["balls"] += 1
                     item["fours"] += int(batter_runs == 4)
                     item["sixes"] += int(batter_runs == 6)
+
+
+                matchup_key = (players[batter]["player_key"], players[bowler]["player_key"])
+                matchup = matchups.setdefault(matchup_key, {
+                    "batter_key": matchup_key[0], "batter_name": batter,
+                    "bowler_key": matchup_key[1], "bowler_name": bowler,
+                    "runs": 0, "balls": 0, "fours": 0, "sixes": 0, "dismissals": 0,
+                })
+                matchup["runs"] += batter_runs
+                matchup["balls"] += int(wides == 0)
+                matchup["fours"] += int(batter_runs == 4)
+                matchup["sixes"] += int(batter_runs == 6)
 
                 bowl = players[bowler]
                 bowl["runs_conceded"] += total_runs - byes - legbyes - penalty
@@ -153,6 +169,8 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
                     dismissed = wicket.get("player_out")
                     if kind not in {"run_out", "retired_hurt", "obstructing_the_field", "retired_out"}:
                         bowl["wickets"] += 1
+                        if dismissed == batter:
+                            matchup["dismissals"] += 1
                         if phase in bowl["bowling_phases"]:
                             bowl["bowling_phases"][phase]["wickets"] += 1
                     if kind == "run_out":
@@ -174,6 +192,9 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
         # Count batting/bowling participation once per innings.
         for name in batters_seen:
             players[name]["batting_innings"] += 1
+        for position, name in enumerate(batting_order, start=1):
+            if players[name]["batting_position"] is None:
+                players[name]["batting_position"] = position
         for name in {d.get("bowler") for over in innings.get("overs") or [] for d in over.get("deliveries") or [] if d.get("bowler")}:
             players[name]["bowling_innings"] += 1
         innings_rows.append({"team": batting_team, "runs": innings_runs, "wickets": innings_wickets,
@@ -209,6 +230,7 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
         "result_method": "runs" if (outcome.get("by") or {}).get("runs") is not None else "wickets" if (outcome.get("by") or {}).get("wickets") is not None else outcome.get("method"),
         "innings": innings_rows,
         "players": list(players.values()),
+        "matchups": list(matchups.values()),
     }
 
 
