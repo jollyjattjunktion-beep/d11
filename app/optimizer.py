@@ -18,7 +18,7 @@ def _ownership(p):
 
 def _role_opportunity(p):
     """Modest role prior; source-backed batting position/overs override it."""
-    prior = {"WK": 0.60, "BAT": 0.60, "AR": 0.62, "BOWL": 0.60}.get(p.get("role"), 0.5)
+    prior = {"WK": 0.60, "BAT": 0.60, "AR": 0.60, "BOWL": 0.60}.get(p.get("role"), 0.5)
     try:
         if p.get("batting_position") is not None:
             prior += max(-0.18, min(0.18, (5 - int(p["batting_position"])) * 0.035))
@@ -499,6 +499,7 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
         if a_count > rules.team_a_count or len(locked)-a_count > rules.team_size-rules.team_a_count:
             raise ValueError("Locked players conflict with the required team split.")
     made, usage, captain_usage, vice_usage, pair_usage = [], Counter(), Counter(), Counter(), Counter()
+    score_args = (innings_mode, score_team, scenario_score, match_format)
     # Score each candidate once. A high-quality partial XI is judged by its
     # achievable upper bound, not only its current total; this avoids pruning
     # a strong lineup just because it needs a lower-scoring role to stay legal.
