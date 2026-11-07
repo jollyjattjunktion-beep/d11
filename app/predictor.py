@@ -234,6 +234,9 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
     tg_profile = db.get(PlayerSourceProfile, (match_id, player.id, "TEAM_GENERATION"))
     tg_data = tg_profile.data if tg_profile and isinstance(tg_profile.data, dict) else {}
     usage = _role_context(squad, context)
+    cricsheet_history = _cricsheet_history_profile(db, player.name, squad.role, match.start_time if match else None)
+    cricsheet_opportunity = cricsheet_history.get("opportunity_score")
+    involvement_score = usage.get("involvement_score") if usage.get("involvement_score") is not None else cricsheet_opportunity
     ai11_factor, ai11_reasons = _ai11_profile_adjustment(squad.role, fmt, source_data)
     ai11_statistics = source_data.get("ai11_statistics") or {}
     ai11_series_summary = source_data.get("ai11_series_summary") or {}
@@ -260,7 +263,8 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
             "team_generation_image":tg_data.get("image"),
             "batting_position":usage.get("batting_position", tg_data.get("batting_position")),
             "expected_overs":usage.get("expected_overs", tg_data.get("expected_overs")),
-            "involvement_score":usage.get("involvement_score", tg_data.get("involvement_score")),
+            "involvement_score":involvement_score if involvement_score is not None else tg_data.get("involvement_score"),
+            "cricsheet_history":cricsheet_history,
             "matchup_score":usage.get("matchup_score", tg_data.get("matchup_score"))}
     form = _form_profile(rows, fmt)
     if form["expected_points"] is None:
@@ -272,7 +276,11 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
                 f"weighted mean {form.get('recent_history_mean')}, "
                 f"provisional form score {form.get('recent_history_score')}/100"
             )
-        warnings = ["Expected/floor/ceiling points remain unavailable until at least three format-matched historical records are imported"]
+        if cricsheet_history.get("available"):
+            reasons.append("Cricsheet T20 workload profile uses " + str(cricsheet_history["matches_used"]) + " prior matches; it is not fantasy points")
+        if cricsheet_opportunity is not None and usage.get("involvement_score") is None:
+            reasons.append("Cricsheet role workload contributes a bounded player-opportunity score")
+        warnings = ["Expected/floor/ceiling points remain unavailable until at least three format-matched historical fantasy-point records are imported"]
         if not context:
             warnings.append("No pitch/weather/venue intelligence imported")
         return {**base, **form, "median_points":None, "condition_factor":round(condition_factor,3),
@@ -289,6 +297,10 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
     ceiling = max(expected, ceiling * ai11_factor)
     reasons = [f"Format-matched recent form: {form['matches_used']} records; recency-weighted mean {form['expected_points']:.1f}"]
     reasons.extend(ai11_reasons)
+    if cricsheet_history.get("available"):
+        reasons.append("Cricsheet T20 role workload profile uses " + str(cricsheet_history["matches_used"]) + " prior matches; not fantasy points")
+    if cricsheet_opportunity is not None and usage.get("involvement_score") is None:
+        reasons.append("Cricsheet role workload informs player opportunity, not expected fantasy points")
     reasons.extend(condition_reasons)
     if status in {"playing","confirmed"}:
         reasons.append("Playing status confirmed")
