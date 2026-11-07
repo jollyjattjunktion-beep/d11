@@ -236,6 +236,8 @@ def parse_analysis(html: str):
         if not match_vs:
             continue
         left = re.sub(r"\s*[|:–—].*$", "", match_vs.group(1)).strip(" -,:")
+        # Some AI11 page titles prefix the fixture with the series name.
+        left = re.split(r"(?:series|cup|tournament)\s+", left, flags=re.I)[-1].strip(" -,:")
         right = re.split(
             r"\s*(?:[|:–—]|-\s*)?\s*(?:\d+(?:st|nd|rd|th)\s+(?:match|odi|t20i)|dream team|fantasy|pitch report|player stats).*",
             match_vs.group(2), maxsplit=1, flags=re.I
