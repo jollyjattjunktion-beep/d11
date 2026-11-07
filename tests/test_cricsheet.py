@@ -77,6 +77,7 @@ def test_parser_calculates_compact_t20_aggregates_and_phase_stats():
     assert bowler["bowling_legal_balls"] == 2
     assert keeper["catches"] == 1
     assert parsed["venue"] == "Example Ground"
+    assert parsed["gender"] == "male"
     assert "source_sha256" in parsed
 
 
@@ -86,11 +87,17 @@ def test_parser_skips_non_t20_in_full_archive():
     assert parse_t20_match(document, "odi.json") is None
 
 
-def test_parser_rejects_missing_venue_and_malformed_json():
+def test_parser_handles_abandoned_matches_and_rejects_malformed_json():
     document = sample_match()
     document["info"]["venue"] = ""
-    with pytest.raises(ValueError, match="venue"):
-        parse_t20_match(document, "bad.json")
+    document["innings"] = []
+    parsed = parse_t20_match(document, "abandoned.json")
+    assert parsed["venue"] == "Unknown venue"
+    assert parsed["innings"] == []
+    with pytest.raises(ValueError, match="exactly two teams"):
+        broken = sample_match()
+        broken["info"]["teams"] = ["Alpha"]
+        parse_t20_match(broken, "bad.json")
     with pytest.raises(ValueError, match="Invalid Cricsheet JSON"):
         parse_t20_json_bytes(b"{bad", "bad.json")
 
