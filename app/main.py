@@ -971,7 +971,7 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
             "captain_pool":payload.captain_pool,"vice_captain_pool":payload.vice_captain_pool},
         "warnings":[
             "AI Prediction Mode uses format-matched historical statistical estimates; it is not a trained machine-learning model."
-        ] + (["Provisional teams use imported source ownership and captain/vice-captain trends as weak selection signals only. Projected fantasy points are null and no points prediction is claimed."] if not history_ready or "provisional" in modes else [])
+        ] + (["Provisional teams use AI11 career batting/bowling metrics, AI11's separate source projection, selection percentage and C/VC trends as bounded supporting signals. These do not become D11 fantasy-point estimates; projected fantasy points remain null without verified match-by-match history."] if not history_ready or "provisional" in modes else [])
     }
 
 @app.get("/api/v1/model/status")
@@ -1016,7 +1016,17 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
             if parts:
                 fantasy_url = f"https://www.ai11.in/fantasy/cricket/{parts[-1]}"
         if fantasy_url:
-            fantasy_data=parse_fantasy(fetch_page(fantasy_url))
+            try:
+                fantasy_data=parse_fantasy(fetch_page(fantasy_url))
+            except AI11RateLimitError as exc:
+                # The analysis page contains the player intelligence needed by
+                # the provisional builder. A rate limit on the optional
+                # fantasy/credits page must not discard that successful import.
+                fantasy_data["fantasy_fetch_status"] = "rate_limited"
+                fantasy_data["fantasy_fetch_error"] = str(exc)
+            except Exception as exc:
+                fantasy_data["fantasy_fetch_status"] = "unavailable"
+                fantasy_data["fantasy_fetch_error"] = type(exc).__name__
     except AI11RateLimitError as exc:
         raise HTTPException(
             429,
@@ -1084,7 +1094,13 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
             "credits_ready_for_team_builder":bool(squad_rows) and len(missing)==0,
             "fantasy_page_requires_browser":fantasy_data["dynamic_content_may_require_browser"],
             "profiles_saved":saved,
-            "warning":"AI11 career/series aggregates and selection trends are source profiles, not per-match historical fantasy points. Import independent historical scorecards before training the prediction model."}
+            "ai11_profiles_with_metrics":sum(1 for profile in parsed.get("profiles",[]) if profile.get("ai11_metrics")),
+            "ai11_source_projections_found":sum(1 for profile in parsed.get("profiles",[]) if profile.get("ai11_projected_points") is not None),
+            "ai11_metric_fields":sorted({key for profile in parsed.get("profiles",[]) for key in (profile.get("ai11_metrics") or {}).keys()}),
+            "ai11_match_intelligence_fields":sorted(parsed.get("intelligence",{}).keys()),
+            "fantasy_fetch_status":fantasy_data.get("fantasy_fetch_status","fetched" if fantasy_url else "not_requested"),
+            "prediction_integration":"AI11 career/series metrics and its own source projection are used only as bounded supporting signals in provisional team ranking and C/VC selection. They are never stored as verified Dream11 fantasy points.",
+            "warning":"AI11 career/series aggregates and source projections are not match-by-match Dream11 fantasy points. Missing player credits must still be verified from the fantasy platform or a trusted source; D11 does not guess credits."}
 
 @app.get("/api/v1/admin/matches/{match_id}/credits")
 def get_match_credit_status(match_id: str, _admin: bool = Depends(require_admin),
