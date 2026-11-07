@@ -61,7 +61,8 @@ def test_ai11_grouped_headers_with_rowspan_extract_full_player_row():
     """
     data = parse_analysis(html)
     assert len(data["players"]) == 1
-    stats = data["profiles"][0]["ai11_statistics"]
+    profile = data["profiles"][0]
+    stats = profile["ai11_statistics"]
     assert stats["matches"] == 12
     assert stats["batting_innings"] == 10
     assert stats["runs"] == 450
