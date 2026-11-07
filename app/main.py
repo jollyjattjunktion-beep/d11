@@ -16,6 +16,7 @@ from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelli
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
                          TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, VenueEnrichRequest)
 from app.predictor import predict_match
+from app.ai11_analysis import build_ai11_match_analysis
 from app.optimizer import build_teams
 from app.config import MODEL_VERSION, ADMIN_TOKEN, TG_API_TOKEN
 from app.importers.ai11 import (fetch_page, parse_analysis, parse_fantasy, AI11RateLimitError)
@@ -882,113 +883,203 @@ def get_predictions(match_id: str, db: Session = Depends(get_db)):
 
 @app.post("/api/v1/matches/{match_id}/teams")
 def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(get_db)):
-    match=db.get(Match,match_id)
-    if not match: raise HTTPException(404,"Match not found")
-    squads=db.scalars(select(MatchSquad).where(MatchSquad.match_id==match_id)).all()
-    if not squads: raise HTTPException(422,"No squad players are imported for this match.")
-    missing_credit_players=[]
+    match = db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "Match not found")
+    squads = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match_id)).all()
+    if not squads:
+        raise HTTPException(422, "No squad players are imported for this match.")
+
+    missing_credit_players = []
     for squad in squads:
         if squad.credits is None:
-            player=db.get(Player,squad.player_id)
+            player = db.get(Player, squad.player_id)
             missing_credit_players.append(player.name if player else squad.player_id)
     if missing_credit_players:
-        raise HTTPException(422,detail={
-            "message":"Team generation requires verified player credits.",
-            "credits_missing_count":len(missing_credit_players),
-            "credits_missing_players":missing_credit_players,
-            "action":"Import verified credits or enter them manually. No credit values are guessed."
+        raise HTTPException(422, detail={
+            "message": "Team generation requires verified player credits.",
+            "credits_missing_count": len(missing_credit_players),
+            "credits_missing_players": missing_credit_players,
+            "action": "Import verified credits or enter them manually. No credit values are guessed."
         })
-    predictions=predict_match(db,match_id)
-    intelligence_row=db.get(MatchIntelligence,match_id)
-    match_context=dict(intelligence_row.data or {}) if intelligence_row and isinstance(intelligence_row.data,dict) else {}
-    toss_batting_team=None
-    if match_context.get("toss_completed"):
-        toss_winner=match_context.get("toss_winner")
-        toss_decision=match_context.get("toss_decision")
-        if toss_winner in {match.team_a,match.team_b}:
-            if toss_decision=="bat":
-                toss_batting_team=toss_winner
-            elif toss_decision=="bowl":
-                toss_batting_team=match.team_b if toss_winner==match.team_a else match.team_a
-    squad_by_id={s.player_id:s for s in squads}
-    combined=[]
+
+    predictions = predict_match(db, match_id)
+    intelligence_row = db.get(MatchIntelligence, match_id)
+    match_context = dict(intelligence_row.data or {}) if intelligence_row and isinstance(intelligence_row.data, dict) else {}
+    squad_by_id = {s.player_id: s for s in squads}
+    combined = []
     for prediction in predictions:
-        s=squad_by_id[prediction["player_id"]]
-        tg_profile=db.get(PlayerSourceProfile,(match_id,s.player_id,"TEAM_GENERATION"))
-        ai11_profile=db.get(PlayerSourceProfile,(match_id,s.player_id,"AI11"))
-        tg_data=tg_profile.data if tg_profile and isinstance(tg_profile.data,dict) else {}
-        ai11_data=ai11_profile.data if ai11_profile and isinstance(ai11_profile.data,dict) else {}
-        captain_pct=tg_data.get("captain_pct",ai11_data.get("captain_pct",ai11_data.get("captain")))
-        vice_pct=tg_data.get("vice_captain_pct",ai11_data.get("vice_captain_pct",ai11_data.get("vice_captain")))
-        combined.append({**prediction,"credits":s.credits,"selection_pct":s.selection_pct,"status":s.status,
-                         "captain_pct":captain_pct,"vice_captain_pct":vice_pct,
-                         "team_generation_image":tg_data.get("image"),
-                         "team_generation_fantasy_ids":tg_data.get("fantasy_ids"),
-                         "batting_position":tg_data.get("batting_position",prediction.get("batting_position")),
-                         "expected_overs":tg_data.get("expected_overs",prediction.get("expected_overs")),
-                         "involvement_score":tg_data.get("involvement_score",prediction.get("involvement_score")),
-                         "matchup_score":tg_data.get("matchup_score",prediction.get("matchup_score")),
-                         "batting_friendly":match_context.get("batting_friendly"),
-                         "pace_friendly":match_context.get("pace_friendly"),
-                         "spin_friendly":match_context.get("spin_friendly"),
-                         "dew_likely":match_context.get("dew_likely"),
-                         "rain_probability":match_context.get("rain_probability"),
-                         "toss_batting_team":toss_batting_team})
-    history_ready=bool(combined) and all(p.get("expected_points") is not None for p in combined)
-    if payload.score_mode != "none":
-        if payload.score_team not in {match.team_a, match.team_b}:
-            raise HTTPException(422, "Choose a batting-first or chasing team from this match.")
-        if payload.scenario_score is None:
-            raise HTTPException(422, "Enter the scenario score for the selected innings mode.")
-    requested=payload.generation_mode
-    modes=(["ai_prediction","provisional"] if requested=="both" else [requested])
+        squad = squad_by_id[prediction["player_id"]]
+        tg_profile = db.get(PlayerSourceProfile, (match_id, squad.player_id, "TEAM_GENERATION"))
+        tg_data = tg_profile.data if tg_profile and isinstance(tg_profile.data, dict) else {}
+        captain_pct = tg_data.get("captain_pct", prediction.get("ai11_captain_pct"))
+        vice_pct = tg_data.get("vice_captain_pct", prediction.get("ai11_vice_captain_pct"))
+        combined.append({
+            **prediction,
+            "credits": squad.credits,
+            "selection_pct": squad.selection_pct if squad.selection_pct is not None else prediction.get("ai11_selection_pct"),
+            "status": squad.status,
+            "captain_pct": captain_pct,
+            "vice_captain_pct": vice_pct,
+            "team_generation_image": tg_data.get("image"),
+            "team_generation_fantasy_ids": tg_data.get("fantasy_ids"),
+            "batting_position": tg_data.get("batting_position", prediction.get("batting_position")),
+            "expected_overs": tg_data.get("expected_overs", prediction.get("expected_overs")),
+            "involvement_score": tg_data.get("involvement_score", prediction.get("involvement_score")),
+            "matchup_score": tg_data.get("matchup_score", prediction.get("matchup_score")),
+            "batting_friendly": match_context.get("batting_friendly"),
+            "pace_friendly": match_context.get("pace_friendly"),
+            "spin_friendly": match_context.get("spin_friendly"),
+            "dew_likely": match_context.get("dew_likely"),
+            "rain_probability": match_context.get("rain_probability"),
+            "toss_batting_team": match_context.get("batting_first_team"),
+        })
+
+    match_context.update({
+        "team_a": match.team_a,
+        "team_b": match.team_b,
+        "format": match.format,
+    })
+    combined, ai11_analysis = build_ai11_match_analysis(combined, match_context, match_context)
+    history_ready = bool(combined) and all(p.get("expected_points") is not None for p in combined)
+
+    # Interpret innings scenarios from explicit user selection or source-backed
+    # toss information. For "both", score_team means the selected/known batting-first side.
+    batting_first_team = match_context.get("batting_first_team")
+    if batting_first_team not in {match.team_a, match.team_b}:
+        batting_first_team = None
+        toss_winner = match_context.get("toss_winner")
+        toss_decision = match_context.get("toss_decision")
+        if toss_winner in {match.team_a, match.team_b} and toss_decision in {"bat", "bowl"}:
+            batting_first_team = toss_winner if toss_decision == "bat" else (
+                match.team_b if toss_winner == match.team_a else match.team_a
+            )
+    chasing_team = (
+        match.team_b if batting_first_team == match.team_a
+        else match.team_a if batting_first_team == match.team_b else None
+    )
+
+    def _auto_scenario_score(key: str):
+        value = match_context.get(key)
+        if value is None:
+            venue_analysis = match_context.get("auto_venue_analysis") or {}
+            alias = "first_innings_average" if key == "average_first_innings" else "second_innings_average"
+            value = venue_analysis.get(alias)
+        try:
+            return int(round(float(value))) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    scenario_specs = []
+    if payload.score_mode == "both":
+        batting_first_team = batting_first_team or (
+            payload.score_team if payload.score_team in {match.team_a, match.team_b} else None
+        )
+        if batting_first_team is None:
+            raise HTTPException(422, detail={
+                "message": "Both innings mode needs the batting-first team.",
+                "action": "Choose which team bats first, or import toss information from AI11/official match data."
+            })
+        chasing_team = match.team_b if batting_first_team == match.team_a else match.team_a
+        scenario_specs = [
+            ("first_innings", batting_first_team,
+             payload.scenario_score or _auto_scenario_score("average_first_innings")),
+            ("chasing", chasing_team,
+             _auto_scenario_score("average_second_innings")),
+        ]
+    elif payload.score_mode == "first_innings":
+        scenario_team = payload.score_team or batting_first_team
+        if scenario_team not in {match.team_a, match.team_b}:
+            raise HTTPException(422, detail={
+                "message": "Choose the team batting first, or import toss information.",
+                "action": "Set the batting-first team in the innings scenario selector."
+            })
+        scenario_specs = [(
+            "first_innings", scenario_team,
+            payload.scenario_score or _auto_scenario_score("average_first_innings")
+        )]
+    elif payload.score_mode == "chasing":
+        scenario_team = payload.score_team or chasing_team
+        if scenario_team not in {match.team_a, match.team_b}:
+            raise HTTPException(422, detail={
+                "message": "Choose the team batting second, or import toss information.",
+                "action": "Set the chasing team in the innings scenario selector."
+            })
+        scenario_specs = [(
+            "chasing", scenario_team,
+            payload.scenario_score or _auto_scenario_score("average_second_innings")
+        )]
+    else:
+        scenario_specs = [("none", None, None)]
+
+    requested = payload.generation_mode
+    modes = ["ai_prediction", "provisional"] if requested == "both" else [requested]
     if "ai_prediction" in modes and not history_ready:
-        if requested=="ai_prediction":
-            raise HTTPException(422,detail={
-                "message":"AI Prediction Mode requires format-matched historical fantasy-point records.",
-                "prediction_status":"insufficient_history",
-                "players_missing_history":[p["player_name"] for p in combined if p.get("expected_points") is None],
-                "action":"Import verified match-by-match historical records for this format, then retry. Use Provisional Team Builder in the meantime."
+        if requested == "ai_prediction":
+            raise HTTPException(422, detail={
+                "message": "AI Prediction Mode requires format-matched historical fantasy-point records.",
+                "prediction_status": "insufficient_history",
+                "players_missing_history": [p["player_name"] for p in combined if p.get("expected_points") is None],
+                "action": "Import verified match-by-match historical records for this format, then retry. Use Provisional Team Builder in the meantime."
             })
         modes.remove("ai_prediction")
-    results={}
+
+    results = {}
     for mode in modes:
-        results[mode]={}
+        results[mode] = {}
         for strategy in payload.strategies:
-            try:
-                results[mode][strategy]=build_teams(
-                    combined,strategy,payload.rules,payload.teams_per_strategy,payload.scenario,
-                    team_a=match.team_a,locked_ids=payload.locked_player_ids,
-                    excluded_ids=payload.excluded_player_ids,captain_pool=payload.captain_pool,
-                    vice_captain_pool=payload.vice_captain_pool,
-                    manual_captain_id=payload.manual_captain_id,
-                    manual_vice_captain_id=payload.manual_vice_captain_id,
-                    mode=mode,
-                    innings_mode=payload.score_mode,
-                    score_team=payload.score_team,
-                    scenario_score=payload.scenario_score,
-                    match_format=match.format)
-            except ValueError as exc:
-                raise HTTPException(422,str(exc))
+            strategy_teams = []
+            for innings_mode, score_team, scenario_score in scenario_specs:
+                try:
+                    generated = build_teams(
+                        combined, strategy, payload.rules, payload.teams_per_strategy, payload.scenario,
+                        team_a=match.team_a, locked_ids=payload.locked_player_ids,
+                        excluded_ids=payload.excluded_player_ids, captain_pool=payload.captain_pool,
+                        vice_captain_pool=payload.vice_captain_pool,
+                        manual_captain_id=payload.manual_captain_id,
+                        manual_vice_captain_id=payload.manual_vice_captain_id,
+                        mode=mode, innings_mode=innings_mode, score_team=score_team,
+                        scenario_score=scenario_score, match_format=match.format
+                    )
+                except ValueError as exc:
+                    raise HTTPException(422, str(exc))
+                for team in generated:
+                    if innings_mode != "none":
+                        team["scenario_label"] = (
+                            "Batting first" if innings_mode == "first_innings" else "Chasing second"
+                        ) + (f" • {score_team}" if score_team else "")
+                    strategy_teams.append(team)
+            results[mode][strategy] = strategy_teams
+
+    scenario_response = {
+        "mode": payload.score_mode,
+        "scenarios": [
+            {"mode": mode_name, "team": team_name, "scenario_score": score_value}
+            for mode_name, team_name, score_value in scenario_specs if mode_name != "none"
+        ],
+        "format": match.format,
+        "note": "Innings scenarios are conditional player-selection preferences. AI11/venue averages are source context, not guaranteed totals or fantasy points."
+    } if payload.score_mode != "none" else None
+
     return {
-        "match_id":match_id,"model_version":MODEL_VERSION,
-        "generation_mode_requested":requested,
-        "score_scenario": {
-            "mode": payload.score_mode,
-            "team": payload.score_team,
-            "scenario_score": payload.scenario_score,
-            "format": match.format,
-            "note": "User-entered scenario assumption; used as a small player-selection preference, not a score or fantasy-points prediction."
-        } if payload.score_mode != "none" else None,
-        "history_status":"ready" if history_ready else "insufficient_history",
-        "available_modes":(["ai_prediction","provisional"] if history_ready else ["provisional"]),
-        "teams":results,
-        "manual_controls":{"locked":payload.locked_player_ids,
-            "excluded":payload.excluded_player_ids,
-            "captain_pool":payload.captain_pool,"vice_captain_pool":payload.vice_captain_pool},
-        "warnings":[
-            "AI Prediction Mode uses format-matched historical statistical estimates; it is not a trained machine-learning model."
-        ] + (["Provisional teams use imported source ownership and captain/vice-captain trends as weak selection signals only. Projected fantasy points are null and no points prediction is claimed."] if not history_ready or "provisional" in modes else [])
+        "match_id": match_id,
+        "model_version": MODEL_VERSION,
+        "generation_mode_requested": requested,
+        "score_scenario": scenario_response,
+        "history_status": "ready" if history_ready else "insufficient_history",
+        "available_modes": ["ai_prediction", "provisional"] if history_ready else ["provisional"],
+        "ai11_analysis": ai11_analysis,
+        "teams": results,
+        "manual_controls": {
+            "locked": payload.locked_player_ids,
+            "excluded": payload.excluded_player_ids,
+            "captain_pool": payload.captain_pool,
+            "vice_captain_pool": payload.vice_captain_pool,
+        },
+        "warnings": [
+            "AI Prediction Mode uses format-matched historical statistical estimates; it is not a trained machine-learning model.",
+            "AI11 batting, bowling, series and selection signals support provisional ranking, but do not become D11 fantasy-point projections.",
+        ] + (["Provisional fantasy-point estimates remain null until verified match-by-match history is imported."] if not history_ready else [])
     }
 
 @app.get("/api/v1/model/status")
