@@ -2883,7 +2883,7 @@ def admin_page():
 # Cricsheet T20 historical import. All records live in dedicated tables and
 # are never written into or used to replace the live Match/squad tables.
 _CRICSHEET_MAX_ARCHIVE_BYTES = 150 * 1024 * 1024
-_CRICSHEET_MAX_UNCOMPRESSED_BYTES = 500 * 1024 * 1024
+_CRICSHEET_MAX_UNCOMPRESSED_BYTES = 1500 * 1024 * 1024
 
 
 def _cricsheet_download(url: str) -> bytes:
