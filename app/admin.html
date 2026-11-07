@@ -850,7 +850,7 @@ $('ai11Import').onclick=async()=>{
   const d=await api('/api/v1/admin/import/ai11',{method:'POST',body:JSON.stringify({analysis_url:url,target_match_id:targetMatchId})});
   if(d.linked_to_existing_match){
    state.matchId=targetMatchId;await loadWizard();setStep(currentStep);
-   out.textContent='AI11 linked to '+(d.match?.name||d.match_id)+'. Matched '+d.players_matched+' of '+d.players_in_ai11+' players. Unmatched: '+(d.players_unmatched||[]).join(', ')+'\nExisting D11 credits and confirmed lineup were preserved.\n'+JSON.stringify({match_context_fields_saved:d.match_context_fields_saved,credits_ready_for_team_builder:d.credits_ready_for_team_builder,credits_missing_players:d.credits_missing_players},null,2);
+   out.textContent='AI11 linked to '+(d.match?.name||d.match_id)+'. Matched '+d.players_matched+' of '+d.players_in_ai11+' players. Unmatched: '+(d.players_unmatched||[]).join(', ')+'\nExisting D11 credits and confirmed lineup were preserved.\nCompleted-match PTS imported: '+(d.match_performance_records_imported||0)+' (updated '+(d.match_performance_records_updated||0)+', verified records preserved '+(d.existing_verified_match_records_preserved||0)+').\n'+JSON.stringify({match_completed:d.match_completed,match_context_fields_saved:d.match_context_fields_saved,credits_ready_for_team_builder:d.credits_ready_for_team_builder,credits_missing_players:d.credits_missing_players},null,2);
   }else{
    state.matchId=d.match_id;await loadWizard();setStep(1);out.textContent='Standalone AI11 match imported. '+JSON.stringify(d,null,2);
   }
