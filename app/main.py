@@ -1307,6 +1307,56 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
             if mapped in target_teams:
                 team_map[str(source_team)] = mapped
 
+        # Do not attach a different historical fixture's player PTS to the
+        # currently open match. Doing so could make past results look like
+        # current-match history and corrupt the same-match leakage guard.
+        source_fixture_teams = [
+            team_map.get(str(source_team)) or map_ai11_team(source_team)
+            for source_team in (parsed.get("team_a"), parsed.get("team_b"))
+        ]
+        same_fixture_teams = (
+            len(source_fixture_teams) == 2
+            and all(team in target_teams for team in source_fixture_teams)
+            and set(source_fixture_teams) == set(target_teams)
+        )
+        if not same_fixture_teams:
+            raise HTTPException(
+                422,
+                detail={
+                    "message": "The AI11 URL belongs to a different fixture than the D11 match currently open.",
+                    "ai11_teams": [parsed.get("team_a"), parsed.get("team_b")],
+                    "d11_teams": target_teams,
+                    "action": "Import the completed AI11 scorecard as a standalone historical match, or open the matching D11 fixture before linking it.",
+                },
+            )
+        if str(parsed.get("format") or "").upper() != str(target_match.format or "").upper():
+            raise HTTPException(
+                422,
+                detail={
+                    "message": "The AI11 match format does not match the open D11 fixture.",
+                    "ai11_format": parsed.get("format"),
+                    "d11_format": target_match.format,
+                },
+            )
+        source_date = source_intelligence_date = (parsed.get("intelligence") or {}).get("match_date")
+        if source_date and target_match.start_time:
+            try:
+                target_date = datetime.fromisoformat(
+                    str(target_match.start_time).replace("Z", "+00:00")
+                ).date().isoformat()
+            except (TypeError, ValueError):
+                target_date = None
+            if target_date and target_date != source_date:
+                raise HTTPException(
+                    422,
+                    detail={
+                        "message": "The AI11 scorecard date does not match the open D11 fixture date.",
+                        "ai11_date": source_date,
+                        "d11_date": target_date,
+                        "action": "Open the matching fixture or import this AI11 result separately as historical data.",
+                    },
+                )
+
         profile_by_source_id = {
             profile.get("player_id"): profile
             for profile in parsed.get("profiles", [])
