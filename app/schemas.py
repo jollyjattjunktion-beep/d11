@@ -119,8 +119,8 @@ class TeamRules(BaseModel):
         return self
 
 class TeamRequest(BaseModel):
-    strategies: list[Literal["safe", "balanced", "grand_league", "scenario"]] = Field(
-        default_factory=lambda: ["balanced"]
+    strategies: list[Literal["strongest", "safe", "balanced", "grand_league", "scenario"]] = Field(
+        default_factory=lambda: ["strongest"]
     )
     teams_per_strategy: int = Field(default=1, ge=1, le=20)
     rules: TeamRules = Field(default_factory=TeamRules)
