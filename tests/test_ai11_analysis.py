@@ -106,3 +106,22 @@ def test_ai11_current_series_runs_wickets_and_points_drive_role_score_over_popul
     assert ranked["in-form"]["ai11_role_score"] > ranked["popular"]["ai11_role_score"]
     assert ranked["in-form"]["ai11_two_skill_profile"] is True
     assert analysis["recommendations"]["all_rounders"][0]["player_id"] == "in-form"
+
+
+def test_analysis_reports_rankable_score_coverage_not_just_source_rows():
+    players = [
+        _player("scored", "Scored Player", "A", "BAT", {
+            "career_matches": 12, "batting_innings": 11,
+            "batting_average": 38, "batting_strike_rate": 132,
+        }),
+        _player("empty", "Empty Player", "B", "BOWL", {}),
+    ]
+    _, analysis = build_ai11_match_analysis(
+        players, {"team_a": "A", "team_b": "B", "format": "T20"}, {}
+    )
+    coverage = analysis["profile_coverage"]
+    assert coverage["players_with_rankable_score"] == 1
+    assert coverage["squad_players"] == 2
+    assert coverage["coverage_pct"] == 50.0
+    assert coverage["quality"] == "low"
+    assert coverage["players_missing_ai11_profile"][0]["player_name"] == "Empty Player"
