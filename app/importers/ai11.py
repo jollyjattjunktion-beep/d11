@@ -381,10 +381,20 @@ def parse_analysis(html: str):
                     series_aliases = {
                         "m": "series_matches", "apt": "series_average_points",
                         "pts": "ai11_series_points_reported", "run": "series_runs",
-                        "wk": "series_wickets", "dt": "series_dt_metric", "p": "ai11_projected_points",
+                        "wk": "series_wickets", "dt": "series_dt_metric", "p": "ai11_source_p_raw",
                     }
                     compact_header = re.sub(r"[^a-z0-9]+", "", header.casefold())
                     key = series_aliases.get(compact_header, key)
+                if "match performance" in group_key:
+                    match_aliases = {
+                        "idt": "ai11_match_played",
+                        "pts": "ai11_match_fantasy_points",
+                        "bat": "ai11_match_batting_points",
+                        "bowl": "ai11_match_bowling_points",
+                        "field": "ai11_match_fielding_points",
+                    }
+                    compact_header = re.sub(r"[^a-z0-9]+", "", header.casefold())
+                    key = match_aliases.get(compact_header, key)
                 if key in {"innings", "batting_average", "strike_rate"} and "bowl" in group:
                     key = {"innings": "bowling_innings", "batting_average": "bowling_average",
                            "strike_rate": "bowling_strike_rate"}[key]
@@ -406,13 +416,24 @@ def parse_analysis(html: str):
                 "series_runs", "series_wickets", "series_dt_metric"
             }
             series_summary = {key: stat_values.pop(key) for key in list(stat_values) if key in series_keys}
-            ai11_projected_points = stat_values.pop("ai11_projected_points", None)
+            ai11_source_p_raw = stat_values.pop("ai11_source_p_raw", None)
+            match_key_map = {
+                "ai11_match_played": "played",
+                "ai11_match_fantasy_points": "fantasy_points",
+                "ai11_match_batting_points": "batting_points",
+                "ai11_match_bowling_points": "bowling_points",
+                "ai11_match_fielding_points": "fielding_points",
+            }
+            match_performance = {
+                match_key_map[key]: stat_values.pop(key)
+                for key in list(stat_values) if key in match_key_map
+            }
             profiles.append({"player_id": pid, "player_name": name, "team": team, "role": role,
                 "format": fmt, "ai11_captain_pct": captain_pct, "ai11_vice_captain_pct": vice_pct,
                 "ai11_selection_pct": selection, "ai11_statistics": stat_values,
                 "ai11_series_summary": series_summary,
-                "ai11_projected_points": ai11_projected_points,
-                "ai11_projection_data_type": "AI11 source projection; not verified Dream11 fantasy points",
+                "ai11_source_p_raw": ai11_source_p_raw,
+                "ai11_match_performance": match_performance,
                 "ai11_row": cells, "source": "AI11",
                 "data_type": "career_or_series_aggregate_not_match_level"})
         if players:
@@ -438,7 +459,26 @@ def parse_analysis(html: str):
     for profile in profiles:
         profile["team"] = team_code_map.get(profile.get("team"), profile.get("team"))
 
-    intelligence = {"team_display_names": team_code_map, "team_codes": team_codes}
+    intelligence = {
+        "team_display_names": team_code_map,
+        "team_codes": team_codes,
+        "match_completed": bool(
+            re.search(r"\bcompleted\b", text, re.I)
+            or re.search(r"\b(?:won by|lost by|tied|drawn|no result)\b", text, re.I)
+        ),
+    }
+    date_match = re.search(
+        r"(?:Date & Time|was played on|started on)\s*(?:[A-Za-z]+,?\s*)?(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})",
+        text, re.I,
+    )
+    if date_match:
+        from datetime import datetime
+        for date_format in ("%d %B %Y", "%d %b %Y"):
+            try:
+                intelligence["match_date"] = datetime.strptime(date_match.group(1), date_format).strftime("%Y-%m-%d")
+                break
+            except ValueError:
+                continue
 
     def find_num(pattern):
         match = re.search(pattern, text, re.I)
