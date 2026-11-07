@@ -652,7 +652,8 @@ function addPitchPlayer(row,p,t){
 function renderDreamTeamPreview(t,strategy,mode,index){
  const wrap=document.createElement('article');wrap.className='dream-team-result';
  const top=document.createElement('div');top.className='result-card-head';
- const rankLabel=(t.portfolio_rank||index+1)===1?'BEST RANKED XI':'ALTERNATIVE XI '+(t.portfolio_rank||index+1);\n const title=document.createElement('strong');title.textContent=rankLabel+' • '+strategy.toUpperCase().replaceAll('_',' ')+' • '+mode.toUpperCase()+(t.scenario_label?' • '+t.scenario_label:'');
+ const rankLabel=(t.portfolio_rank||index+1)===1?'BEST RANKED XI':'ALTERNATIVE XI '+(t.portfolio_rank||index+1);
+ const title=document.createElement('strong');title.textContent=rankLabel+' • '+strategy.toUpperCase().replaceAll('_',' ')+' • '+mode.toUpperCase()+(t.scenario_label?' • '+t.scenario_label:'');
  const actions=document.createElement('div');actions.className='result-card-actions';
  const copy=document.createElement('button');copy.className='btn outline';copy.textContent='Copy team';copy.onclick=()=>{const lines=(t.players||[]).map(p=>p.player_name+' ('+p.role+', '+p.team+', '+p.credits+' cr)'+(p.player_id===t.captain_id?' — C':p.player_id===t.vice_captain_id?' — VC':''));const textOut=lines.join('\n')+'\nTotal credits: '+t.total_credits;if(navigator.clipboard?.writeText)navigator.clipboard.writeText(textOut).then(()=>{copy.textContent='Copied';setTimeout(()=>copy.textContent='Copy team',1400)}).catch(()=>alert(textOut));else alert(textOut);};
  actions.append(copy);top.append(title,actions);wrap.append(top);
