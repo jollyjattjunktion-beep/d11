@@ -1196,9 +1196,12 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
             "credits_ready_for_team_builder":bool(squad_rows) and len(missing)==0,
             "fantasy_page_requires_browser":fantasy_data["dynamic_content_may_require_browser"],
             "profiles_saved":saved,
-            "statistics_profiles_saved":sum(1 for profile in parsed.get("profiles",[]) if profile.get("ai11_statistics")),
-            "statistics_fields_available":sorted({key for profile in parsed.get("profiles",[]) for key in (profile.get("ai11_statistics") or {}).keys()}),
+            "statistics_profiles_saved":sum(1 for profile in parsed.get("profiles",[]) if profile.get("ai11_statistics") or profile.get("ai11_series_summary")),
+            "career_statistics_fields":sorted({key for profile in parsed.get("profiles",[]) for key in (profile.get("ai11_statistics") or {}).keys()}),
+            "series_statistics_fields":sorted({key for profile in parsed.get("profiles",[]) for key in (profile.get("ai11_series_summary") or {}).keys()}),
             "statistics_data_type":"career_or_series_aggregate_not_match_level",
+            "match_context_fields_saved":sorted(parsed.get("intelligence",{}).keys()),
+            "source_note":"AI11 lineup tick is stored as source selection evidence, not official Playing XI confirmation.",
             "prediction_integration":"AI11 aggregate profile is a small supporting feature only; verified match-by-match fantasy-point history remains the source for expected/floor/ceiling points.",
             "warning":"AI11 career/series aggregates and selection trends are source profiles, not per-match historical fantasy points. Import independent historical scorecards before training the prediction model."}
 
