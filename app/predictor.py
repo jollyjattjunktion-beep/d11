@@ -309,7 +309,7 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
     reasons.extend(ai11_reasons)
     if cricsheet_history.get("available"):
         reasons.append("Cricsheet T20 role workload profile uses " + str(cricsheet_history["matches_used"]) + " prior matches; not fantasy points")
-    if cricsheet_opportunity is not None and usage.get("involvement_score") is None:
+    if cricsheet_opportunity is not None and usage.get("involvement_score") is None and tg_data.get("involvement_score") is None:
         reasons.append("Cricsheet role workload informs player opportunity, not expected fantasy points")
     reasons.extend(condition_reasons)
     if status in {"playing","confirmed"}:
