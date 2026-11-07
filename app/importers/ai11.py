@@ -181,12 +181,12 @@ def _team_code_matches_name(code: str, display_name: str) -> bool:
     """Map short AI11 codes such as USA-W, NAM-W and IND19 to display names."""
     code_key = _normal_team_code(code)
     words = re.findall(r"[A-Za-z0-9]+", str(display_name or "").lower())
-    age_match = re.search(r"(?:u|under)[- ]?(\\d{1,2})", str(display_name or ""), re.I)
+    age_match = re.search(r"(?:u|under)[- ]?(\d{1,2})", str(display_name or ""), re.I)
     age = age_match.group(1) if age_match else ""
-    women = bool(re.search(r"\\bwomen|\\bwomens|\\bwoman", str(display_name or ""), re.I))
-    men = bool(re.search(r"\\bmen|\\bmens", str(display_name or ""), re.I))
+    women = bool(re.search(r"\bwomen|\bwomens|\bwoman", str(display_name or ""), re.I))
+    men = bool(re.search(r"\bmen|\bmens", str(display_name or ""), re.I))
     ignored = {"women", "womens", "woman", "men", "mens", "under", "u"}
-    country_words = [word for word in words if word not in ignored and not re.fullmatch(r"u?\\d+", word)]
+    country_words = [word for word in words if word not in ignored and not re.fullmatch(r"u?\d+", word)]
     acronym = "".join(word[0] for word in country_words)
     first = country_words[0] if country_words else ""
     candidates = {acronym, first[:2], first[:3], first[:4]}
@@ -414,19 +414,19 @@ def parse_analysis(html: str):
         return _number(match.group(1)) if match else None
 
     intelligence["average_first_innings"] = find_num(
-        r"average first[- ]innings score[^0-9]{0,80}(\\d{2,3})"
+        r"average first[- ]innings score[^0-9]{0,80}(\d{2,3})"
     )
     intelligence["average_second_innings"] = find_num(
-        r"average second[- ]innings score[^0-9]{0,80}(\\d{2,3})"
+        r"average second[- ]innings score[^0-9]{0,80}(\d{2,3})"
     )
     sample_match = re.search(
-        r"average (?:first|second)[- ]innings score.*?based on (\\d+) matches", text, re.I
+        r"average (?:first|second)[- ]innings score.*?based on (\d+) matches", text, re.I
     )
     if sample_match:
         intelligence["venue_matches"] = int(sample_match.group(1))
-    intelligence["rain_probability"] = find_num(r"Chance of rain\\s*(\\d+(?:\\.\\d+)?)\\s*%?")
-    intelligence["humidity"] = find_num(r"Humidity\\s*(\\d+(?:\\.\\d+)?)\\s*%?")
-    intelligence["wind_kmh"] = find_num(r"Wind\\s*(\\d+(?:\\.\\d+)?)\\s*km/h")
+    intelligence["rain_probability"] = find_num(r"Chance of rain\s*(\d+(?:\.\d+)?)\s*%?")
+    intelligence["humidity"] = find_num(r"Humidity\s*(\d+(?:\.\d+)?)\s*%?")
+    intelligence["wind_kmh"] = find_num(r"Wind\s*(\d+(?:\.\d+)?)\s*km/h")
     if venue:
         intelligence["venue_name"] = venue
 
@@ -455,7 +455,7 @@ def parse_analysis(html: str):
         intelligence["pitch_confidence"] = "source-description"
 
     toss_match = re.search(
-        r"Who won the toss.*?\\s+([A-Za-z0-9-]+)\\s+elected to (bat|field|bowl)(?: first)?",
+        r"Who won the toss.*?\s+([A-Za-z0-9-]+)\s+elected to (bat|field|bowl)(?: first)?",
         text, re.I
     )
     if toss_match:
@@ -479,10 +479,10 @@ def parse_analysis(html: str):
     form_match = re.search(r"Recent Form(.*?)(?:Head to Head|Pitch Report)", text, re.I)
     if form_match:
         intelligence["recent_form_source_text"] = form_match.group(1).strip()[:700]
-    h2h_match = re.search(r"Head to Head \\(last 5\\)(.*?)(?:Pitch Report|Weather)", text, re.I)
+    h2h_match = re.search(r"Head to Head \(last 5\)(.*?)(?:Pitch Report|Weather)", text, re.I)
     if h2h_match:
         intelligence["h2h_source_text"] = h2h_match.group(1).strip()[:700]
-    weather_match = re.search(r"Weather:.*?(?:Dew is (?:likely|unlikely)[^.]*\\.)?", text, re.I)
+    weather_match = re.search(r"Weather:.*?(?:Dew is (?:likely|unlikely)[^.]*\.)?", text, re.I)
     if weather_match:
         intelligence["weather_summary"] = weather_match.group(0)[:500]
     return {"match_id": match_id, "title": match_name, "format": fmt, "team_a": team_a, "team_b": team_b,
