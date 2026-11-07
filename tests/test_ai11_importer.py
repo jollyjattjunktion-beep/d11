@@ -222,6 +222,10 @@ def test_parse_ai11_current_t20_series_summary_and_grouped_batting_bowling_table
     assert profile["ai11_selection_pct"] == 94.15
     assert profile["ai11_captain_pct"] == 34.18
     assert profile["ai11_vice_captain_pct"] == 16.87
+    # The final AI11 "P" column is source-projected points, not a generic
+    # series metric and not verified Dream11 match history.
+    assert profile["ai11_projected_points"] == 1
+    assert "series_p_metric" not in series
     assert "fantasy_points" not in stats
     assert "fantasy_points" not in series
 
