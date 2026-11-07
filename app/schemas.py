@@ -140,6 +140,9 @@ class TeamRequest(BaseModel):
 class AI11ImportRequest(BaseModel):
     analysis_url: str
     fantasy_url: str | None = None
+    # When present, attach AI11 profiles and pitch/toss data to an existing
+    # Team Generation match instead of creating an unrelated AI11-only match.
+    target_match_id: str | None = Field(default=None, max_length=100)
 
 class HistoricalBatchImport(BaseModel):
     records: list[StatsIn] = Field(min_length=1, max_length=10000)
