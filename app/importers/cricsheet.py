@@ -57,10 +57,9 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
         raise ValueError("Match JSON must contain an info object.")
     info = document["info"]
     match_type = str(info.get("match_type") or "").upper()
-    overs_limit = _as_int(info.get("overs", 0))
-    # The official all-match JSON archive contains Tests and ODIs too; skip them
-    # cleanly so this importer can safely consume the full source archive.
-    if match_type != "T20" or (overs_limit and overs_limit != 20):
+    # The official archive contains Tests and ODIs too; skip them cleanly.
+    # Reduced-overs T20 matches remain valid T20 records.
+    if match_type != "T20":
         return None
     teams = info.get("teams") or []
     if len(teams) != 2:
@@ -228,7 +227,7 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
         "team_b": teams[1],
         "toss_winner": toss.get("winner"),
         "toss_decision": toss.get("decision"),
-        "winner": (outcome.get("by") or {}).get("runs") and outcome.get("winner") or outcome.get("winner"),
+        "winner": outcome.get("winner"),
         "result_method": "runs" if (outcome.get("by") or {}).get("runs") is not None else "wickets" if (outcome.get("by") or {}).get("wickets") is not None else outcome.get("method"),
         "innings": innings_rows,
         "players": list(players.values()),
