@@ -14,6 +14,13 @@ def _weighted_mean(values):
 def _bounded(value, low, high):
     return max(low, min(high, value))
 
+
+def _safe_float(value):
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
 def _condition_adjustment(role, context, fmt):
     """Apply small, bounded adjustments only where match-context evidence exists."""
     factor, reasons = 1.0, []
