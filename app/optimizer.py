@@ -58,11 +58,16 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
             # Performance-first: career role strength and current-series form
             # drive selection. Ownership and provider C/VC are deliberately
             # capped to a small tie-break contribution.
+            history_score = p.get("recent_history_score")
             evidence = []
             if role_score is not None:
-                evidence.append((float(role_score), 0.68))
+                evidence.append((float(role_score), 0.55))
             if recent_score is not None:
-                evidence.append((float(recent_score), 0.32))
+                evidence.append((float(recent_score), 0.25))
+            # One/two completed matches are a useful short-form signal, but
+            # must not unlock expected/floor/ceiling fantasy-point estimates.
+            if expected is None and history_score is not None:
+                evidence.append((float(history_score), 0.20))
             if evidence:
                 performance = sum(value * weight for value, weight in evidence) / sum(
                     weight for _, weight in evidence
@@ -95,9 +100,12 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
         recent_score = p.get("ai11_recent_form_score")
         profile_scores = []
         if role_score is not None:
-            profile_scores.append((float(role_score), 0.68))
+            profile_scores.append((float(role_score), 0.56))
         if recent_score is not None:
-            profile_scores.append((float(recent_score), 0.32))
+            profile_scores.append((float(recent_score), 0.24))
+        history_score = p.get("recent_history_score")
+        if expected is None and history_score is not None:
+            profile_scores.append((float(history_score), 0.20))
         if profile_scores:
             profile_strength = sum(score * weight for score, weight in profile_scores) / sum(weight for _, weight in profile_scores)
             profile_multiplier = max(0.80, min(1.20, 1.0 + (profile_strength - 50.0) * 0.004))
