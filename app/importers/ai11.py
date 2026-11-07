@@ -124,7 +124,12 @@ def parse_analysis(html: str):
     heading = soup.find("h1")
     heading_text = heading.get_text(" ", strip=True) if heading else page_title
     text = soup.get_text(" ", strip=True)
-    fmt = "TEST" if re.search(r"\btest\b", page_title + " " + heading_text, re.I) else "T20" if re.search(r"\bT20\b", page_title + " " + heading_text, re.I) else "ODI"
+    # Some AI11 match titles omit the format (notably women's regional series).
+    # Use the page's series/table/venue context before falling back to ODI.
+    format_evidence = " ".join([page_title, heading_text, text[:12000]])
+    fmt = ("TEST" if re.search(r"\btest\b|\bfive[- ]day\b", format_evidence, re.I)
+           else "T20" if re.search(r"\bT20(?:I)?\b|\btwenty20\b", format_evidence, re.I)
+           else "ODI")
 
     venue = None
     for node in soup.find_all(["h1", "h2", "h3", "h4", "strong"]):
@@ -263,7 +268,8 @@ def parse_analysis(html: str):
 
     intelligence = {
         "ai11_analysis_url_type": "match_analysis_with_player_statistics",
-        "ai11_data_provenance": "AI11 source page; aggregate player statistics and source projections are not match-by-match Dream11 fantasy points",
+        "ai11_data_provenance": "AI11 source page; career and series aggregates, source projection, and selection/C/VC percentages are separate source signals, not verified match-by-match Dream11 fantasy points",
+        "format_evidence": format_evidence[:500],
     }
 
     def find_num(pattern):
