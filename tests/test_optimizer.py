@@ -230,3 +230,74 @@ def test_missing_score_still_uses_innings_role_opportunity():
     opposition_bowler = {"team": "B", "role": "BOWL"}
     assert _score_context_multiplier(batter, "first_innings", "A", None, "ODI") == 1.015
     assert _score_context_multiplier(opposition_bowler, "first_innings", "A", None, "ODI") == 1.02
+
+
+def test_completed_match_benchmark_selects_the_actual_1231_point_dream_team():
+    # Retrospective benchmark based on the points visible in the user's
+    # completed MR vs AS match screenshots. These actual points are used only
+    # to verify the optimizer's legal best-XI search, never for pre-match input.
+    actual = [
+        ("g-wareham", "G Wareham", "MR", "AR", 189),
+        ("h-matthews", "H Matthews", "MR", "AR", 138),
+        ("m-illingworth", "M Illingworth", "MR", "BOWL", 113),
+        ("t-vlaeminck", "T Vlaeminck", "MR", "BOWL", 105),
+        ("c-webb", "C Webb", "MR", "BAT", 104),
+        ("m-bouchier", "M Bouchier", "AS", "BAT", 96),
+        ("t-mcgrath", "T McGrath", "AS", "AR", 58),
+        ("e-debrough", "E De Brough", "AS", "BAT", 49),
+        ("s-ecclestone", "S Ecclestone", "AS", "BOWL", 48),
+        ("a-wellington", "A Wellington", "AS", "BOWL", 37),
+        ("b-patterson", "B Patterson", "AS", "WK", 36),
+        ("s-molineux", "S Molineux", "AS", "BOWL", 32),
+        ("e-larosa", "E Larosa", "AS", "AR", 22),
+        ("l-wolvaardt", "L Wolvaardt", "MR", "BAT", 14),
+    ]
+    players = [{
+        "player_id": pid, "player_name": name, "team": team, "role": role,
+        "credits": 8.5, "selection_pct": 50, "status": "confirmed",
+        "expected_points": float(points), "floor_points": float(points) * 0.8,
+        "ceiling_points": float(points) * 1.2, "consistency": 0.7,
+        "upside": float(points) * 1.2, "risk": "medium",
+    } for pid, name, team, role, points in actual]
+    team = build_teams(
+        players, "balanced", TeamRules(team_a_count=5), 1,
+        team_a="MR", mode="ai_prediction",
+    )[0]
+    expected_ids = {
+        "g-wareham", "h-matthews", "m-illingworth", "t-vlaeminck",
+        "c-webb", "m-bouchier", "t-mcgrath", "e-debrough",
+        "s-ecclestone", "a-wellington", "b-patterson",
+    }
+    selected_ids = {p["player_id"] for p in team["players"]}
+    assert selected_ids == expected_ids
+    assert team["captain_id"] == "g-wareham"
+    assert team["vice_captain_id"] == "h-matthews"
+    assert team["projected_points"] == 1231.0
+    assert team["team_split"] == {"MR": 5, "AS": 6}
+
+
+def test_ai11_series_form_can_outweigh_raw_selection_popularity():
+    players = sample_players()
+    for player in players:
+        player["expected_points"] = None
+        player["floor_points"] = None
+        player["ceiling_points"] = None
+        player["ai11_profile_factor"] = 1.0
+        player["selection_pct"] = 85
+        player["ai11_role_score"] = 50
+        player["ai11_recent_form_score"] = 50
+    strong = next(p for p in players if p["player_id"] == "p4")
+    weak = next(p for p in players if p["player_id"] == "p5")
+    strong.update({
+        "ai11_role_score": 88, "ai11_recent_form_score": 91,
+        "ai11_batting_score": 84, "ai11_bowling_score": 86,
+        "ai11_two_skill_profile": True,
+    })
+    weak.update({
+        "ai11_role_score": 38, "ai11_recent_form_score": 32,
+        "ai11_batting_score": 35, "ai11_bowling_score": None,
+        "ai11_two_skill_profile": False,
+    })
+    strong_signal = _player_signal(strong, "balanced", "neutral", provisional=True)
+    weak_signal = _player_signal(weak, "balanced", "neutral", provisional=True)
+    assert strong_signal > weak_signal
