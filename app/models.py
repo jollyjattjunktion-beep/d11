@@ -48,6 +48,7 @@ class PlayerMatchStats(Base):
     balls: Mapped[int] = mapped_column(Integer, default=0)
     fours: Mapped[int] = mapped_column(Integer, default=0)
     sixes: Mapped[int] = mapped_column(Integer, default=0)
+    dismissals: Mapped[int] = mapped_column(Integer, default=0)
     wickets: Mapped[int] = mapped_column(Integer, default=0)
     overs: Mapped[float] = mapped_column(Float, default=0)
     runs_conceded: Mapped[int] = mapped_column(Integer, default=0)
