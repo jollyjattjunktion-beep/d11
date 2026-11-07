@@ -215,6 +215,7 @@ def _ranked(players: list[dict], score_key: str, limit: int = 5) -> list[dict]:
         "selection_pct": p.get("ai11_selection_pct", p.get("selection_pct")),
         "captain_pct": p.get("ai11_captain_pct"),
         "vice_captain_pct": p.get("ai11_vice_captain_pct"),
+        "ai11_projected_points": p.get("ai11_projected_points"),
         "reason": _player_reason(p, score_key),
     } for p in rows[:limit]]
 
@@ -239,6 +240,8 @@ def _player_reason(player: dict, score_key: str) -> str:
         if style in {"pace", "spin"}:
             facts.append(f"{style} bowling profile")
     else:
+        if player.get("ai11_projected_points") is not None:
+            facts.append(f"AI11 source projection: {player['ai11_projected_points']} points")
         if series.get("series_average_points") is not None:
             facts.append(f"AI11 series average: {series['series_average_points']}")
         if series.get("series_matches") is not None:
@@ -388,7 +391,7 @@ def build_ai11_match_analysis(players: list[dict], match: dict, intelligence: di
             },
         },
         "data_integrity": {
-            "note": "AI11 career/series aggregates, source projected-points values and selection/C/VC trends are ranking signals, not verified match-by-match Dream11 fantasy points.",
+            "note": "AI11 source projected-points values, career/series aggregates and selection/C/VC trends are ranking signals, not verified match-by-match Dream11 fantasy points.",
             "fantasy_point_projections_from_ai11": False,
         },
     }
