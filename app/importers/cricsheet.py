@@ -75,8 +75,6 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
     innings_rows = []
     matchups: dict[tuple[str, str], dict] = {}
     innings_list = document.get("innings") or []
-    if not innings_list:
-        raise ValueError("Match has no innings data.")
     for innings_index, innings in enumerate(innings_list):
         batting_team = innings.get("team")
         if batting_team not in teams:
@@ -210,9 +208,7 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
         raise ValueError("Match date must be an ISO date.")
     outcome = info.get("outcome") or {}
     toss = info.get("toss") or {}
-    venue = str(info.get("venue") or "").strip()
-    if not venue:
-        raise ValueError("Match venue is missing.")
+    venue = str(info.get("venue") or "").strip() or "Unknown venue"
     raw = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return {
         "source_match_id": "cricsheet:" + _slug(source_file.rsplit("/", 1)[-1].rsplit(".", 1)[0]),
