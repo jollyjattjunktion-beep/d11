@@ -326,7 +326,7 @@ def parse_analysis(html: str):
             vice_pct = _number(cells[vice_idx]) if vice_idx is not None and vice_idx < len(cells) else None
             lineup = cells[status_idx].strip().lower() if status_idx is not None and status_idx < len(cells) else ""
             # AI11's checkmark is a source-table selection marker, not proof of an official XI.
-            status = "confirmed" if re.search(r"\\b(?:confirmed|playing\\s*xi|in\\s*playing\\s*xi)\\b", lineup) else "unknown"
+            status = "confirmed" if re.search(r"\b(?:confirmed|playing\s*xi|in\s*playing\s*xi)\b", lineup) else "unknown"
             pid = _player_id(name)
             if any(p["id"] == pid for p in players):
                 continue
