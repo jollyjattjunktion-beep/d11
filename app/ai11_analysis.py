@@ -24,6 +24,7 @@ def _metric_score(value: float, baseline: float, higher_is_better: bool = True) 
 
 
 def _profile_scores(player: dict, fmt: str) -> dict:
+    """Create role-aware career + current-series scores (never fantasy-point predictions)."""
     metrics = player.get("ai11_metrics") or player.get("ai11_statistics") or {}
     series = player.get("ai11_series_summary") or {}
     if not isinstance(metrics, dict):
@@ -33,76 +34,120 @@ def _profile_scores(player: dict, fmt: str) -> dict:
 
     role = str(player.get("role") or "").upper()
     fmt = str(fmt or "T20").upper()
-    bat_baseline, sr_baseline, wicket_baseline, economy_baseline = {
-        "T20": (24.0, 125.0, 0.85, 8.0),
-        "ODI": (30.0, 85.0, 0.75, 6.0),
-        "TEST": (32.0, 50.0, 0.65, 3.3),
-    }.get(fmt, (25.0, 100.0, 0.75, 7.0))
+    baselines = {
+        "T20": {"bat_avg": 24.0, "bat_sr": 125.0, "runs": 24.0, "wickets": 0.85, "economy": 8.0, "bowl_avg": 26.0, "bowl_sr": 20.0, "points": 55.0},
+        "ODI": {"bat_avg": 30.0, "bat_sr": 85.0, "runs": 30.0, "wickets": 0.75, "economy": 6.0, "bowl_avg": 32.0, "bowl_sr": 36.0, "points": 65.0},
+        "TEST": {"bat_avg": 32.0, "bat_sr": 50.0, "runs": 32.0, "wickets": 0.65, "economy": 3.3, "bowl_avg": 35.0, "bowl_sr": 55.0, "points": 60.0},
+    }
+    base = baselines.get(fmt, baselines["T20"])
 
-    bat_parts = []
-    bat_innings = _num(metrics.get("batting_innings")) or 0.0
-    average = _num(metrics.get("batting_average"))
-    strike_rate = _num(metrics.get("batting_strike_rate") or metrics.get("strike_rate"))
-    fifties = _num(metrics.get("fifties") or metrics.get("fifties_plus")) or 0.0
-    if role in {"BAT", "WK", "AR"}:
-        if average is not None:
-            bat_parts.append((_metric_score(average, bat_baseline), 0.55))
-        if strike_rate is not None:
-            bat_parts.append((_metric_score(strike_rate, sr_baseline), 0.35))
-        if fifties > 0:
-            career_matches = _num(metrics.get("matches") or metrics.get("career_matches")) or bat_innings
-            milestone_rate = fifties / max(1.0, career_matches)
-            bat_parts.append((_clamp(50 + (milestone_rate - 0.10) * 180), 0.10))
-    batting_score = None
-    if bat_parts:
-        raw = sum(score * weight for score, weight in bat_parts) / sum(weight for _, weight in bat_parts)
-        reliability = min(1.0, max(0.25, bat_innings / 12.0)) if bat_innings else 0.35
-        batting_score = round(50 + (raw - 50) * reliability, 1)
+    def metric_score(value, baseline, higher=True):
+        n = _num(value)
+        if n is None:
+            return None
+        ratio = n / baseline if higher else baseline / max(n, 0.01)
+        return _clamp(50.0 + (ratio - 1.0) * 42.0)
 
-    bowl_parts = []
-    bowl_innings = _num(metrics.get("bowling_innings")) or 0.0
+    def weighted(parts):
+        available = [(float(score), float(weight)) for score, weight in parts if score is not None and weight > 0]
+        if not available:
+            return None
+        return round(sum(score * weight for score, weight in available) / sum(weight for _, weight in available), 1)
+
+    batting_innings = _num(metrics.get("batting_innings")) or 0.0
+    bowling_innings = _num(metrics.get("bowling_innings")) or 0.0
+    career_matches = _num(metrics.get("matches") or metrics.get("career_matches")) or max(batting_innings, bowling_innings)
+    bat_average = metric_score(metrics.get("batting_average"), base["bat_avg"])
+    bat_sr = metric_score(metrics.get("batting_strike_rate") or metrics.get("strike_rate"), base["bat_sr"])
+    career_runs_per_innings = None
+    career_runs = _num(metrics.get("runs"))
+    if career_runs is not None and batting_innings > 0:
+        career_runs_per_innings = metric_score(career_runs / batting_innings, base["runs"])
+    fifties = _num(metrics.get("fifties") or metrics.get("fifties_plus"))
+    fifty_score = None
+    if fifties is not None and career_matches > 0:
+        fifty_score = _clamp(50.0 + ((fifties / career_matches) - 0.10) * 180.0)
+
+    career_batting_raw = weighted([
+        (bat_average, 0.38),
+        (bat_sr, 0.27),
+        (career_runs_per_innings, 0.25),
+        (fifty_score, 0.10),
+    ])
+    # Shrink small career samples toward neutral so a handful of innings cannot
+    # overwhelm stronger current-series evidence.
+    career_batting = None
+    if career_batting_raw is not None:
+        reliability = min(1.0, max(0.25, batting_innings / 12.0)) if batting_innings else 0.30
+        career_batting = round(50.0 + (career_batting_raw - 50.0) * reliability, 1)
+
     wickets = _num(metrics.get("wickets"))
-    economy = _num(metrics.get("economy"))
-    if role in {"BOWL", "AR"}:
-        if wickets is not None and bowl_innings > 0:
-            bowl_parts.append((_metric_score(wickets / bowl_innings, wicket_baseline), 0.65))
-        if economy is not None and bowl_innings > 0:
-            bowl_parts.append((_metric_score(economy, economy_baseline, higher_is_better=False), 0.35))
-    bowling_score = None
-    if bowl_parts:
-        raw = sum(score * weight for score, weight in bowl_parts) / sum(weight for _, weight in bowl_parts)
-        reliability = min(1.0, max(0.25, bowl_innings / 10.0)) if bowl_innings else 0.35
-        bowling_score = round(50 + (raw - 50) * reliability, 1)
+    economy = metric_score(metrics.get("economy"), base["economy"], higher=False)
+    bowl_average = metric_score(metrics.get("bowling_average"), base["bowl_avg"], higher=False)
+    bowl_sr = metric_score(metrics.get("bowling_strike_rate"), base["bowl_sr"], higher=False)
+    wickets_per_innings = None
+    if wickets is not None and bowling_innings > 0:
+        wickets_per_innings = metric_score(wickets / bowling_innings, base["wickets"])
+    career_bowling_raw = weighted([
+        (wickets_per_innings, 0.42),
+        (economy, 0.25),
+        (bowl_average, 0.20),
+        (bowl_sr, 0.13),
+    ])
+    career_bowling = None
+    if career_bowling_raw is not None:
+        reliability = min(1.0, max(0.25, bowling_innings / 10.0)) if bowling_innings else 0.30
+        career_bowling = round(50.0 + (career_bowling_raw - 50.0) * reliability, 1)
 
+    # Current-series output is more recent than career aggregates. Sample size
+    # controls its influence, with a one-match series deliberately shrunk.
     series_matches = _num(series.get("series_matches")) or 0.0
     series_avg = _num(series.get("series_average_points"))
-    series_score = None
-    if series_matches > 0 and series_avg is not None:
-        raw_series = _clamp(series_avg / 55.0 * 100.0)
-        reliability = min(1.0, series_matches / 3.0)
-        series_score = round(50 + (raw_series - 50) * reliability, 1)
+    series_points_score = metric_score(series_avg, base["points"])
+    series_runs = _num(series.get("series_runs"))
+    series_wickets = _num(series.get("series_wickets"))
+    series_runs_score = None
+    series_wickets_score = None
+    if series_runs is not None and series_matches > 0:
+        runs_baseline = base["runs"] * (0.55 if role == "AR" else 1.0)
+        series_runs_score = metric_score(series_runs / series_matches, runs_baseline)
+    if series_wickets is not None and series_matches > 0:
+        wicket_baseline = base["wickets"] * (0.60 if role == "AR" else 1.0)
+        series_wickets_score = metric_score(series_wickets / series_matches, wicket_baseline)
 
-    components = []
+    series_form_raw = weighted([
+        (series_points_score, 0.55),
+        (series_runs_score, 0.25 if role in {"BAT", "WK", "AR"} else 0.10),
+        (series_wickets_score, 0.25 if role in {"BOWL", "AR"} else 0.10),
+    ])
+    series_form_score = None
+    if series_form_raw is not None:
+        sample_reliability = min(1.0, 0.45 + 0.18 * max(0.0, series_matches - 1.0))
+        series_form_score = round(50.0 + (series_form_raw - 50.0) * sample_reliability, 1)
+
     if role in {"BAT", "WK"}:
-        if batting_score is not None:
-            components.append((batting_score, 0.78))
-        if series_score is not None:
-            components.append((series_score, 0.22))
+        role_score = weighted([(career_batting, 0.60), (series_form_score, 0.40)])
     elif role == "BOWL":
-        if bowling_score is not None:
-            components.append((bowling_score, 0.78))
-        if series_score is not None:
-            components.append((series_score, 0.22))
+        role_score = weighted([(career_bowling, 0.60), (series_form_score, 0.40)])
     elif role == "AR":
-        if batting_score is not None:
-            components.append((batting_score, 0.42))
-        if bowling_score is not None:
-            components.append((bowling_score, 0.42))
-        if series_score is not None:
-            components.append((series_score, 0.16))
-    role_score = None
-    if components:
-        role_score = round(sum(score * weight for score, weight in components) / sum(weight for _, weight in components), 1)
+        # Two-way performance matters: an all-rounder with both a batting and
+        # bowling contribution is preferred over a one-discipline profile.
+        role_score = weighted([
+            (career_batting, 0.30),
+            (career_bowling, 0.30),
+            (series_form_score, 0.40),
+        ])
+    else:
+        role_score = weighted([(career_batting, 0.5), (career_bowling, 0.5), (series_form_score, 0.25)])
+
+    bowling_type = str(metrics.get("bowling_type") or "").upper()
+    spin_types = ("OB", "OFFBREAK", "OFF BREAK", "LBG", "LEG", "SLA", "SLOW LEFT", "LB", "LEG BREAK")
+    pace_types = ("RM", "RF", "LF", "LM", "RMF", "LMF", "FAST", "MEDIUM", "PACE")
+    bowling_style = (
+        "spin" if any(token in bowling_type for token in spin_types)
+        else "pace" if any(token in bowling_type for token in pace_types)
+        else "unknown"
+    )
 
     selection = _num(player.get("selection_pct"))
     if selection is None:
@@ -114,20 +159,20 @@ def _profile_scores(player: dict, fmt: str) -> dict:
     if vice is None:
         vice = _num(player.get("ai11_vice_captain_pct"))
 
-    spin_types = ("OB", "OFFBREAK", "OFF BREAK", "LBG", "LEG", "SLA", "SLOW LEFT", "LB", "LEG BREAK")
-    pace_types = ("RM", "RF", "LF", "LM", "RMF", "LMF", "FAST", "MEDIUM", "PACE")
-    bowling_type = str(metrics.get("bowling_type") or "").upper()
-    bowling_style = (
-        "spin" if any(token in bowling_type for token in spin_types)
-        else "pace" if any(token in bowling_type for token in pace_types)
-        else "unknown"
+    dual_skill = (
+        career_batting is not None and career_bowling is not None
+        and role == "AR"
     )
-
     return {
-        "ai11_batting_score": batting_score,
-        "ai11_bowling_score": bowling_score,
-        "ai11_series_score": series_score,
+        "ai11_batting_score": career_batting,
+        "ai11_bowling_score": career_bowling,
+        "ai11_series_score": series_form_score,
+        "ai11_recent_form_score": series_form_score,
+        "ai11_series_points_score": series_points_score,
+        "ai11_series_runs_score": series_runs_score,
+        "ai11_series_wickets_score": series_wickets_score,
         "ai11_role_score": role_score,
+        "ai11_two_skill_profile": dual_skill,
         "ai11_bowling_style_group": bowling_style,
         "ai11_selection_pct": selection,
         "ai11_captain_pct": captain,
@@ -135,7 +180,6 @@ def _profile_scores(player: dict, fmt: str) -> dict:
         "ai11_profile_metrics_available": bool(metrics or series),
         "ai11_evidence_fields": sorted(set(metrics) | set(series)),
     }
-
 
 def _ranked(players: list[dict], score_key: str, limit: int = 5) -> list[dict]:
     rows = [p for p in players if p.get(score_key) is not None]
