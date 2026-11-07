@@ -1,4 +1,4 @@
-from app.optimizer import build_teams, _score_context_multiplier
+from app.optimizer import build_teams, _score_context_multiplier, _player_signal
 from app.schemas import TeamRules
 import pytest
 
@@ -187,3 +187,46 @@ def test_unavailable_players_are_excluded_even_before_xi_lock():
     selected_ids = {player["player_id"] for player in teams[0]["players"]}
     assert "p0" not in selected_ids
     assert "p1" not in selected_ids
+
+
+def test_ai11_role_scores_strengthen_provisional_ranking_without_creating_points():
+    common = {
+        "player_id": "batter", "player_name": "Batter", "team": "A",
+        "role": "BAT", "status": "unknown", "selection_pct": 40,
+        "expected_points": None, "floor_points": None, "ceiling_points": None,
+    }
+    high = _player_signal({
+        **common, "ai11_role_score": 88, "ai11_batting_score": 90,
+        "ai11_bowling_score": None, "ai11_profile_factor": 1.0,
+    }, "balanced", "neutral", match_format="ODI", provisional=True)
+    low = _player_signal({
+        **common, "ai11_role_score": 32, "ai11_batting_score": 30,
+        "ai11_bowling_score": None, "ai11_profile_factor": 1.0,
+    }, "balanced", "neutral", match_format="ODI", provisional=True)
+    assert high > low
+    assert common["expected_points"] is None
+
+
+def test_pitch_scenario_uses_ai11_discipline_scores_as_bounded_fit_signals():
+    common = {
+        "player_id": "bowler", "player_name": "Bowler", "team": "A",
+        "role": "BOWL", "status": "unknown", "selection_pct": 40,
+        "expected_points": None, "floor_points": None, "ceiling_points": None,
+        "ai11_role_score": 70, "ai11_bowling_score": 90,
+        "ai11_profile_factor": 1.0,
+    }
+    pace = _player_signal({**common, "ai11_bowling_style_group": "pace"},
+                          "balanced", "pace_friendly", match_format="T20", provisional=True)
+    spin = _player_signal({**common, "ai11_bowling_style_group": "spin"},
+                          "balanced", "spin_friendly", match_format="T20", provisional=True)
+    neutral = _player_signal({**common, "ai11_bowling_style_group": "pace"},
+                             "balanced", "neutral", match_format="T20", provisional=True)
+    assert pace > neutral
+    assert spin > neutral
+
+
+def test_missing_score_still_uses_innings_role_opportunity():
+    batter = {"team": "A", "role": "BAT"}
+    opposition_bowler = {"team": "B", "role": "BOWL"}
+    assert _score_context_multiplier(batter, "first_innings", "A", None, "ODI") == 1.015
+    assert _score_context_multiplier(opposition_bowler, "first_innings", "A", None, "ODI") == 1.02
