@@ -581,6 +581,7 @@ def build_team_diagnostic(players, team, strategy, scenario="neutral",
                 scenario_score, match_format,
                 provisional=player.get("expected_points") is None
             ), 2),
+            "opportunity_profile": _player_opportunity_profile(player, match_format),
             "reason": "; ".join(reasons),
             "evidence": "statistical estimate" if player.get("expected_points") is not None else "provisional selection evidence",
         })
