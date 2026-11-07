@@ -452,11 +452,10 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
     }
     locked_score = sum(candidate_scores.get(p["player_id"], 0.0) for p in locked)
     states = [(locked, locked_score)]
-    beam_width = min(5000, max(2000, len(pool) * 200))
+    beam_width = min(2600, max(1200, len(pool) * 90))
 
-    def partial_is_feasible(chosen, remaining_slots):
+    def partial_is_feasible(chosen, available, remaining_slots):
         counts = Counter(p["role"] for p in chosen)
-        available = [p for p in pool if p["player_id"] not in {x["player_id"] for x in chosen}]
         available_roles = Counter(p["role"] for p in available)
         if any(counts[role] + available_roles[role] < minimum
                for role, minimum in rules.min_role.items()):
@@ -488,31 +487,39 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
         expanded = {}
         for chosen, score_so_far in states:
             chosen_ids = {p["player_id"] for p in chosen}
-            for p in pool:
+            available_before = [p for p in pool if p["player_id"] not in chosen_ids]
+            if not available_before:
+                continue
+            # Calculate the optimistic remaining-score prefix once per partial
+            # XI rather than sorting all remaining candidates for every branch.
+            ranked_remaining = sorted(
+                ((candidate_scores.get(p["player_id"], 0.0), p["player_id"])
+                 for p in available_before),
+                reverse=True,
+            )
+            prefix = [0.0]
+            for score_value, _player_id in ranked_remaining:
+                prefix.append(prefix[-1] + score_value)
+            remaining = rules.team_size - len(chosen) - 1
+
+            for p in available_before:
                 pid = p["player_id"]
-                if pid in chosen_ids or not _valid(
-                    p, chosen, rules, team_a, rules.team_a_count, provisional
-                ):
+                if not _valid(p, chosen, rules, team_a, rules.team_a_count, provisional):
                     continue
                 next_chosen = chosen + [p]
-                remaining = rules.team_size - len(next_chosen)
-                counts = Counter(x["role"] for x in next_chosen)
-                deficits = sum(
-                    max(0, minimum - counts[role])
-                    for role, minimum in rules.min_role.items()
-                )
-                if deficits > remaining or not partial_is_feasible(next_chosen, remaining):
+                available_after = [other for other in available_before if other["player_id"] != pid]
+                if not partial_is_feasible(next_chosen, available_after, remaining):
                     continue
 
                 value = score_so_far + candidate_scores.get(pid, 0.0)
-                next_ids = chosen_ids | {pid}
-                best_remaining = sorted(
-                    (candidate_scores.get(other["player_id"], 0.0)
-                     for other in pool if other["player_id"] not in next_ids),
-                    reverse=True
-                )[:remaining]
-                optimistic = value + sum(best_remaining)
-                key = tuple(sorted(next_ids))
+                top_n_sum = prefix[min(remaining, len(ranked_remaining))]
+                # If the player being added was inside the optimistic top-N,
+                # replace them with the next available candidate.
+                top_n_ids = {player_id for _, player_id in ranked_remaining[:remaining]}
+                if pid in top_n_ids and remaining < len(ranked_remaining):
+                    top_n_sum = prefix[remaining + 1] - candidate_scores.get(pid, 0.0)
+                optimistic = value + top_n_sum
+                key = tuple(sorted(chosen_ids | {pid}))
                 previous = expanded.get(key)
                 if previous is None or optimistic > previous[2]:
                     expanded[key] = (next_chosen, value, optimistic)
