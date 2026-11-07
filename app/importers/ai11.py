@@ -131,6 +131,7 @@ def _stat_header_key(value: str) -> str | None:
         "ov": "overs", "overs": "overs", "eco": "economy", "econ": "economy",
         "best": "best_bowling", "c/st": "catches_stumpings", "c": "catches",
         "st": "stumpings", "pts": "source_reported_points", "pt": "source_reported_points",
+        "apt": "series_average_points", "run": "series_runs", "dt": "series_dt", "p": "series_p",
         "s%": "selection_pct", "vc": "vice_captain_pct",
     }
     if compact in aliases:
@@ -178,7 +179,15 @@ def parse_analysis(html: str):
     heading = soup.find("h1")
     heading_text = heading.get_text(" ", strip=True) if heading else page_title
     text = soup.get_text(" ", strip=True)
-    fmt = "TEST" if re.search(r"\btest\b", page_title + " " + heading_text, re.I) else "T20" if re.search(r"\bT20\b", page_title + " " + heading_text, re.I) else "ODI"
+    canonical = soup.find("link", rel=lambda value: value and "canonical" in value)
+    canonical_url = str(canonical.get("href") or "") if canonical else ""
+    fmt_hint_text = " ".join((page_title, heading_text, canonical_url, text[:8000]))
+    # AI11 often puts format in the series caption rather than browser title.
+    table_format = re.search(r"\b(T20|ODI|TEST)\s+past performance\b", fmt_hint_text, re.I)
+    series_format = re.search(r"\b(T20|ODI|TEST)\s+series\b", fmt_hint_text, re.I)
+    chosen_format = table_format.group(1) if table_format else series_format.group(1) if series_format else None
+    fmt = (chosen_format or ("TEST" if re.search(r"\btest\b", fmt_hint_text, re.I)
+          else "T20" if re.search(r"\bT20\b", fmt_hint_text, re.I) else "ODI")).upper()
     venue = None
     # Prefer the explicit Pitch Report heading; broad Stadium regexes can capture article-card text.
     for node in soup.find_all(["h1", "h2", "h3", "h4", "strong"]):
@@ -300,6 +309,15 @@ def parse_analysis(html: str):
                     continue
                 group = group_by_index.get(column_index, "")
                 key = _stat_header_key(header)
+                group_key = group.casefold()
+                if "series" in group_key:
+                    series_aliases = {
+                        "m": "series_matches", "apt": "series_average_points",
+                        "pts": "ai11_series_points_reported", "run": "series_runs",
+                        "wk": "series_wickets", "dt": "series_dt_metric", "p": "series_p_metric",
+                    }
+                    compact_header = re.sub(r"[^a-z0-9]+", "", header.casefold())
+                    key = series_aliases.get(compact_header, key)
                 if key in {"innings", "batting_average", "strike_rate"} and "bowl" in group:
                     key = {"innings": "bowling_innings", "batting_average": "bowling_average",
                            "strike_rate": "bowling_strike_rate"}[key]
@@ -316,9 +334,15 @@ def parse_analysis(html: str):
                 stat_values["vice_captain_pct"] = vice_pct
             if selection is not None:
                 stat_values["selection_pct"] = selection
+            series_keys = {
+                "series_matches", "series_average_points", "ai11_series_points_reported",
+                "series_runs", "series_wickets", "series_dt_metric", "series_p_metric"
+            }
+            series_summary = {key: stat_values.pop(key) for key in list(stat_values) if key in series_keys}
             profiles.append({"player_id": pid, "player_name": name, "team": team, "role": role,
                 "format": fmt, "ai11_captain_pct": captain_pct, "ai11_vice_captain_pct": vice_pct,
                 "ai11_selection_pct": selection, "ai11_statistics": stat_values,
+                "ai11_series_summary": series_summary,
                 "ai11_row": cells, "source": "AI11",
                 "data_type": "career_or_series_aggregate_not_match_level"})
         if players:
