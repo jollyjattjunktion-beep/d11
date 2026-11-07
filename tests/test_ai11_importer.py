@@ -222,9 +222,10 @@ def test_parse_ai11_current_t20_series_summary_and_grouped_batting_bowling_table
     assert profile["ai11_selection_pct"] == 94.15
     assert profile["ai11_captain_pct"] == 34.18
     assert profile["ai11_vice_captain_pct"] == 16.87
-    # The final AI11 "P" column is source-projected points, not a generic
-    # series metric and not verified Dream11 match history.
-    assert profile["ai11_projected_points"] == 1
+    # The compact AI11 "P" series column is not fantasy points and must not
+    # be treated as the separate Match Performance PTS field.
+    assert profile["ai11_source_p_raw"] == 1
+    assert "ai11_projected_points" not in profile
     assert "series_p_metric" not in series
     assert "fantasy_points" not in stats
     assert "fantasy_points" not in series
@@ -282,3 +283,53 @@ def test_grouped_ai11_table_retains_bowling_type_for_pace_spin_fit():
     stats = data["profiles"][0]["ai11_statistics"]
     assert stats["batting_hand"] == "RHB"
     assert stats["bowling_type"] == "OB"
+
+
+def test_ai11_match_performance_pts_is_separate_from_series_p_and_marks_completed_result():
+    html = """
+    <html>
+      <head><title>Melbourne Renegades Women vs Adelaide Strikers Women 13th Match</title></head>
+      <body>
+        <p>Melbourne Renegades Women vs Adelaide Strikers Women</p>
+        <p>Saturday 07 November 2026</p>
+        <p>Completed. Melbourne Renegades Women won by 36 runs.</p>
+        <table>
+          <tr>
+            <th colspan="5">Player</th><th colspan="9">Batting</th>
+            <th colspan="10">Bowling</th><th colspan="7">Series Performance</th>
+            <th colspan="3">Lineup selection</th><th colspan="6">Match Performance</th>
+          </tr>
+          <tr>
+            <th>Name</th><th>T</th><th>R</th><th>S</th><th>M#</th>
+            <th>Bat</th><th>Inn</th><th>NO</th><th>Runs</th><th>HS</th><th>Avg</th><th>SR</th><th>50+</th><th>4/6</th>
+            <th>Bowl</th><th>Inn</th><th>Wk</th><th>Ov</th><th>Avg</th><th>Eco</th><th>SR</th><th>4w</th><th>Best</th><th>C/St</th>
+            <th>M</th><th>A. Pt</th><th>Pts</th><th>Run</th><th>Wk</th><th>DT</th><th>P</th>
+            <th>S%</th><th>C</th><th>VC</th>
+            <th>iDt</th><th>#</th><th>PTS</th><th>Bat</th><th>Bowl</th><th>Field</th>
+          </tr>
+          <tr>
+            <td>Georgia Wareham</td><td>MR-W</td><td>ALL</td><td>✓</td><td>85</td>
+            <td>RHB</td><td>75</td><td>13</td><td>1400</td><td>67</td><td>25.45</td><td>128.4</td><td>8</td><td>130/45</td>
+            <td>LB</td><td>79</td><td>84</td><td>2.8</td><td>15.96</td><td>5.98</td><td>16</td><td>0</td><td>3/11</td><td>34/2</td>
+            <td>8</td><td>82</td><td>248</td><td>102</td><td>1</td><td>100</td><td>5</td>
+            <td>85.27</td><td>12.02</td><td>18.36</td>
+            <td>✓</td><td>1</td><td>189</td><td>135</td><td>42</td><td>12</td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """
+    data = ai11.parse_analysis(html)
+    profile = data["profiles"][0]
+    assert data["intelligence"]["match_completed"] is True
+    assert data["intelligence"]["match_date"] == "2026-11-07"
+    assert profile["ai11_source_p_raw"] == 5
+    assert profile["ai11_match_performance"] == {
+        "played": "✓",
+        "fantasy_points": 189.0,
+        "batting_points": 135.0,
+        "bowling_points": 42.0,
+        "fielding_points": 12.0,
+    }
+    assert "ai11_projected_points" not in profile
+    assert "fantasy_points" not in profile["ai11_statistics"]
