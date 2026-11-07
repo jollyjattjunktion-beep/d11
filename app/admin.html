@@ -834,9 +834,15 @@ $('generateTeams').onclick=async()=>{
   // Automatic means genuinely flexible: do not impose an artificial 6–5 split
   // from a generic team-strength flag. Let the XI optimizer choose 7–4/6–5/5–6.
   if(split!=='auto')team_a_count=Number(split.split('-')[0]);
+  const strongestOnly=strategy==='strongest';
   const req={
    strategies,teams_per_strategy:Number($('teamCount').value),
-   rules:{team_size:11,max_from_one_team:7,max_credits:100,min_role:{WK:1,BAT:3,AR:1,BOWL:3},max_role:{WK:4,BAT:6,AR:4,BOWL:6},playing_xi_only:state.lineupConfirmed,team_a_count},
+   rules:{
+    team_size:11,max_from_one_team:7,max_credits:100,
+    min_role:{WK:1,BAT:3,AR:1,BOWL:strongestOnly?4:3},
+    max_role:{WK:4,BAT:6,AR:strongestOnly?3:4,BOWL:6},
+    playing_xi_only:state.lineupConfirmed,team_a_count
+   },
    scenario:(()=>{
     const choice=$('ai11PitchScenario').value;
     if(choice!=='auto')return choice;
