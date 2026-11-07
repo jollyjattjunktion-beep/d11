@@ -2892,18 +2892,28 @@ def _cricsheet_download(url: str) -> bytes:
         raise HTTPException(422, "Cricsheet source must be an HTTPS URL hosted on cricsheet.org.")
     if not parsed.path.startswith("/downloads/") or parsed.query or parsed.fragment:
         raise HTTPException(422, "Only direct Cricsheet /downloads/ archive URLs are accepted.")
+    chunks = []
+    total = 0
     try:
-        response = httpx.get(url, timeout=httpx.Timeout(60.0, connect=15.0), follow_redirects=False,
-                             headers={"Accept": "application/zip"})
+        with httpx.stream("GET", url, timeout=httpx.Timeout(60.0, connect=15.0),
+                          follow_redirects=False, trust_env=False,
+                          headers={"Accept": "application/zip"}) as response:
+            if response.status_code != 200:
+                raise HTTPException(502, "Cricsheet archive download returned HTTP " + str(response.status_code))
+            declared = response.headers.get("content-length")
+            if declared and declared.isdigit() and int(declared) > _CRICSHEET_MAX_ARCHIVE_BYTES:
+                raise HTTPException(413, "Cricsheet archive exceeds the 150 MB download safety limit.")
+            for chunk in response.iter_bytes(1024 * 1024):
+                total += len(chunk)
+                if total > _CRICSHEET_MAX_ARCHIVE_BYTES:
+                    raise HTTPException(413, "Cricsheet archive exceeds the 150 MB download safety limit.")
+                chunks.append(chunk)
     except httpx.RequestError as exc:
         raise HTTPException(502, "Could not download Cricsheet archive: " + type(exc).__name__)
-    if response.status_code != 200:
-        raise HTTPException(502, "Cricsheet archive download returned HTTP " + str(response.status_code))
-    if len(response.content) > _CRICSHEET_MAX_ARCHIVE_BYTES:
-        raise HTTPException(413, "Cricsheet archive exceeds the 150 MB download safety limit.")
-    if not response.content.startswith(b"PK"):
+    content = b"".join(chunks)
+    if not content.startswith(b"PK"):
         raise HTTPException(422, "Cricsheet download is not a ZIP archive.")
-    return response.content
+    return content
 
 
 def _parse_cricsheet_archive(archive_bytes: bytes, max_matches: int) -> tuple[list[dict], dict]:
@@ -2920,7 +2930,7 @@ def _parse_cricsheet_archive(archive_bytes: bytes, max_matches: int) -> tuple[li
         total_size = sum(item.file_size for item in entries)
         if total_size > _CRICSHEET_MAX_UNCOMPRESSED_BYTES:
             raise HTTPException(413, "Archive expands beyond the 500 MB safety limit.")
-        parsed, invalid, duplicates = [], [], 0
+        parsed, invalid, duplicates, skipped_non_t20 = [], [], 0, 0
         seen = set()
         for entry in entries:
             # Reject path traversal and directory entries; filenames are metadata only.
@@ -2933,6 +2943,7 @@ def _parse_cricsheet_archive(archive_bytes: bytes, max_matches: int) -> tuple[li
             try:
                 record = parse_t20_json_bytes(archive.read(entry), entry.filename)
             if record is None:
+                skipped_non_t20 += 1
                 continue
             except (ValueError, KeyError, TypeError) as exc:
                 invalid.append({"file": entry.filename[:180], "reason": str(exc)[:240]})
@@ -2952,7 +2963,8 @@ def _parse_cricsheet_archive(archive_bytes: bytes, max_matches: int) -> tuple[li
         if not parsed:
             raise HTTPException(422, "No valid T20 matches found in the archive.")
         return parsed, {"archive_json_files": len(entries), "valid_matches": len(parsed),
-                        "duplicate_files": duplicates, "uncompressed_bytes": total_size}
+                        "duplicate_files": duplicates, "skipped_non_t20": skipped_non_t20,
+                        "uncompressed_bytes": total_size}
 
 
 def _cricsheet_match_values(record: dict) -> dict:
