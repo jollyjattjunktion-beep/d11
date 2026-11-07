@@ -717,7 +717,22 @@ $('generateTeams').onclick=async()=>{
 };
 $('printTeams').onclick=()=>window.print();
 $('restart').onclick=()=>{location.reload()};
-$('ai11Import').onclick=async()=>{const out=$('ai11Out');out.style.display='block';try{const url=$('ai11Url').value.trim();if(!url)throw new Error('Paste an AI11 URL first.');$('ai11Import').disabled=true;const d=await api('/api/v1/admin/import/ai11',{method:'POST',body:JSON.stringify({analysis_url:url})});out.textContent=JSON.stringify(d,null,2);state.matchId=d.match_id;await loadWizard();setStep(1);}catch(e){out.textContent=e.message;}finally{$('ai11Import').disabled=false;}};
+$('ai11Import').onclick=async()=>{
+ const out=$('ai11Out');out.style.display='block';
+ try{
+  const url=$('ai11Url').value.trim();if(!url)throw new Error('Paste an AI11 URL first.');
+  const targetMatchId=state.matchId||null;const currentStep=state.step||1;
+  $('ai11Import').disabled=true;$('ai11Import').textContent='Importing AI11…';
+  const d=await api('/api/v1/admin/import/ai11',{method:'POST',body:JSON.stringify({analysis_url:url,target_match_id:targetMatchId})});
+  if(d.linked_to_existing_match){
+   await loadWizard();setStep(currentStep);
+   out.textContent='AI11 linked to '+(d.match?.name||d.match_id)+'. Matched '+d.players_matched+' of '+d.players_in_ai11+' players. Unmatched: '+(d.players_unmatched||[]).join(', ')+'\nD11 credits and existing Playing XI status were preserved.\n'+JSON.stringify({match_context_fields_saved:d.match_context_fields_saved},null,2);
+  }else{
+   out.textContent=JSON.stringify(d,null,2);state.matchId=d.match_id;await loadWizard();setStep(1);
+  }
+ }catch(e){out.textContent=e.message;}
+ finally{$('ai11Import').disabled=false;$('ai11Import').textContent='Import AI11';}
+};
 </script>
 </body>
 </html>
