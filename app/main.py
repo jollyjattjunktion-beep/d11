@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, Header, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, JSONResponse
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from sqlalchemy.orm import Session
@@ -11,12 +11,14 @@ import re
 import unicodedata
 import time
 import threading
+import io
+import zipfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from app.database import Base, engine, get_db, SessionLocal
-from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue
+from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue, CricsheetMatch, CricsheetPlayerMatch, CricsheetMatchup
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
-                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, VenueEnrichRequest)
+                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, VenueEnrichRequest, CricsheetImportRequest)
 from app.predictor import predict_match
 from app.ai11_analysis import build_ai11_match_analysis
 from app.optimizer import build_teams, build_team_diagnostic
@@ -26,8 +28,10 @@ from app.importers.crex import fetch_crex_page, parse_crex_venue_report
 from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_series_page,
     fetch_cricbuzz_series_index, parse_cricbuzz_venue, parse_cricbuzz_series_venues,
     parse_cricbuzz_series_index)
+from app.importers.cricsheet import parse_t20_json_bytes
 from app.venue_analysis import analyse_venue, compare_squad_strength, analysis_context_fields
-from app.public_feed import normalize_fixture, sort_fixture_key, classify_fixture_status, parse_source_datetime
+from app.public_feed import (normalize_fixture, sort_fixture_key, classify_fixture_status,
+    parse_source_datetime, manual_venue_is_locked, should_update_venue_from_feed)
 from app.public_page import render_home, render_sitemap
 from app.match_page import render_match_detail
 
@@ -77,6 +81,8 @@ def _sync_public_match_feed(db: Session, force: bool = False) -> dict:
             match_id = record["id"]
             seen_ids.add(match_id)
             match = db.get(Match, match_id)
+            intel = db.get(MatchIntelligence, match_id)
+            intel_data = dict(intel.data or {}) if intel and isinstance(intel.data, dict) else {}
             values = {
                 "name": record["name"],
                 "format": record["format"],
@@ -93,14 +99,16 @@ def _sync_public_match_feed(db: Session, force: bool = False) -> dict:
                 created += 1
             else:
                 for key, value in values.items():
-                    if key == "venue" and value is None and match.venue:
+                    if key == "venue" and not should_update_venue_from_feed(
+                        match.venue, value, intel_data
+                    ):
                         continue
                     setattr(match, key, value)
                 updated += 1
 
             db.flush()
-            intel = db.get(MatchIntelligence, match_id)
-            intel_data = dict(intel.data or {}) if intel and isinstance(intel.data, dict) else {}
+            # Retain the most recent provider value separately. Admins can
+            # explicitly unlock a manual stadium and return to this feed value.
             intel_data["public_feed"] = {
                 "source": "Team Generation",
                 "series": record["series"],
@@ -110,6 +118,7 @@ def _sync_public_match_feed(db: Session, force: bool = False) -> dict:
                 "team_b_image": record["team_b_image"],
                 "source_status": record["source_status"],
                 "lineup_status": record["lineup_status"],
+                "feed_venue": record["venue"],
                 "public_listed": bool(record["visible"]),
                 "last_seen_at": synced_at,
                 "synced_at": synced_at,
@@ -121,45 +130,22 @@ def _sync_public_match_feed(db: Session, force: bool = False) -> dict:
             if not record["visible"]:
                 hidden += 1
 
-        # Hide provider-omitted fixtures from the public list but keep their
-        # Match, squad, scorecards and player-history rows in SQL.
         existing_rows = db.scalars(
             select(Match).where(Match.source == "Team Generation")
         ).all()
+
+        # Hide provider-omitted fixtures from the public list but keep their
+        # Match, squad, scorecards and player-history rows in SQL.
+        # No hard delete or status mutation for records missing upstream.
+        # Preserve all match, squad, player history, predictions and venue rows.
         for match in existing_rows:
             if match.id in seen_ids:
                 continue
             intel = db.get(MatchIntelligence, match.id)
             intel_data = dict(intel.data or {}) if intel and isinstance(intel.data, dict) else {}
             public_feed = dict(intel_data.get("public_feed") or {})
-
-            # Some fixture feeds list only upcoming games and drop a match as
-            # soon as it starts. Keep an omitted match visible through a
-            # format-aware playing window instead of removing it at kickoff.
-            if match.status not in {"completed", "cancelled"}:
-                time_status = classify_fixture_status("", match.start_time, match.format)
-            else:
-                time_status = match.status
-
-            if time_status == "upcoming":
-                match.status = "postponed" if match.status == "postponed" else "upcoming"
-                public_feed["public_listed"] = True
-                public_feed["visibility_basis"] = "scheduled_start_time"
-                public_feed["source_status"] = public_feed.get("source_status") or "not_returned_in_latest_feed"
-            elif time_status == "live":
-                match.status = "live"
-                public_feed["public_listed"] = True
-                public_feed["visibility_basis"] = "format_playing_window"
-                public_feed["source_status"] = public_feed.get("source_status") or "not_returned_in_latest_feed"
-            else:
-                if public_feed.get("public_listed") is not False:
-                    hidden += 1
-                match.status = "cancelled" if time_status == "cancelled" else "completed"
-                public_feed["public_listed"] = False
-                public_feed["removed_from_public_list_at"] = synced_at
-                public_feed["visibility_basis"] = "provider_completion_or_expired_playing_window"
-
             public_feed["last_sync_check_at"] = synced_at
+            public_feed["provider_missing_in_latest_feed"] = True
             intel_data["public_feed"] = public_feed
             if intel is None:
                 db.add(MatchIntelligence(match_id=match.id, data=intel_data))
@@ -575,16 +561,32 @@ def sitemap_xml(request: Request, db: Session = Depends(get_db)):
 
 @app.get("/health")
 def health():
-    return {"status":"ok","service":"preet-fantasy-api","model_version":MODEL_VERSION}
+    return {
+        "status": "ok",
+        "service": "preet-fantasy-api",
+        "model_version": MODEL_VERSION,
+        "database_backend": engine.dialect.name,
+        "durable_sql_storage": engine.dialect.name == "postgresql",
+    }
 
 @app.post("/api/v1/matches")
 def upsert_match(payload: MatchIn, db: Session = Depends(get_db)):
     row=db.get(Match,payload.id)
     data=payload.model_dump()
     if row is None:
-        row=Match(**data); db.add(row)
+        row=Match(**data)
+        db.add(row)
     else:
-        for key,value in data.items(): setattr(row,key,value)
+        # Public/import upserts may refresh fixture metadata, but never erase a
+        # manually selected stadium. Admin edits use the protected admin route.
+        intel = db.get(MatchIntelligence, payload.id)
+        intel_data = dict(intel.data or {}) if intel and isinstance(intel.data, dict) else {}
+        for key,value in data.items():
+            if key == "venue" and not should_update_venue_from_feed(
+                row.venue, value, intel_data
+            ):
+                continue
+            setattr(row,key,value)
     db.commit()
     return {"saved":True,"match_id":row.id}
 
@@ -707,6 +709,7 @@ def admin_list_matches(q: str | None = None, status: str | None = None,
             "venue_data_available": bool(analysis and analysis.get("available")),
             "venue_pitch_recommendation": analysis.get("pitch_recommendation") if analysis else None,
             "venue_innings_recommendation": analysis.get("recommended_innings_label") if analysis else None,
+            "venue_manual_override": manual_venue_is_locked(intel, match.venue),
         })
     return {"count": len(results), "total_matches": len(rows), "matches": results, "fixture_sync": fixture_sync}
 
@@ -719,6 +722,12 @@ def admin_update_match(match_id: str, payload: AdminMatchUpdate,
     if match is None:
         raise HTTPException(404, "Match not found")
     changes = payload.model_dump(exclude_unset=True)
+    use_feed_venue = bool(changes.pop("use_feed_venue", False))
+    if use_feed_venue:
+        # The reset is explicit: ignore the editor's current text field and
+        # any catalogue selection, then release the manual venue lock.
+        changes.pop("venue", None)
+        changes.pop("venue_id", None)
     venue_id_supplied = "venue_id" in changes
     venue_id = changes.pop("venue_id", None)
     venue_changed = "venue" in changes
@@ -730,7 +739,19 @@ def admin_update_match(match_id: str, payload: AdminMatchUpdate,
     venue_row = None
     report = None
 
-    if venue_id_supplied:
+    if use_feed_venue:
+        public_feed = dict(data.get("public_feed") or {})
+        match.venue = public_feed.get("feed_venue")
+        data.pop("manual_venue_override", None)
+        data.pop("venue_id", None)
+        data.pop("venue_provider", None)
+        data.pop("venue_report_source_url", None)
+        data.pop("cricbuzz_venue_report", None)
+        data.pop("auto_venue_analysis", None)
+        data.pop("pitch_type", None)
+        data.pop("batting_friendly", None)
+        data.pop("venue_matches", None)
+    elif venue_id_supplied:
         if venue_id:
             venue_row = db.get(Venue, venue_id)
             if venue_row is None:
@@ -782,6 +803,11 @@ def admin_update_match(match_id: str, payload: AdminMatchUpdate,
                 data["venue_report_source_url"] = (venue_row.source_urls or [None])[0]
                 data["cricbuzz_venue_report"] = report
 
+    if venue_changed or venue_id_supplied:
+        data["manual_venue_override"] = True
+    elif use_feed_venue:
+        data.pop("manual_venue_override", None)
+
     if report:
         venue_analysis = analyse_venue(report, match.format)
         data["auto_venue_analysis"] = venue_analysis
@@ -804,9 +830,40 @@ def admin_update_match(match_id: str, payload: AdminMatchUpdate,
             "status": match.status, "source": match.source,
         },
         "venue_id": data.get("venue_id"),
+        "venue_manual_override": manual_venue_is_locked(data, match.venue),
         "venue_analysis": data.get("auto_venue_analysis"),
         "note": "Match details saved. Venue recommendations are recalculated from the selected stadium's matching-format records."
     }
+
+
+@app.get("/api/v1/admin/database/snapshot")
+def admin_database_snapshot(_admin: bool = Depends(require_admin), db: Session = Depends(get_db)):
+    """Export every application SQL row as JSON for a verified backup."""
+    from sqlalchemy import inspect as sa_inspect
+
+    inspector = sa_inspect(engine)
+    tables = []
+    for table_name in inspector.get_table_names():
+        if table_name.startswith("sqlite_"):
+            continue
+        columns = [column["name"] for column in inspector.get_columns(table_name)]
+        quoted_table = engine.dialect.identifier_preparer.quote(table_name)
+        statement = text(f"SELECT * FROM {quoted_table}")
+        rows = db.execute(statement).mappings().all()
+        tables.append({
+            "name": table_name,
+            "columns": columns,
+            "rows": [dict(row) for row in rows],
+            "row_count": len(rows),
+        })
+    return {
+        "format": "preet-fantasy-sql-snapshot-v1",
+        "database_backend": engine.dialect.name,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "tables": tables,
+        "total_rows": sum(table["row_count"] for table in tables),
+    }
+
 
 
 @app.post("/api/v1/admin/public-matches/sync")
@@ -2299,6 +2356,7 @@ def import_cricbuzz_venue_report(match_id: str, payload: CricbuzzVenueImportRequ
     data["venue_report_source_url"] = payload.url
     data["venue_provider"] = "CRICBUZZ"
     data["venue_id"] = venue_row.provider_key
+    data["manual_venue_override"] = True
     data["auto_venue_analysis"] = venue_analysis
     data.update(analysis_context_fields(venue_analysis))
 
@@ -2824,3 +2882,330 @@ def admin_page():
         raise HTTPException(500, "Admin interface file is missing.")
     return HTMLResponse(admin_file.read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
 
+
+
+
+# Cricsheet T20 historical import. All records live in dedicated tables and
+# are never written into or used to replace the live Match/squad tables.
+_CRICSHEET_MAX_ARCHIVE_BYTES = 150 * 1024 * 1024
+_CRICSHEET_MAX_UNCOMPRESSED_BYTES = 1500 * 1024 * 1024
+
+
+def _cricsheet_download(url: str) -> bytes:
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname not in {"cricsheet.org", "www.cricsheet.org"}:
+        raise HTTPException(422, "Cricsheet source must be an HTTPS URL hosted on cricsheet.org.")
+    if not parsed.path.startswith("/downloads/") or parsed.query or parsed.fragment:
+        raise HTTPException(422, "Only direct Cricsheet /downloads/ archive URLs are accepted.")
+    chunks = []
+    total = 0
+    try:
+        with httpx.stream("GET", url, timeout=httpx.Timeout(60.0, connect=15.0),
+                          follow_redirects=False, trust_env=False,
+                          headers={"Accept": "application/zip"}) as response:
+            if response.status_code != 200:
+                raise HTTPException(502, "Cricsheet archive download returned HTTP " + str(response.status_code))
+            declared = response.headers.get("content-length")
+            if declared and declared.isdigit() and int(declared) > _CRICSHEET_MAX_ARCHIVE_BYTES:
+                raise HTTPException(413, "Cricsheet archive exceeds the 150 MB download safety limit.")
+            for chunk in response.iter_bytes(1024 * 1024):
+                total += len(chunk)
+                if total > _CRICSHEET_MAX_ARCHIVE_BYTES:
+                    raise HTTPException(413, "Cricsheet archive exceeds the 150 MB download safety limit.")
+                chunks.append(chunk)
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Could not download Cricsheet archive: " + type(exc).__name__)
+    content = b"".join(chunks)
+    if not content.startswith(b"PK"):
+        raise HTTPException(422, "Cricsheet download is not a ZIP archive.")
+    return content
+
+
+def _parse_cricsheet_archive(archive_bytes: bytes, max_matches: int) -> tuple[list[dict], dict]:
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(archive_bytes))
+    except zipfile.BadZipFile:
+        raise HTTPException(422, "Cricsheet archive is not a valid ZIP file.")
+    with archive:
+        entries = [item for item in archive.infolist() if item.filename.lower().endswith(".json")]
+        if not entries:
+            raise HTTPException(422, "Archive contains no JSON match files.")
+        if len(entries) > max_matches:
+            raise HTTPException(413, f"Archive has {len(entries)} JSON files; max_matches is {max_matches}.")
+        total_size = sum(item.file_size for item in entries)
+        if total_size > _CRICSHEET_MAX_UNCOMPRESSED_BYTES:
+            raise HTTPException(413, "Archive expands beyond the 1500 MB safety limit.")
+        parsed, invalid, duplicates, skipped_non_t20 = [], [], 0, 0
+        seen = set()
+        for entry in entries:
+            # Reject path traversal and directory entries; filenames are metadata only.
+            if entry.filename.startswith(("/", "\\")) or ".." in entry.filename.split("/"):
+                invalid.append({"file": entry.filename[:180], "reason": "unsafe archive path"})
+                continue
+            if entry.file_size > 20 * 1024 * 1024:
+                invalid.append({"file": entry.filename[:180], "reason": "individual JSON file exceeds 20 MB"})
+                continue
+            try:
+                record = parse_t20_json_bytes(archive.read(entry), entry.filename)
+                if record is None:
+                    skipped_non_t20 += 1
+                    continue
+            except (ValueError, KeyError, TypeError) as exc:
+                invalid.append({"file": entry.filename[:180], "reason": str(exc)[:240]})
+                continue
+            if record["source_match_id"] in seen:
+                duplicates += 1
+                continue
+            seen.add(record["source_match_id"])
+            parsed.append(record)
+        if invalid:
+            raise HTTPException(status_code=422, detail={
+                "message": "Archive validation failed; no SQL records were written.",
+                "invalid_files": invalid[:25],
+                "invalid_count": len(invalid),
+                "valid_matches": len(parsed),
+            })
+        if not parsed:
+            raise HTTPException(422, "No valid T20 matches found in the archive.")
+        return parsed, {"archive_json_files": len(entries), "valid_matches": len(parsed),
+                        "duplicate_files": duplicates, "skipped_non_t20": skipped_non_t20,
+                        "uncompressed_bytes": total_size}
+
+
+def _cricsheet_match_values(record: dict) -> dict:
+    return {key: record[key] for key in (
+        "source_file", "source_sha256", "match_date", "gender", "season", "competition",
+        "venue", "city", "team_a", "team_b", "toss_winner", "toss_decision",
+        "winner", "result_method", "innings"
+    )}
+
+
+@app.post("/api/v1/admin/cricsheet/t20/import")
+def import_cricsheet_t20(payload: CricsheetImportRequest,
+                         _admin: bool = Depends(require_admin),
+                         db: Session = Depends(get_db)):
+    """Dry-run by default; additive/idempotent upsert into dedicated aggregate tables."""
+    archive_bytes = _cricsheet_download(payload.source_url)
+    records, validation = _parse_cricsheet_archive(archive_bytes, payload.max_matches)
+    existing_matches = {
+        row.source_match_id: row
+        for row in db.scalars(select(CricsheetMatch).where(
+            CricsheetMatch.source_match_id.in_([r["source_match_id"] for r in records])
+        )).all()
+    }
+    existing_players = {}
+    existing_matchups = {}
+    if existing_matches:
+        player_rows = db.scalars(select(CricsheetPlayerMatch).where(
+            CricsheetPlayerMatch.source_match_id.in_(list(existing_matches))
+        )).all()
+        existing_players = {(row.source_match_id, row.player_key): row for row in player_rows}
+        matchup_rows = db.scalars(select(CricsheetMatchup).where(
+            CricsheetMatchup.source_match_id.in_(list(existing_matches))
+        )).all()
+        existing_matchups = {(row.source_match_id, row.batter_key, row.bowler_key): row for row in matchup_rows}
+
+    inserted_matches = updated_matches = unchanged_matches = 0
+    inserted_players = updated_players = unchanged_players = 0
+    inserted_matchups = updated_matchups = unchanged_matchups = 0
+    for record in records:
+        current = existing_matches.get(record["source_match_id"])
+        if current is None:
+            inserted_matches += 1
+        elif current.source_sha256 == record["source_sha256"]:
+            unchanged_matches += 1
+        else:
+            updated_matches += 1
+        for player in record["players"]:
+            old = existing_players.get((record["source_match_id"], player["player_key"]))
+            if old is None:
+                inserted_players += 1
+            elif current is not None and current.source_sha256 == record["source_sha256"]:
+                unchanged_players += 1
+            else:
+                updated_players += 1
+        for matchup in record.get("matchups", []):
+            old_pair = existing_matchups.get((record["source_match_id"], matchup["batter_key"], matchup["bowler_key"]))
+            if old_pair is None:
+                inserted_matchups += 1
+            elif current is not None and current.source_sha256 == record["source_sha256"]:
+                unchanged_matchups += 1
+            else:
+                updated_matchups += 1
+
+    summary = {
+        **validation,
+        "dry_run": payload.dry_run,
+        "matches_insert": inserted_matches,
+        "matches_update": updated_matches,
+        "matches_unchanged": unchanged_matches,
+        "player_match_aggregates_insert": inserted_players,
+        "player_match_aggregates_update": updated_players,
+        "player_match_aggregates_unchanged": unchanged_players,
+        "matchup_aggregates_insert": inserted_matchups,
+        "matchup_aggregates_update": updated_matchups,
+        "matchup_aggregates_unchanged": unchanged_matchups,
+        "raw_deliveries_stored": 0,
+        "existing_sql_rows_deleted": 0,
+        "source": "Cricsheet T20 JSON",
+    }
+    if payload.dry_run:
+        return {**summary, "written": False, "message": "Dry run only. No SQL records were changed."}
+
+    try:
+        for record in records:
+            match = existing_matches.get(record["source_match_id"])
+            changed = match is None or match.source_sha256 != record["source_sha256"]
+            if match is None:
+                match = CricsheetMatch(source_match_id=record["source_match_id"], **_cricsheet_match_values(record))
+                db.add(match)
+            elif changed:
+                for key, value in _cricsheet_match_values(record).items():
+                    setattr(match, key, value)
+            if changed:
+                for player in record["players"]:
+                    old = existing_players.get((record["source_match_id"], player["player_key"]))
+                    values = {k: v for k, v in player.items() if k != "player_key"}
+                    values["gender"] = record.get("gender", "unknown")
+                    if old is None:
+                        db.add(CricsheetPlayerMatch(
+                            source_match_id=record["source_match_id"],
+                            player_key=player["player_key"], **values
+                        ))
+                    else:
+                        for key, value in values.items():
+                            setattr(old, key, value)
+                for matchup in record.get("matchups", []):
+                    pair_key = (record["source_match_id"], matchup["batter_key"], matchup["bowler_key"])
+                    old_pair = existing_matchups.get(pair_key)
+                    values = {k: v for k, v in matchup.items()}
+                    if old_pair is None:
+                        db.add(CricsheetMatchup(source_match_id=record["source_match_id"], **values))
+                    else:
+                        for key, value in values.items():
+                            setattr(old_pair, key, value)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return {**summary, "written": True, "message": "Historical aggregates imported. Existing SQL rows were not deleted."}
+
+
+@app.get("/api/v1/admin/cricsheet/coverage")
+def cricsheet_t20_coverage(_admin: bool = Depends(require_admin), db: Session = Depends(get_db)):
+    matches = db.scalars(select(CricsheetMatch)).all()
+    players = db.scalars(select(CricsheetPlayerMatch)).all()
+    matchups = db.scalars(select(CricsheetMatchup)).all()
+    venues = sorted({row.venue for row in matches if row.venue})
+    competitions = sorted({row.competition for row in matches if row.competition})
+    dates = sorted(row.match_date for row in matches if row.match_date)
+    return {
+        "source": "Cricsheet",
+        "format": "T20",
+        "matches": len(matches),
+        "player_match_aggregates": len(players),
+        "batter_bowler_matchup_aggregates": len(matchups),
+        "unique_players": len({row.player_key for row in players}),
+        "venues": len(venues),
+        "competitions": len(competitions),
+        "date_range": {"from": dates[0], "to": dates[-1]} if dates else None,
+        "storage": "compact per-match player aggregates; no delivery rows",
+        "deletion_policy": "import is additive/upsert-only; no existing SQL rows are deleted",
+    }
+
+
+@app.get("/api/v1/admin/cricsheet/players/search")
+def cricsheet_player_search(q: str, limit: int = 20,
+                            _admin: bool = Depends(require_admin),
+                            db: Session = Depends(get_db)):
+    limit = max(1, min(limit, 100))
+    needle = "%" + q.strip().replace("%", "") + "%"
+    rows = db.scalars(select(CricsheetPlayerMatch).where(
+        CricsheetPlayerMatch.player_name.ilike(needle)
+    )).all()
+    grouped = {}
+    for row in rows:
+        item = grouped.setdefault(row.player_key, {
+            "player_key": row.player_key, "player_name": row.player_name, "teams": set(),
+            "matches": 0, "runs": 0, "balls_faced": 0, "fours": 0, "sixes": 0, "dismissals": 0, "batting_position_total": 0, "batting_position_samples": 0,
+            "wickets": 0, "bowling_legal_balls": 0, "runs_conceded": 0,
+            "catches": 0, "stumpings": 0, "run_outs": 0,
+            "batting_phases": {}, "bowling_phases": {},
+        })
+        item["teams"].add(row.team)
+        item["matches"] += 1
+        if row.batting_position:
+            item["batting_position_total"] += row.batting_position
+            item["batting_position_samples"] += 1
+        for key in ("runs", "balls_faced", "fours", "sixes", "dismissals", "wickets",
+                    "bowling_legal_balls", "runs_conceded", "catches", "stumpings", "run_outs"):
+            item[key] += getattr(row, key)
+        for group_name in ("batting_phases", "bowling_phases"):
+            for phase, values in (getattr(row, group_name) or {}).items():
+                target = item[group_name].setdefault(phase, {})
+                for stat, value in values.items():
+                    target[stat] = target.get(stat, 0) + value
+    return {"results": [{**item, "teams": sorted(item["teams"]),
+                         "batting_average": round(item["runs"] / item["dismissals"], 2) if item["dismissals"] else None,
+                         "runs_per_match": round(item["runs"] / max(item["matches"], 1), 2),
+                         "average_batting_position": round(item["batting_position_total"] / max(item["batting_position_samples"], 1), 2) if item["batting_position_samples"] else None,
+                         "strike_rate": round(100 * item["runs"] / max(item["balls_faced"], 1), 2),
+                         "economy": round(6 * item["runs_conceded"] / item["bowling_legal_balls"], 2) if item["bowling_legal_balls"] else None,
+                         "bowling_average": round(item["runs_conceded"] / item["wickets"], 2) if item["wickets"] else None,
+                         "bowling_strike_rate": round(item["bowling_legal_balls"] / item["wickets"], 2) if item["wickets"] else None,
+                         "bowling_overs": round(item["bowling_legal_balls"] / 6, 2),
+                         "balls_faced_per_match": round(item["balls_faced"] / max(item["matches"], 1), 2)}
+                        for item in grouped.values()]}
+
+
+@app.get("/api/v1/admin/cricsheet/venues/search")
+def cricsheet_venue_search(q: str, limit: int = 30,
+                           _admin: bool = Depends(require_admin),
+                           db: Session = Depends(get_db)):
+    limit = max(1, min(limit, 100))
+    needle = "%" + q.strip().replace("%", "") + "%"
+    rows = db.scalars(select(CricsheetMatch).where(CricsheetMatch.venue.ilike(needle))).all()
+    grouped = {}
+    for row in rows:
+        item = grouped.setdefault(row.venue, {"venue": row.venue, "matches": 0, "first_innings_runs": [],
+                                             "second_innings_runs": [], "bat_first_wins": 0,
+                                             "bowl_first_wins": 0})
+        item["matches"] += 1
+        if row.innings:
+            item["first_innings_runs"].append(row.innings[0].get("runs", 0))
+        if len(row.innings) > 1:
+            item["second_innings_runs"].append(row.innings[1].get("runs", 0))
+        if row.winner == row.team_a or row.winner == row.team_b:
+            first_team = row.innings[0].get("team") if row.innings else None
+            if row.winner == first_team:
+                item["bat_first_wins"] += 1
+            else:
+                item["bowl_first_wins"] += 1
+    results = []
+    for item in grouped.values():
+        for field in ("first_innings_runs", "second_innings_runs"):
+            vals = item.pop(field)
+            item[field.replace("_runs", "_average")] = round(sum(vals) / len(vals), 2) if vals else None
+        results.append(item)
+    return {"venues": results}
+
+
+
+@app.get("/api/v1/admin/cricsheet/matchups/search")
+def cricsheet_matchup_search(batter: str, bowler: str, limit: int = 100,
+                             _admin: bool = Depends(require_admin),
+                             db: Session = Depends(get_db)):
+    limit = max(1, min(limit, 500))
+    batter_q = "%" + batter.strip().replace("%", "") + "%"
+    bowler_q = "%" + bowler.strip().replace("%", "") + "%"
+    rows = db.scalars(select(CricsheetMatchup).where(
+        CricsheetMatchup.batter_name.ilike(batter_q),
+        CricsheetMatchup.bowler_name.ilike(bowler_q)
+    )).all()
+    totals = {"matches": len(rows), "runs": sum(r.runs for r in rows),
+              "balls": sum(r.balls for r in rows), "fours": sum(r.fours for r in rows),
+              "sixes": sum(r.sixes for r in rows), "dismissals": sum(r.dismissals for r in rows)}
+    totals["strike_rate"] = round(100 * totals["runs"] / max(totals["balls"], 1), 2)
+    return {"batter_query": batter, "bowler_query": bowler, "aggregate": totals,
+            "sample_matches": [{"match_id": r.source_match_id, "runs": r.runs,
+                                "balls": r.balls, "dismissals": r.dismissals} for r in rows[:limit]]}
