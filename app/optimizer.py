@@ -452,6 +452,174 @@ def _valid(p, chosen, rules, team_a, team_a_count, allow_missing_expected=False)
         return False
     return True
 
+
+
+def build_team_diagnostic(players, team, strategy, scenario="neutral",
+                          innings_mode="none", score_team=None,
+                          scenario_score=None, match_format="T20",
+                          rules=None):
+    """Explain XI composition, selected players, near misses and C/VC strength.
+    All scores in this report are ranking indices unless verified fantasy points exist.
+    """
+    chosen = list(team.get("players") or [])
+    chosen_ids = {p.get("player_id") for p in chosen}
+    role_counts = Counter(p.get("role") for p in chosen)
+    pool = [p for p in players if p.get("player_id")]
+    ranked = sorted(
+        pool,
+        key=lambda p: _player_signal(
+            p, strategy, scenario, innings_mode, score_team,
+            scenario_score, match_format,
+            provisional=p.get("expected_points") is None
+        ),
+        reverse=True,
+    )
+    rank_by_id = {p["player_id"]: i + 1 for i, p in enumerate(ranked)}
+    selected = []
+    for player in chosen:
+        role = player.get("role")
+        reasons = []
+        if player.get("status") in {"playing", "confirmed"}:
+            reasons.append("confirmed in the Playing XI")
+        if player.get("batting_position") is not None:
+            pos = int(player["batting_position"])
+            reasons.append(f"batting position {pos}")
+            if pos <= 3:
+                reasons.append("top-order batting opportunity")
+        if player.get("expected_overs") is not None:
+            overs = float(player["expected_overs"])
+            reasons.append(f"expected bowling workload {overs:g} overs")
+            if overs >= 3:
+                reasons.append("meaningful wicket-taking opportunity")
+        if player.get("ai11_batting_score") is not None:
+            reasons.append(f"AI11 batting profile {float(player['ai11_batting_score']):.0f}/100")
+        if player.get("ai11_bowling_score") is not None:
+            reasons.append(f"AI11 bowling profile {float(player['ai11_bowling_score']):.0f}/100")
+        if player.get("recent_history_score") is not None:
+            reasons.append("recent completed-match history contributes to ranking")
+        if player.get("expected_points") is not None:
+            reasons.append("format-matched historical fantasy-point estimate available")
+        if not reasons:
+            reasons.append("role and available squad evidence")
+        selected.append({
+            "player_id": player["player_id"],
+            "player_name": player.get("player_name"),
+            "role": role,
+            "rank": rank_by_id.get(player["player_id"]),
+            "selection_index": round(_player_signal(
+                player, strategy, scenario, innings_mode, score_team,
+                scenario_score, match_format,
+                provisional=player.get("expected_points") is None
+            ), 2),
+            "reason": "; ".join(reasons),
+            "evidence": "statistical estimate" if player.get("expected_points") is not None else "provisional selection evidence",
+        })
+
+    near_misses = []
+    for player in ranked:
+        if player["player_id"] in chosen_ids:
+            continue
+        role = player.get("role")
+        score = _player_signal(
+            player, strategy, scenario, innings_mode, score_team,
+            scenario_score, match_format,
+            provisional=player.get("expected_points") is None
+        )
+        role_selected = role_counts.get(role, 0)
+        role_limit = (rules.max_role.get(role) if rules else None)
+        reason = "Ranked below the selected XI on the combined performance/opportunity index."
+        if role_limit is not None and role_selected >= role_limit:
+            reason = f"Role quota reached ({role_selected}/{role_limit}); compare with selected {role} players."
+        elif player.get("credits") is None:
+            reason = "Cannot be selected until credits are verified."
+        elif player.get("status") not in {"playing", "confirmed", "probable", "likely", "available"}:
+            reason = "Availability is not confirmed; carries an availability risk."
+        elif role == "BOWL" and role_counts.get("BOWL", 0) < 4:
+            reason = "Specialist bowling opportunity may have been underweighted."
+        near_misses.append({
+            "player_id": player["player_id"],
+            "player_name": player.get("player_name"),
+            "role": role,
+            "selection_index": round(score, 2),
+            "reason": reason,
+        })
+        if len(near_misses) >= 6:
+            break
+
+    bowlers_available = sum(1 for p in pool if p.get("role") == "BOWL")
+    bowlers_selected = role_counts.get("BOWL", 0)
+    allrounders = role_counts.get("AR", 0)
+    bowling_warning = (
+        bowlers_selected < 4 and bowlers_available >= 4
+    )
+    warnings = []
+    if allrounders > 3:
+        warnings.append(f"All-rounder overload: {allrounders} selected; strongest-XI target is no more than 3 unless the player pool/role rules require it.")
+    if bowling_warning:
+        warnings.append(f"Bowling opportunity warning: only {bowlers_selected} specialist bowlers selected while {bowlers_available} are available. Review the highest-ranked omitted bowlers.")
+    if scenario == "batting_friendly":
+        warnings.append("Batting-friendly is a batting opportunity signal, not a reason to ignore specialist bowlers' powerplay/death-over wickets.")
+    if any(p.get("expected_overs") is None for p in pool if p.get("role") in {"BOWL", "AR"}):
+        warnings.append("Expected bowling overs are missing for some bowlers/all-rounders; workload comparison has lower confidence.")
+    captain = next((p for p in chosen if p.get("player_id") == team.get("captain_id")), None)
+    vice = next((p for p in chosen if p.get("player_id") == team.get("vice_captain_id")), None)
+    captain_scores = sorted(
+        [(p, _captain_score(p, strategy, scenario, innings_mode, score_team, scenario_score, match_format))
+         for p in chosen],
+        key=lambda item: item[1], reverse=True
+    )
+    captain_rank = next((i + 1 for i, (p, _) in enumerate(captain_scores)
+                         if captain and p.get("player_id") == captain.get("player_id")), None)
+    captain_top = captain_scores[0][1] if captain_scores else None
+    captain_value = next((score for p, score in captain_scores
+                          if captain and p.get("player_id") == captain.get("player_id")), None)
+    captain_strength = (
+        round(100.0 * captain_value / captain_top, 1)
+        if captain_value is not None and captain_top else None
+    )
+    captain_warning = bool(captain_rank and captain_rank > 2)
+    if captain_warning:
+        warnings.append(f"Captain ceiling check: selected captain ranks #{captain_rank} among this XI's captaincy scores; review the higher-ranked alternatives.")
+    if captain and captain.get("expected_points") is None:
+        warnings.append("Captaincy ceiling is a provisional ranking index, not a projected fantasy-points ceiling.")
+    return {
+        "pitch_scenario": scenario,
+        "innings_scenario": innings_mode,
+        "role_counts": dict(role_counts),
+        "selected_players": selected,
+        "high_potential_rejections": near_misses,
+        "bowling_opportunity": {
+            "specialist_bowlers_selected": bowlers_selected,
+            "specialist_bowlers_available": bowlers_available,
+            "underrepresented": bowling_warning,
+        },
+        "allrounder_check": {
+            "selected": allrounders,
+            "target_max": 3,
+            "overloaded": allrounders > 3,
+        },
+        "captaincy_check": {
+            "captain": captain.get("player_name") if captain else None,
+            "vice_captain": vice.get("player_name") if vice else None,
+            "captain_rank_in_xi": captain_rank,
+            "captain_strength_index": captain_strength,
+            "is_provisional_index": bool(captain and captain.get("expected_points") is None),
+            "warning": captain_warning,
+            "top_captain_alternatives": [
+                {"player_name": p.get("player_name"), "role": p.get("role"),
+                 "index": round(score, 2)}
+                for p, score in captain_scores[:3]
+            ],
+        },
+        "warnings": warnings,
+        "interpretation": (
+            "All displayed selection indices are relative ranking signals, not fantasy points."
+            if any(p.get("expected_points") is None for p in chosen)
+            else "Fantasy-point estimates are sourced from format-matched historical records; they are not guarantees."
+        ),
+    }
+
+
 def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
                 team_a=None, locked_ids=None, excluded_ids=None,
                 captain_pool=None, vice_captain_pool=None,
