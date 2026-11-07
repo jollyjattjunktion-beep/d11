@@ -43,6 +43,29 @@ def main() -> int:
     known_tables = Base.metadata.sorted_tables
 
     try:
+        # Confirm that the source has every application table expected by this
+        # version before creating/writing anything in the destination.
+        missing_tables = [
+            table.name
+            for table in Base.metadata.sorted_tables
+            if table.name not in source_metadata.tables
+        ]
+        if missing_tables:
+            raise RuntimeError(
+                "Source SQLite is missing expected tables; no data was copied: "
+                + ", ".join(missing_tables)
+            )
+
+        # Validate that every source table can be read and report source counts
+        # before making any changes to the destination.
+        source_counts = {}
+        with source_engine.connect() as source:
+            for target_table in Base.metadata.sorted_tables:
+                source_table = source_metadata.tables[target_table.name]
+                source_counts[target_table.name] = source.execute(
+                    select(func.count()).select_from(source_table)
+                ).scalar_one()
+
         # Create missing application tables, then refuse to write if the target
         # already contains data. This utility never merges or overwrites rows.
         Base.metadata.create_all(bind=target_engine)
