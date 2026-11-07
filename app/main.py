@@ -1363,6 +1363,7 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
             if profile.get("player_id")
         }
         matched_count = 0
+        unmatched = []
         match_points_imported = 0
         match_points_updated = 0
         match_points_preserved = 0
