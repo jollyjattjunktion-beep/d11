@@ -296,7 +296,7 @@ def _vice_score(p, strategy, scenario, innings_mode, score_team, scenario_score,
 
 def _score_context_multiplier(p, innings_mode, score_team, scenario_score, match_format):
     """Small preference adjustment for a user-entered innings scenario, not points."""
-    if innings_mode not in {"first_innings", "chasing"} or not score_team or scenario_score is None:
+    if innings_mode not in {"first_innings", "chasing"} or not score_team:
         return 1.0
     fmt = str(match_format or "T20").upper()
     high_threshold, low_threshold = {
@@ -304,24 +304,23 @@ def _score_context_multiplier(p, innings_mode, score_team, scenario_score, match
         "ODI": (280, 230),
         "TEST": (350, 220),
     }.get(fmt, (180, 145))
-    high_score = int(scenario_score) >= high_threshold
-    low_score = int(scenario_score) <= low_threshold
+    high_score = int(scenario_score) >= high_threshold if scenario_score is not None else None
+    low_score = int(scenario_score) <= low_threshold if scenario_score is not None else None
     team = p.get("team")
     role = p.get("role")
-    batting_roles = {"BAT", "WK"}
+    batting_roles = {"BAT", "WK", "AR"}
     bowling_roles = {"BOWL", "AR"}
     if innings_mode == "first_innings":
-        if team == score_team:
-            if role in batting_roles:
-                return 1.04 if high_score else 1.015 if not low_score else 0.985
-        elif role in bowling_roles:
-            return 1.035 if high_score else 1.02 if low_score else 1.0
+        if team == score_team and role in batting_roles:
+            return 1.04 if high_score is True else 1.015 if high_score is None else 0.985
+        if team != score_team and role in bowling_roles:
+            return 1.035 if high_score is True else 1.02 if low_score is True or low_score is None else 1.0
     else:
         # score_team is the chasing side.
         if team == score_team and role in batting_roles:
-            return 1.04 if high_score else 1.02
+            return 1.04 if high_score is True else 1.02 if high_score is None or low_score is False else 1.015
         if team != score_team and role in bowling_roles:
-            return 1.035 if high_score else 1.02
+            return 1.035 if high_score is True else 1.02
     return 1.0
 
 
