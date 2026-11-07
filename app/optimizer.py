@@ -440,42 +440,87 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
         if a_count > rules.team_a_count or len(locked)-a_count > rules.team_size-rules.team_a_count:
             raise ValueError("Locked players conflict with the required team split.")
     made, usage, captain_usage, vice_usage, pair_usage = [], Counter(), Counter(), Counter(), Counter()
-    states = [(locked, 0.0)]
-    score_args = (innings_mode, score_team, scenario_score, match_format)
-    for _ in range(rules.team_size-len(locked)):
-        expanded=[]
-        for chosen,_score_so_far in states:
-            chosen_ids={p["player_id"] for p in chosen}
+    # Score each candidate once. A high-quality partial XI is judged by its
+    # achievable upper bound, not only its current total; this avoids pruning
+    # a strong lineup just because it needs a lower-scoring role to stay legal.
+    candidate_scores = {
+        p["player_id"]: _player_signal(
+            p, strategy, scenario, innings_mode, score_team, scenario_score,
+            match_format, provisional=provisional
+        )
+        for p in pool
+    }
+    locked_score = sum(candidate_scores.get(p["player_id"], 0.0) for p in locked)
+    states = [(locked, locked_score)]
+    beam_width = min(5000, max(2000, len(pool) * 200))
+
+    def partial_is_feasible(chosen, remaining_slots):
+        counts = Counter(p["role"] for p in chosen)
+        available = [p for p in pool if p["player_id"] not in {x["player_id"] for x in chosen}]
+        available_roles = Counter(p["role"] for p in available)
+        if any(counts[role] + available_roles[role] < minimum
+               for role, minimum in rules.min_role.items()):
+            return False
+        if sum(max(0, minimum - counts[role])
+               for role, minimum in rules.min_role.items()) > remaining_slots:
+            return False
+        if rules.team_a_count is not None:
+            selected_a = sum(p["team"] == team_a for p in chosen)
+            selected_b = len(chosen) - selected_a
+            need_a = rules.team_a_count - selected_a
+            need_b = rules.team_size - rules.team_a_count - selected_b
+            available_a = sum(p["team"] == team_a for p in available)
+            available_b = len(available) - available_a
+            if need_a < 0 or need_b < 0 or need_a > available_a or need_b > available_b:
+                return False
+            if need_a + need_b != remaining_slots:
+                return False
+        credit_left = rules.max_credits - sum(float(p["credits"]) for p in chosen)
+        if credit_left < 0:
+            return False
+        if remaining_slots:
+            cheapest = sorted(float(p["credits"]) for p in available)[:remaining_slots]
+            if len(cheapest) < remaining_slots or sum(cheapest) > credit_left + 1e-9:
+                return False
+        return True
+
+    for _ in range(rules.team_size - len(locked)):
+        expanded = {}
+        for chosen, score_so_far in states:
+            chosen_ids = {p["player_id"] for p in chosen}
             for p in pool:
-                if p["player_id"] in chosen_ids or not _valid(p,chosen,rules,team_a,rules.team_a_count,provisional):
+                pid = p["player_id"]
+                if pid in chosen_ids or not _valid(
+                    p, chosen, rules, team_a, rules.team_a_count, provisional
+                ):
                     continue
-                next_chosen=chosen+[p]
-                counts=Counter(x["role"] for x in next_chosen)
-                remaining=rules.team_size-len(next_chosen)
-                deficits=sum(max(0,n-counts[r]) for r,n in rules.min_role.items())
-                if deficits > remaining: continue
-                value=sum(_player_signal(x,strategy,scenario,*score_args,provisional=provisional) - usage[x["player_id"]]*max(2.5, _player_signal(x,strategy,scenario,*score_args,provisional=provisional)*0.10) for x in next_chosen)
-                expanded.append((next_chosen,value))
-        if not expanded: break
-        unique={}
-        for chosen_set, value in expanded:
-            key=tuple(sorted(p["player_id"] for p in chosen_set))
-            if key not in unique or value > unique[key][1]:
-                unique[key]=(chosen_set,value)
-        expanded=list(unique.values())
-        expanded.sort(key=lambda x:x[1], reverse=True)
-        # Keep a diverse beam so later teams are not limited to one near-identical branch.
-        diverse=[]
-        beam_ids=[]
-        for candidate, candidate_score in expanded:
-            candidate_ids={p["player_id"] for p in candidate}
-            if any(len(candidate_ids & prior) >= rules.team_size-1 for prior in beam_ids):
-                continue
-            diverse.append((candidate,candidate_score))
-            beam_ids.append(candidate_ids)
-            if len(diverse)>=350:
-                break
-        states=diverse or expanded[:350]
+                next_chosen = chosen + [p]
+                remaining = rules.team_size - len(next_chosen)
+                counts = Counter(x["role"] for x in next_chosen)
+                deficits = sum(
+                    max(0, minimum - counts[role])
+                    for role, minimum in rules.min_role.items()
+                )
+                if deficits > remaining or not partial_is_feasible(next_chosen, remaining):
+                    continue
+
+                value = score_so_far + candidate_scores.get(pid, 0.0)
+                next_ids = chosen_ids | {pid}
+                best_remaining = sorted(
+                    (candidate_scores.get(other["player_id"], 0.0)
+                     for other in pool if other["player_id"] not in next_ids),
+                    reverse=True
+                )[:remaining]
+                optimistic = value + sum(best_remaining)
+                key = tuple(sorted(next_ids))
+                previous = expanded.get(key)
+                if previous is None or optimistic > previous[2]:
+                    expanded[key] = (next_chosen, value, optimistic)
+
+        if not expanded:
+            break
+        ordered = sorted(expanded.values(), key=lambda entry: entry[2], reverse=True)
+        states = [(chosen, value) for chosen, value, _ in ordered[:beam_width]]
     valid=[]
     for chosen,score in states:
         counts=Counter(p["role"] for p in chosen)
