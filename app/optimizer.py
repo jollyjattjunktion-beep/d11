@@ -295,6 +295,7 @@ def _vice_score(p, strategy, scenario, innings_mode, score_team, scenario_score,
 def _portfolio_exposure_score(raw_score, player_id, exposure, strategy, kind="captain"):
     """Reduce repeat C/VC exposure across one generated portfolio, without forcing weak picks."""
     weights = {
+        "strongest": 0.045,
         "safe": 0.055,
         "balanced": 0.12,
         "scenario": 0.14,
