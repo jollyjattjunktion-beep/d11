@@ -309,3 +309,51 @@ The public match detail page includes four team-generation modes, all calling `P
 4. **Smart selection:** Shows only squad players with provider selection percentage >=80%, preselects the top four eligible players, allows up to five, and locks the chosen players into generated teams. Confirmed-XI mode excludes players outside the provider-confirmed XI.
 
 Team split controls remain available (automatic, 6:5, 5:6, 7:4, 4:7). AI estimate and provisional generation remain clearly distinguished; when format-matched fantasy history is unavailable, the API returns provisional selection-priority teams without claiming projected fantasy points.
+
+
+## Cricsheet T20 historical intelligence (aggregate-only)
+
+Cricsheet's official all-match JSON archive is the initial source:
+`https://cricsheet.org/downloads/all_json.zip`
+
+The importer skips non-T20 files and stores only compact match/player aggregates. It does **not** store raw delivery rows and does not create, rename, update or delete rows in the live `matches`, `players`, `match_squads`, `player_match_stats` or `venues` tables.
+
+### Safe import workflow
+
+All endpoints below require `X-Admin-Token`.
+
+1. Dry-run first (the default):
+   `POST /api/v1/admin/cricsheet/t20/import`
+   ```json
+   {"dry_run": true}
+   ```
+2. Review archive file count, valid T20 match count, inserts, updates, unchanged rows and validation errors.
+3. Only after reviewing the dry-run, explicitly import:
+   ```json
+   {"dry_run": false}
+   ```
+4. Review `GET /api/v1/admin/cricsheet/coverage`.
+5. Search player aggregates with `GET /api/v1/admin/cricsheet/players/search?q=Virat%20Kohli`.
+6. Search venue aggregates with `GET /api/v1/admin/cricsheet/venues/search?q=Wankhede`.
+
+Optional request fields: `source_url` (HTTPS direct archive URL on cricsheet.org under `/downloads/`) and `max_matches` (up to 30,000 JSON files). The downloader has archive-size, expanded-size, per-file-size, redirect and host restrictions. Validation errors abort before SQL writes. The source is treated as untrusted input.
+
+### Stored statistics
+
+- Match: date, season, competition, venue, teams, toss, winner and innings totals.
+- Player per match: batting runs/balls/fours/sixes, bowling wickets/legal balls/runs conceded, catches, stumpings, run-outs, innings participation.
+- Batting and bowling phase aggregates: powerplay (overs 1-6), middle (7-15), death (16-20).
+
+Player keys use Cricsheet registry UUIDs when available, otherwise a normalized name key. These are separate from the app's fantasy-player IDs; do not auto-merge identities based only on fuzzy name matching. The search API returns candidate historical profiles for review.
+
+Cricsheet does not provide Dream11 fantasy points, player credits, selection percentage, playing-XI certainty or pitch/weather measurements. This import does not invent them and does not yet train the fantasy-points predictor. Match-level fantasy-point records must still come from a verified scorecard and the exact target contest scoring rules. Use Cricsheet aggregates as cricket-opportunity and venue evidence, with chronological validation before allowing them to affect selection scores.
+
+### Data safety and deployment
+
+- Dry-run is read-only.
+- Import is additive/upsert-only into dedicated Cricsheet tables.
+- No `DELETE`, `TRUNCATE`, cascade cleanup or replacement of existing application rows is part of this importer.
+- Re-running an unchanged archive is idempotent.
+- Source archive bytes are parsed in memory and are not retained on the web service filesystem.
+- Run imports only after durable PostgreSQL storage is configured and verified. Do not deploy this branch until the database persistence work and full CI suite pass.
+- Respect Cricsheet's licensing and attribution terms: https://cricsheet.org/about/
