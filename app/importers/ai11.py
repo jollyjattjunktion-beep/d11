@@ -364,6 +364,11 @@ def parse_analysis(html: str):
                 group = group_by_index.get(column_index, "")
                 key = _stat_header_key(header)
                 group_key = group.casefold()
+                compact_stat_header = re.sub(r"[^a-z0-9%]+", "", header.casefold())
+                if "bowl" in group_key and compact_stat_header == "bowl":
+                    key = "bowling_type"
+                elif "bat" in group_key and compact_stat_header == "bat":
+                    key = "batting_hand"
                 if "lineup" in group_key or "selection" in group_key:
                     compact_header = re.sub(r"[^a-z0-9]+", "", header.casefold())
                     if compact_header == "c":
