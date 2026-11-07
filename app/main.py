@@ -19,7 +19,7 @@ from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
                          TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, VenueEnrichRequest)
 from app.predictor import predict_match
 from app.ai11_analysis import build_ai11_match_analysis
-from app.optimizer import build_teams
+from app.optimizer import build_teams, build_team_diagnostic
 from app.config import MODEL_VERSION, ADMIN_TOKEN, TG_API_TOKEN
 from app.importers.ai11 import (fetch_page, parse_analysis, parse_fantasy, AI11RateLimitError)
 from app.importers.crex import fetch_crex_page, parse_crex_venue_report
@@ -1040,10 +1040,25 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
         results[mode] = {}
         for strategy in payload.strategies:
             strategy_teams = []
+            effective_rules = payload.rules.model_copy(deep=True)
+            if strategy == "strongest":
+                # Strongest mode must not solve batting-friendly conditions by
+                # stacking generic all-rounders and dropping specialist bowlers.
+                available_specialists = sum(
+                    1 for p in combined
+                    if p.get("role") == "BOWL" and p.get("player_id") not in payload.excluded_player_ids
+                )
+                effective_rules.max_role["AR"] = min(
+                    effective_rules.max_role.get("AR", effective_rules.team_size), 3
+                )
+                effective_rules.min_role["BOWL"] = max(
+                    effective_rules.min_role.get("BOWL", 0),
+                    min(4, available_specialists, effective_rules.team_size)
+                )
             for innings_mode, score_team, scenario_score in scenario_specs:
                 try:
                     generated = build_teams(
-                        combined, strategy, payload.rules, payload.teams_per_strategy, payload.scenario,
+                        combined, strategy, effective_rules, payload.teams_per_strategy, payload.scenario,
                         team_a=match.team_a, locked_ids=payload.locked_player_ids,
                         excluded_ids=payload.excluded_player_ids, captain_pool=payload.captain_pool,
                         vice_captain_pool=payload.vice_captain_pool,
@@ -1055,6 +1070,11 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
                 except ValueError as exc:
                     raise HTTPException(422, str(exc))
                 for team in generated:
+                    team["pre_generation_diagnostic"] = build_team_diagnostic(
+                        combined, team, strategy, payload.scenario,
+                        innings_mode, score_team, scenario_score, match.format,
+                        effective_rules
+                    )
                     if innings_mode != "none":
                         team["scenario_label"] = (
                             "Batting first" if innings_mode == "first_innings" else "Chasing second"
