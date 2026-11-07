@@ -42,7 +42,7 @@ def _empty_player(name: str, registry: dict[str, str], team: str) -> dict:
     key = "cricsheet:" + registry_id if registry_id else "cricsheet-name:" + _slug(name)
     return {
         "player_key": key, "player_name": name, "team": team,
-        "runs": 0, "balls_faced": 0, "fours": 0, "sixes": 0,
+        "runs": 0, "balls_faced": 0, "fours": 0, "sixes": 0, "dismissals": 0,
         "wickets": 0, "bowling_legal_balls": 0, "runs_conceded": 0,
         "maidens": 0, "catches": 0, "stumpings": 0, "run_outs": 0,
         "batting_innings": 0, "bowling_innings": 0, "batting_position": None,
@@ -167,6 +167,8 @@ def parse_t20_match(document: dict, source_file: str) -> dict:
                     innings_wickets += 1
                     kind = str(wicket.get("kind") or "").lower().replace(" ", "_")
                     dismissed = wicket.get("player_out")
+                    if dismissed in players:
+                        players[dismissed]["dismissals"] += 1
                     if kind not in {"run_out", "retired_hurt", "obstructing_the_field", "retired_out"}:
                         bowl["wickets"] += 1
                         if dismissed == batter:
