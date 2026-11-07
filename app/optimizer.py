@@ -18,7 +18,7 @@ def _ownership(p):
 
 def _role_opportunity(p):
     """Modest role prior; source-backed batting position/overs override it."""
-    prior = {"WK": 0.62, "BAT": 0.58, "AR": 0.78, "BOWL": 0.55}.get(p.get("role"), 0.5)
+    prior = {"WK": 0.60, "BAT": 0.60, "AR": 0.62, "BOWL": 0.60}.get(p.get("role"), 0.5)
     try:
         if p.get("batting_position") is not None:
             prior += max(-0.18, min(0.18, (5 - int(p["batting_position"])) * 0.035))
@@ -59,13 +59,10 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
             # drive selection. Ownership and provider C/VC are deliberately
             # capped to a small tie-break contribution.
             evidence = []
-            projection_score = p.get("ai11_projection_score")
             if role_score is not None:
-                evidence.append((float(role_score), 0.50))
+                evidence.append((float(role_score), 0.68))
             if recent_score is not None:
-                evidence.append((float(recent_score), 0.20))
-            if projection_score is not None:
-                evidence.append((float(projection_score), 0.30))
+                evidence.append((float(recent_score), 0.32))
             if evidence:
                 performance = sum(value * weight for value, weight in evidence) / sum(
                     weight for _, weight in evidence
@@ -97,13 +94,10 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
         role_score = p.get("ai11_role_score")
         recent_score = p.get("ai11_recent_form_score")
         profile_scores = []
-        projection_score = p.get("ai11_projection_score")
         if role_score is not None:
-            profile_scores.append((float(role_score), 0.55))
+            profile_scores.append((float(role_score), 0.68))
         if recent_score is not None:
-            profile_scores.append((float(recent_score), 0.20))
-        if projection_score is not None:
-            profile_scores.append((float(projection_score), 0.25))
+            profile_scores.append((float(recent_score), 0.32))
         if profile_scores:
             profile_strength = sum(score * weight for score, weight in profile_scores) / sum(weight for _, weight in profile_scores)
             profile_multiplier = max(0.80, min(1.20, 1.0 + (profile_strength - 50.0) * 0.004))
@@ -256,7 +250,7 @@ def _captain_score(p, strategy, scenario, innings_mode, score_team, scenario_sco
     if expected is None:
         try:
             source_c = float(p.get("captain_pct") or p.get("ai11_captain_pct") or 0)
-            score += min(100.0, max(0.0, source_c)) * 0.06
+            score += min(100.0, max(0.0, source_c)) * (0.02 if strategy == "strongest" else 0.06)
         except (TypeError, ValueError):
             pass
     return score
@@ -292,7 +286,7 @@ def _vice_score(p, strategy, scenario, innings_mode, score_team, scenario_score,
     if expected is None:
         try:
             source_vc = float(p.get("vice_captain_pct") or p.get("ai11_vice_captain_pct") or 0)
-            score += min(100.0, max(0.0, source_vc)) * 0.06
+            score += min(100.0, max(0.0, source_vc)) * (0.02 if strategy == "strongest" else 0.06)
         except (TypeError, ValueError):
             pass
     return score
