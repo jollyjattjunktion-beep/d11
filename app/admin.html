@@ -726,7 +726,7 @@ $('scenarioTeam').addEventListener('change',()=>{});
 function renderAI11Analysis(data){
  const root=$('ai11AnalysisPanel');
  root.innerHTML='';
- if(!data||!data.available){root.style.display='none';return;}
+ if(!data){root.style.display='none';return;}
  root.style.display='block';
  const outer=document.createElement('section');outer.className='panel';outer.style.boxShadow='none';
  const head=document.createElement('div');head.className='panelhead';
