@@ -220,7 +220,7 @@
         <div class="helper" style="margin-bottom:10px">Historical stats are matched to the current squad by player name. Team figures below are current-squad player records at this venue, not team win percentages.</div>
         <div id="venueTeamAnalysis" class="team-columns"></div>
         <div class="section-label" style="margin-top:22px">Fixed players — include in every generated team</div>
-        <div class="helper">Choose exactly 4–5 players with provider selection percentage of 80% or higher. Venue history is a supporting signal when records exist.</div>
+        <div class="helper">Fixed players are forced into every generated team. Use only players you genuinely want locked; the Strongest strategy will select the rest by performance, series form and role opportunity rather than popularity alone.</div>
         <div class="row" style="justify-content:space-between;margin:12px 0">
           <button class="btn outline" id="autoPickHighSelection">Auto-pick top 5 (80%+)</button>
           <button class="btn" id="openSuggestions">Review suggested fixed players</button>
@@ -236,7 +236,7 @@
         <div class="section-label">Team generation settings</div>
         <div class="row">
           <label style="flex:1;min-width:150px">Teams per strategy<select class="field" id="teamCount"><option>1</option><option>2</option><option>3</option><option>5</option></select></label>
-          <label style="flex:1;min-width:150px">Strategy<select class="field" id="strategy"><option value="safe">Safe</option><option value="balanced">Balanced</option><option value="grand_league">Grand League</option><option value="all">All strategies</option></select></label>
+          <label style="flex:1;min-width:150px">Strategy<select class="field" id="strategy"><option value="strongest" selected>Strongest — Performance first</option><option value="safe">Safe — Higher floor</option><option value="balanced">Balanced</option><option value="grand_league">Grand League — Differential upside</option><option value="all">All strategies</option></select></label>
           <label style="flex:1;min-width:190px">Team A : Team B split<select class="field" id="teamSplit"><option value="auto">Automatic / flexible</option><option value="6-5">Team A 6 — Team B 5</option><option value="5-6">Team A 5 — Team B 6</option><option value="7-4">Team A 7 — Team B 4</option><option value="4-7">Team A 4 — Team B 7</option></select></label>
         </div>
         <div class="panel" style="box-shadow:none;margin-top:12px">
@@ -252,7 +252,7 @@
           </div>
         </div>
         <div class="notice warn" id="generationModeNotice">Historical fantasy point coverage will be checked at generation time. AI11 batting, bowling, series and selection data improve provisional selection ranking but are not fantasy-point projections.</div>
-        <div class="row" style="margin-top:18px"><button class="btn green" id="generateTeams">Generate fantasy teams</button><button class="btn secondary" id="printTeams" disabled>Print / Save PDF</button><span class="helper">Fixed players are locked into every generated team. Each team is previewed as a Dream11-style ground card.</span></div>
+        <div class="row" style="margin-top:18px"><button class="btn green" id="generateTeams">Generate fantasy teams</button><button class="btn secondary" id="printTeams" disabled>Print / Save PDF</button><span class="helper">Strongest mode maximizes performance evidence first. Automatic team split stays flexible; any fixed players you selected remain locked in every team.</span></div>
         <div id="generationError" class="notice error" style="display:none"></div>
         <div id="ai11AnalysisPanel" style="display:none;margin-top:16px"></div>
         <div id="teamResults" class="results" style="margin-top:18px"></div>
@@ -793,11 +793,11 @@ $('generateTeams').onclick=async()=>{
  $('generateTeams').disabled=true;$('generateTeams').textContent='Generating teams…';
  try{
   const strategy=$('strategy').value;
-  const strategies=strategy==='all'?['safe','balanced','grand_league']:[strategy];
+  const strategies=strategy==='all'?['strongest','safe','balanced','grand_league']:[strategy];
   const split=$('teamSplit').value;let team_a_count=null;
+  // Automatic means genuinely flexible: do not impose an artificial 6–5 split
+  // from a generic team-strength flag. Let the XI optimizer choose 7–4/6–5/5–6.
   if(split!=='auto')team_a_count=Number(split.split('-')[0]);
-  else if(state.strongTeam===state.match.team_a)team_a_count=6;
-  else if(state.strongTeam===state.match.team_b)team_a_count=5;
   const req={
    strategies,teams_per_strategy:Number($('teamCount').value),
    rules:{team_size:11,max_from_one_team:7,max_credits:100,min_role:{WK:1,BAT:3,AR:1,BOWL:3},max_role:{WK:4,BAT:6,AR:4,BOWL:6},playing_xi_only:state.lineupConfirmed,team_a_count},
