@@ -251,6 +251,10 @@
             <div class="helper" id="scenarioHelp">Automatic mode uses AI11 pitch notes and the imported match venue report. “Both” creates separate batting-first and chasing portfolios. Without toss data, select the batting-first team.</div>
           </div>
         </div>
+        <label class="row" style="align-items:center;gap:8px;margin-top:12px">
+          <input type="checkbox" id="lockFixedPlayers" style="width:17px;height:17px">
+          <span><strong>Force saved fixed players into every team</strong><span class="helper" style="display:block;margin:0">Leave unchecked for the pure strongest XI. Saved 80%+ picks are suggestions unless you explicitly lock them.</span></span>
+        </label>
         <div class="notice warn" id="generationModeNotice">Historical fantasy point coverage will be checked at generation time. AI11 batting, bowling, series and selection data improve provisional selection ranking but are not fantasy-point projections.</div>
         <div class="row" style="margin-top:18px"><button class="btn green" id="generateTeams">Generate fantasy teams</button><button class="btn secondary" id="printTeams" disabled>Print / Save PDF</button><span class="helper">Strongest mode maximizes performance evidence first. Automatic team split stays flexible; any fixed players you selected remain locked in every team.</span></div>
         <div id="generationError" class="notice error" style="display:none"></div>
@@ -816,7 +820,7 @@ $('generateTeams').onclick=async()=>{
    score_mode:$('inningsScenario').value,
    score_team:$('scenarioTeam').value==='auto'?null:$('scenarioTeam').value,
    scenario_score:$('scenarioScore').value?Number($('scenarioScore').value):null,
-   locked_player_ids:[...state.fixed],excluded_player_ids:[],captain_pool:[],vice_captain_pool:[],
+   locked_player_ids:$('lockFixedPlayers').checked?[...state.fixed]:[],excluded_player_ids:[],captain_pool:[],vice_captain_pool:[],
    team_mode:'automatic',generation_mode:'both'
   };
   const d=await api('/api/v1/matches/'+encodeURIComponent(state.matchId)+'/teams',{method:'POST',body:JSON.stringify(req)});
@@ -830,7 +834,7 @@ $('generateTeams').onclick=async()=>{
   }
   if(!rendered){out.textContent='The server returned no legal teams. Check the error or change the team split / fixed players.';throw new Error('No team combination was returned.');}
   $('printTeams').disabled=false;
-  const note=document.createElement('div');note.className='print-note';note.textContent=rendered+' team preview(s) generated. Use Print / Save PDF to export the Dream11-style line-up cards.';out.append(note);
+  const note=document.createElement('div');note.className='print-note';note.textContent=rendered+' team preview(s) generated. '+($('lockFixedPlayers').checked?'Saved fixed players were locked into every team. ':'No saved picks were forced. ')+'Use Print / Save PDF to export the Dream11-style line-up cards.';out.append(note);
  }catch(e){err.textContent=e.message;err.style.display='block';}
  finally{$('generateTeams').disabled=false;$('generateTeams').textContent='Generate fantasy teams';}
 };
