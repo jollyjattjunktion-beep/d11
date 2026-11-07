@@ -1092,7 +1092,7 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
             "AI11 batting, bowling, current-series and selection signals support player ranking, but do not become D11 fantasy-point projections.",
         ]
         + ([
-            f"AI11 profiles linked for {ai11_analysis['profile_coverage']['players_with_ai11_profiles']} of {ai11_analysis['profile_coverage']['squad_players']} squad players ({ai11_analysis['profile_coverage']['coverage_pct']}%). Missing profiles: "
+            f"Usable AI11 performance scores for {ai11_analysis['profile_coverage']['players_with_rankable_score']} of {ai11_analysis['profile_coverage']['squad_players']} squad players ({ai11_analysis['profile_coverage']['coverage_pct']}%). Missing player scores: "
             + ", ".join(p["player_name"] for p in ai11_analysis["profile_coverage"]["players_missing_ai11_profile"][:10])
         ] if ai11_analysis["profile_coverage"]["quality"] != "complete" else [])
         + (["Provisional fantasy-point estimates remain null until verified match-by-match history is imported."] if not history_ready else [])
