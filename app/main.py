@@ -16,7 +16,7 @@ import zipfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from app.database import Base, engine, get_db, SessionLocal
-from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue, CricsheetMatch, CricsheetPlayerMatch
+from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue, CricsheetMatch, CricsheetPlayerMatch, CricsheetMatchup
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
                          TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, VenueEnrichRequest, CricsheetImportRequest)
 from app.predictor import predict_match
@@ -2977,15 +2977,20 @@ def import_cricsheet_t20(payload: CricsheetImportRequest,
         )).all()
     }
     existing_players = {}
+    existing_matchups = {}
     if existing_matches:
         player_rows = db.scalars(select(CricsheetPlayerMatch).where(
             CricsheetPlayerMatch.source_match_id.in_(list(existing_matches))
         )).all()
         existing_players = {(row.source_match_id, row.player_key): row for row in player_rows}
+        matchup_rows = db.scalars(select(CricsheetMatchup).where(
+            CricsheetMatchup.source_match_id.in_(list(existing_matches))
+        )).all()
+        existing_matchups = {(row.source_match_id, row.batter_key, row.bowler_key): row for row in matchup_rows}
 
     inserted_matches = updated_matches = unchanged_matches = 0
     inserted_players = updated_players = unchanged_players = 0
-    player_rows_to_write = sum(len(r["players"]) for r in records)
+    inserted_matchups = updated_matchups = unchanged_matchups = 0
     for record in records:
         current = existing_matches.get(record["source_match_id"])
         if current is None:
@@ -3002,6 +3007,14 @@ def import_cricsheet_t20(payload: CricsheetImportRequest,
                 unchanged_players += 1
             else:
                 updated_players += 1
+        for matchup in record.get("matchups", []):
+            old_pair = existing_matchups.get((record["source_match_id"], matchup["batter_key"], matchup["bowler_key"]))
+            if old_pair is None:
+                inserted_matchups += 1
+            elif current is not None and current.source_sha256 == record["source_sha256"]:
+                unchanged_matchups += 1
+            else:
+                updated_matchups += 1
 
     summary = {
         **validation,
@@ -3012,6 +3025,9 @@ def import_cricsheet_t20(payload: CricsheetImportRequest,
         "player_match_aggregates_insert": inserted_players,
         "player_match_aggregates_update": updated_players,
         "player_match_aggregates_unchanged": unchanged_players,
+        "matchup_aggregates_insert": inserted_matchups,
+        "matchup_aggregates_update": updated_matchups,
+        "matchup_aggregates_unchanged": unchanged_matchups,
         "raw_deliveries_stored": 0,
         "existing_sql_rows_deleted": 0,
         "source": "Cricsheet T20 JSON",
@@ -3041,6 +3057,15 @@ def import_cricsheet_t20(payload: CricsheetImportRequest,
                     else:
                         for key, value in values.items():
                             setattr(old, key, value)
+                for matchup in record.get("matchups", []):
+                    pair_key = (record["source_match_id"], matchup["batter_key"], matchup["bowler_key"])
+                    old_pair = existing_matchups.get(pair_key)
+                    values = {k: v for k, v in matchup.items()}
+                    if old_pair is None:
+                        db.add(CricsheetMatchup(source_match_id=record["source_match_id"], **values))
+                    else:
+                        for key, value in values.items():
+                            setattr(old_pair, key, value)
         db.commit()
     except Exception:
         db.rollback()
@@ -3052,6 +3077,7 @@ def import_cricsheet_t20(payload: CricsheetImportRequest,
 def cricsheet_t20_coverage(_admin: bool = Depends(require_admin), db: Session = Depends(get_db)):
     matches = db.scalars(select(CricsheetMatch)).all()
     players = db.scalars(select(CricsheetPlayerMatch)).all()
+    matchups = db.scalars(select(CricsheetMatchup)).all()
     venues = sorted({row.venue for row in matches if row.venue})
     competitions = sorted({row.competition for row in matches if row.competition})
     dates = sorted(row.match_date for row in matches if row.match_date)
@@ -3060,6 +3086,7 @@ def cricsheet_t20_coverage(_admin: bool = Depends(require_admin), db: Session = 
         "format": "T20",
         "matches": len(matches),
         "player_match_aggregates": len(players),
+        "batter_bowler_matchup_aggregates": len(matchups),
         "unique_players": len({row.player_key for row in players}),
         "venues": len(venues),
         "competitions": len(competitions),
@@ -3128,3 +3155,24 @@ def cricsheet_venue_search(q: str, limit: int = 30,
             item[field.replace("_runs", "_average")] = round(sum(vals) / len(vals), 2) if vals else None
         results.append(item)
     return {"venues": results}
+
+
+
+@app.get("/api/v1/admin/cricsheet/matchups/search")
+def cricsheet_matchup_search(batter: str, bowler: str, limit: int = 100,
+                             _admin: bool = Depends(require_admin),
+                             db: Session = Depends(get_db)):
+    limit = max(1, min(limit, 500))
+    batter_q = "%" + batter.strip().replace("%", "") + "%"
+    bowler_q = "%" + bowler.strip().replace("%", "") + "%"
+    rows = db.scalars(select(CricsheetMatchup).where(
+        CricsheetMatchup.batter_name.ilike(batter_q),
+        CricsheetMatchup.bowler_name.ilike(bowler_q)
+    ).limit(limit)).all()
+    totals = {"matches": len(rows), "runs": sum(r.runs for r in rows),
+              "balls": sum(r.balls for r in rows), "fours": sum(r.fours for r in rows),
+              "sixes": sum(r.sixes for r in rows), "dismissals": sum(r.dismissals for r in rows)}
+    totals["strike_rate"] = round(100 * totals["runs"] / max(totals["balls"], 1), 2)
+    return {"batter_query": batter, "bowler_query": bowler, "aggregate": totals,
+            "sample_matches": [{"match_id": r.source_match_id, "runs": r.runs,
+                                "balls": r.balls, "dismissals": r.dismissals} for r in rows]}
