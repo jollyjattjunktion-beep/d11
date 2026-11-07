@@ -99,6 +99,10 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
             "ai11_captain_pct":source_data.get("ai11_captain_pct"),
             "ai11_vice_captain_pct":source_data.get("ai11_vice_captain_pct"),
             "source_profile_available":bool(source_data),
+            "ai11_metrics":source_data.get("ai11_metrics") or {},
+            "ai11_projected_points":source_data.get("ai11_projected_points"),
+            "ai11_data_type":source_data.get("ai11_data_type"),
+            "ai11_selection_pct":source_data.get("ai11_selection_pct"),
             "team_generation_image":tg_data.get("image"),
             "batting_position":usage.get("batting_position", tg_data.get("batting_position")),
             "expected_overs":usage.get("expected_overs", tg_data.get("expected_overs")),
@@ -108,6 +112,10 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
     if form["expected_points"] is None:
         condition_factor, condition_reasons = _condition_adjustment(squad.role, context, fmt)
         reasons = ["No imported historical fantasy-point records for this format"]
+        if source_data.get("ai11_metrics"):
+            reasons.append("AI11 career/series batting and bowling profile is available as a provisional selection signal")
+        if source_data.get("ai11_projected_points") is not None:
+            reasons.append("AI11 source projection is available as a separate external signal; it is not treated as verified Dream11 fantasy points")
         warnings = ["Prediction unavailable until format-specific history is imported"]
         if not context:
             warnings.append("No pitch/weather/venue intelligence imported")
