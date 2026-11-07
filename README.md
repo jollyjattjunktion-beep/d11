@@ -313,7 +313,7 @@ Team split controls remain available (automatic, 6:5, 5:6, 7:4, 4:7). AI estimat
 
 ## Cricsheet T20 historical intelligence (aggregate-only)
 
-Cricsheet's official all-match JSON archive is the initial source:
+Cricsheet's official yearly JSON archive is the initial source:
 `https://cricsheet.org/downloads/2026_json.zip`
 
 The importer skips non-T20 files and stores only compact match/player aggregates. It does **not** store raw delivery rows and does not create, rename, update or delete rows in the live `matches`, `players`, `match_squads`, `player_match_stats` or `venues` tables.
@@ -340,7 +340,7 @@ Optional request fields: `source_url` (HTTPS direct archive URL on cricsheet.org
 
 ### Stored statistics
 
-- Match: date, season, competition, venue, teams, toss, winner and innings totals. Batter-vs-bowler pairs: runs, balls, boundaries and dismissals.
+- Match: date, gender, season, competition, venue, teams, toss, winner and innings totals. Batter-vs-bowler pairs: runs, balls, boundaries and dismissals.
 - Player per match: batting runs/balls/fours/sixes, bowling wickets/legal balls/runs conceded, catches, stumpings, run-outs, innings participation.
 - Batting and bowling phase aggregates: powerplay (overs 1-6), middle (7-15), death (16-20).
 
