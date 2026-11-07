@@ -3146,7 +3146,10 @@ def cricsheet_player_search(q: str, limit: int = 20,
                          "average_batting_position": round(item["batting_position_total"] / max(item["batting_position_samples"], 1), 2) if item["batting_position_samples"] else None,
                          "strike_rate": round(100 * item["runs"] / max(item["balls_faced"], 1), 2),
                          "economy": round(6 * item["runs_conceded"] / item["bowling_legal_balls"], 2) if item["bowling_legal_balls"] else None,
-                         "bowling_overs": round(item["bowling_legal_balls"] / 6, 2)}
+                         "bowling_average": round(item["runs_conceded"] / item["wickets"], 2) if item["wickets"] else None,
+                         "bowling_strike_rate": round(item["bowling_legal_balls"] / item["wickets"], 2) if item["wickets"] else None,
+                         "bowling_overs": round(item["bowling_legal_balls"] / 6, 2),
+                         "balls_faced_per_match": round(item["balls_faced"] / max(item["matches"], 1), 2)}
                         for item in grouped.values()]}
 
 
