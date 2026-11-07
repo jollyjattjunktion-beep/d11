@@ -314,7 +314,7 @@ Team split controls remain available (automatic, 6:5, 5:6, 7:4, 4:7). AI estimat
 ## Cricsheet T20 historical intelligence (aggregate-only)
 
 Cricsheet's official all-match JSON archive is the initial source:
-`https://cricsheet.org/downloads/all_json.zip`
+`https://cricsheet.org/downloads/2026_json.zip`
 
 The importer skips non-T20 files and stores only compact match/player aggregates. It does **not** store raw delivery rows and does not create, rename, update or delete rows in the live `matches`, `players`, `match_squads`, `player_match_stats` or `venues` tables.
 
@@ -336,11 +336,11 @@ All endpoints below require `X-Admin-Token`.
 5. Search player aggregates with `GET /api/v1/admin/cricsheet/players/search?q=Virat%20Kohli`.
 6. Search venue aggregates with `GET /api/v1/admin/cricsheet/venues/search?q=Wankhede`.
 
-Optional request fields: `source_url` (HTTPS direct archive URL on cricsheet.org under `/downloads/`) and `max_matches` (up to 30,000 JSON files). The downloader has archive-size, expanded-size, per-file-size, redirect and host restrictions. Validation errors abort before SQL writes. The source is treated as untrusted input.
+Optional request fields: `source_url` (HTTPS direct archive URL on cricsheet.org under `/downloads/`) and `max_matches` (up to 30,000 JSON files). The default is the manageable 2026 yearly archive. To build the full historical corpus, dry-run and import year archives one at a time using `https://cricsheet.org/downloads/{year}_json.zip` for years available on the Cricsheet downloads page; the same source match IDs make repeat imports idempotent. The downloader has archive-size, expanded-size, per-file-size, redirect and host restrictions. Validation errors abort before SQL writes. The source is treated as untrusted input.
 
 ### Stored statistics
 
-- Match: date, season, competition, venue, teams, toss, winner and innings totals.
+- Match: date, season, competition, venue, teams, toss, winner and innings totals. Batter-vs-bowler pairs: runs, balls, boundaries and dismissals.
 - Player per match: batting runs/balls/fours/sixes, bowling wickets/legal balls/runs conceded, catches, stumpings, run-outs, innings participation.
 - Batting and bowling phase aggregates: powerplay (overs 1-6), middle (7-15), death (16-20).
 
