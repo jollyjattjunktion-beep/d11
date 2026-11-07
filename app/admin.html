@@ -680,13 +680,13 @@ function renderDreamTeamPreview(t,strategy,mode,index){
  const vice=(t.players||[]).find(p=>p.player_id===t.vice_captain_id);
  const c=document.createElement('div');c.innerHTML='<strong>C:</strong> '+esc(captain?.player_name||'—')+' &nbsp; <strong>VC:</strong> '+esc(vice?.player_name||'—');
  const score=document.createElement('div');score.textContent=t.points_available&&t.projected_points!=null?'Estimated fantasy points: '+t.projected_points:'Provisional selection build • fantasy points not available';
- foot.append(c,score);field.append(foot);wrap.append(field);
+ foot.append(c,score);field.append(foot);wrap.append(field);\n if(t.captain_reason||t.vice_captain_reason){const leadership=document.createElement('div');leadership.className='helper';leadership.style.padding='10px 14px';leadership.textContent='Captain: '+(t.captain_reason||'')+' Vice-captain: '+(t.vice_captain_reason||'');wrap.append(leadership);}
  const detail=document.createElement('details');detail.className='team-details';const summary=document.createElement('summary');summary.textContent='View player list and selection percentages';detail.append(summary);
  const list=document.createElement('div');list.className='result-list';
  (t.players||[]).forEach(p=>{
   const row=document.createElement('div');row.className='result-player';
   const img=document.createElement('img');img.className='mini';img.src=p.team_generation_image||p.image||'';img.alt=p.player_name||'';
-  const name=document.createElement('div');const b=document.createElement('b');b.textContent=p.player_name;const role=document.createElement('span');role.className='role';role.textContent=p.role+' • '+p.team;name.append(b,role);
+  const name=document.createElement('div');const b=document.createElement('b');b.textContent=p.player_name;const role=document.createElement('span');role.className='role';role.textContent=p.role+' • '+p.team+(p.ai11_role_score!=null?' • AI11 profile '+Number(p.ai11_role_score).toFixed(0)+'/100':'');name.append(b,role);
   if(p.player_id===t.captain_id||p.player_id===t.vice_captain_id){const tag=document.createElement('span');tag.className='cvc'+(p.player_id===t.vice_captain_id?' vc':'');tag.textContent=p.player_id===t.captain_id?'C':'VC';name.append(tag);}
   const cr=document.createElement('div');cr.textContent=p.credits+' cr';cr.style.textAlign='right';
   const pct=document.createElement('div');pct.textContent=p.selection_pct==null?'—':Number(p.selection_pct).toFixed(1)+'%';pct.style.textAlign='right';
@@ -771,7 +771,7 @@ function renderAI11Analysis(data){
    const meta=document.createElement('div');meta.className='helper';
    const score=p.score??p.role_score??p[key]??'—';
    const ownership=p.selection_pct??p.ai11_selection_pct;
-   meta.textContent=(p.team||'')+' • '+(p.role||'')+' • profile score '+score+'/100'+(ownership==null?'':' • selected '+Number(ownership).toFixed(1)+'%');
+   meta.textContent=(p.team||'')+' • '+(p.role||'')+' • profile score '+score+'/100'+(ownership==null?'':' • selected '+Number(ownership).toFixed(1)+'%')+(p.captain_pct==null?'':' • C '+Number(p.captain_pct).toFixed(1)+'%')+(p.vice_captain_pct==null?'':' • VC '+Number(p.vice_captain_pct).toFixed(1)+'%');
    info.append(name,meta);row.append(info);list.append(row);
    if(p.reason){const why=document.createElement('div');why.className='helper';why.textContent=p.reason;list.append(why);}
   });
