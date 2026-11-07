@@ -367,25 +367,42 @@ def test_strongest_strategy_can_build_a_complete_legal_lineup():
     assert team["captain_id"] != team["vice_captain_id"]
 
 
-def test_strongest_strategy_uses_ai11_projected_points_before_selection_popularity():
+def test_strongest_strategy_ignores_unscaled_ai11_p_and_uses_profile_scores():
     from app.optimizer import _player_signal
 
     common = {
         "team": "A", "role": "BAT", "status": "confirmed",
         "expected_points": None, "floor_points": None, "ceiling_points": None,
-        "ai11_profile_factor": 1.0, "ai11_role_score": 55.0,
-        "ai11_recent_form_score": 55.0,
+        "ai11_profile_factor": 1.0,
+        "ai11_role_score": 75.0, "ai11_recent_form_score": 70.0,
+        "selection_pct": 40.0,
     }
-    high_projection = {
-        **common, "player_id": "source-projection", "selection_pct": 8.0,
-        "ai11_projection_score": 96.0, "ai11_projected_points": 108.0,
+    low_raw_p = {**common, "player_id": "raw-low", "ai11_source_p_raw": 1}
+    high_raw_p = {**common, "player_id": "raw-high", "ai11_source_p_raw": 99}
+    low_score = _player_signal(low_raw_p, "strongest", "neutral", provisional=True)
+    high_score = _player_signal(high_raw_p, "strongest", "neutral", provisional=True)
+    assert low_score == high_score
+
+
+def test_strongest_strategy_uses_recent_completed_match_form_without_projection():
+    from app.optimizer import _player_signal
+
+    common = {
+        "team": "A", "role": "BAT", "status": "unknown",
+        "expected_points": None, "floor_points": None, "ceiling_points": None,
+        "ai11_profile_factor": 1.0, "selection_pct": 40.0,
+        "ai11_role_score": None, "ai11_recent_form_score": None,
     }
-    popular_low_projection = {
-        **common, "player_id": "popular-low-projection", "selection_pct": 96.0,
-        "ai11_projection_score": 25.0, "ai11_projected_points": 18.0,
+    recent_star = {
+        **common, "player_id": "recent-star", "recent_history_score": 88.0,
+        "matches_used": 2,
+    }
+    low_recent = {
+        **common, "player_id": "low-recent", "recent_history_score": 28.0,
+        "matches_used": 2,
     }
     assert _player_signal(
-        high_projection, "strongest", "neutral", provisional=True
+        recent_star, "strongest", "neutral", provisional=True
     ) > _player_signal(
-        popular_low_projection, "strongest", "neutral", provisional=True
+        low_recent, "strongest", "neutral", provisional=True
     )
