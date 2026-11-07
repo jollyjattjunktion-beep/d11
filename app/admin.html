@@ -771,6 +771,7 @@ function renderAI11Analysis(data){
   ['Bowling leaders',rec.bowling,'ai11_bowling_score'],
   ['All-rounders',rec.all_rounders,'ai11_role_score'],
   ['Current series form',rec.series_form,'ai11_series_score'],
+  ['AI11 projected points',rec.projected_points,'ai11_projection_score'],
   ['Popular selection core',rec.popular_core,'ai11_role_score'],
   ['Grand League differentials',rec.grand_league_differentials,'ai11_role_score'],
   ['Captain / VC candidates',rec.captaincy_candidates,'ai11_role_score'],
@@ -788,7 +789,7 @@ function renderAI11Analysis(data){
    const meta=document.createElement('div');meta.className='helper';
    const score=p.score??p.role_score??p[key]??'—';
    const ownership=p.selection_pct??p.ai11_selection_pct;
-   meta.textContent=(p.team||'')+' • '+(p.role||'')+' • profile score '+score+'/100'+(ownership==null?'':' • selected '+Number(ownership).toFixed(1)+'%')+(p.captain_pct==null?'':' • C '+Number(p.captain_pct).toFixed(1)+'%')+(p.vice_captain_pct==null?'':' • VC '+Number(p.vice_captain_pct).toFixed(1)+'%');
+   meta.textContent=(p.team||'')+' • '+(p.role||'')+' • profile score '+score+'/100'+(p.ai11_projected_points==null?'':' • AI11 projection '+Number(p.ai11_projected_points).toFixed(1))+(ownership==null?'':' • selected '+Number(ownership).toFixed(1)+'%')+(p.captain_pct==null?'':' • C '+Number(p.captain_pct).toFixed(1)+'%')+(p.vice_captain_pct==null?'':' • VC '+Number(p.vice_captain_pct).toFixed(1)+'%');
    info.append(name,meta);row.append(info);list.append(row);
    if(p.reason){const why=document.createElement('div');why.className='helper';why.textContent=p.reason;list.append(why);}
   });
