@@ -104,6 +104,8 @@ def _profile_scores(player: dict, fmt: str) -> dict:
     series_matches = _num(series.get("series_matches")) or 0.0
     series_avg = _num(series.get("series_average_points"))
     series_points_score = metric_score(series_avg, base["points"])
+    projected_points = _num(player.get("ai11_projected_points") or metrics.get("ai11_projected_points"))
+    projection_score = metric_score(projected_points, base["points"])
     series_runs = _num(series.get("series_runs"))
     series_wickets = _num(series.get("series_wickets"))
     series_runs_score = None
@@ -126,19 +128,33 @@ def _profile_scores(player: dict, fmt: str) -> dict:
         series_form_score = round(50.0 + (series_form_raw - 50.0) * sample_reliability, 1)
 
     if role in {"BAT", "WK"}:
-        role_score = weighted([(career_batting, 0.60), (series_form_score, 0.40)])
-    elif role == "BOWL":
-        role_score = weighted([(career_bowling, 0.60), (series_form_score, 0.40)])
-    elif role == "AR":
-        # Two-way performance matters: an all-rounder with both a batting and
-        # bowling contribution is preferred over a one-discipline profile.
         role_score = weighted([
-            (career_batting, 0.30),
-            (career_bowling, 0.30),
-            (series_form_score, 0.40),
+            (career_batting, 0.50),
+            (series_form_score, 0.25),
+            (projection_score, 0.25),
+        ])
+    elif role == "BOWL":
+        role_score = weighted([
+            (career_bowling, 0.50),
+            (series_form_score, 0.25),
+            (projection_score, 0.25),
+        ])
+    elif role == "AR":
+        # All-rounders need two-way skill, recent series contribution and the
+        # provider projection; the projection remains a separate source signal.
+        role_score = weighted([
+            (career_batting, 0.25),
+            (career_bowling, 0.25),
+            (series_form_score, 0.25),
+            (projection_score, 0.25),
         ])
     else:
-        role_score = weighted([(career_batting, 0.5), (career_bowling, 0.5), (series_form_score, 0.25)])
+        role_score = weighted([
+            (career_batting, 0.25),
+            (career_bowling, 0.25),
+            (series_form_score, 0.25),
+            (projection_score, 0.25),
+        ])
 
     bowling_type = str(metrics.get("bowling_type") or "").upper()
     spin_types = ("OB", "OFFBREAK", "OFF BREAK", "LBG", "LEG", "SLA", "SLOW LEFT", "LB", "LEG BREAK")
@@ -169,6 +185,8 @@ def _profile_scores(player: dict, fmt: str) -> dict:
         "ai11_series_score": series_form_score,
         "ai11_recent_form_score": series_form_score,
         "ai11_series_points_score": series_points_score,
+        "ai11_projected_points": projected_points,
+        "ai11_projection_score": projection_score,
         "ai11_series_runs_score": series_runs_score,
         "ai11_series_wickets_score": series_wickets_score,
         "ai11_role_score": role_score,
@@ -177,7 +195,7 @@ def _profile_scores(player: dict, fmt: str) -> dict:
         "ai11_selection_pct": selection,
         "ai11_captain_pct": captain,
         "ai11_vice_captain_pct": vice,
-        "ai11_profile_metrics_available": bool(metrics or series),
+        "ai11_profile_metrics_available": bool(metrics or series or projected_points is not None),
         "ai11_evidence_fields": sorted(set(metrics) | set(series)),
     }
 
@@ -356,6 +374,7 @@ def build_ai11_match_analysis(players: list[dict], match: dict, intelligence: di
             "bowling": bowling[:5],
             "all_rounders": all_rounders[:5],
             "series_form": series_form[:5],
+            "projected_points": _ranked(enriched, "ai11_projection_score")[:5],
             "popular_core": compact(selection_core),
             "grand_league_differentials": compact(differentials),
             "captaincy_candidates": compact(captaincy),
@@ -369,7 +388,7 @@ def build_ai11_match_analysis(players: list[dict], match: dict, intelligence: di
             },
         },
         "data_integrity": {
-            "note": "AI11 career/series aggregates and source selection/C/VC trends are player-intelligence signals, not match-by-match verified Dream11 fantasy points.",
+            "note": "AI11 career/series aggregates, source projected-points values and selection/C/VC trends are ranking signals, not verified match-by-match Dream11 fantasy points.",
             "fantasy_point_projections_from_ai11": False,
         },
     }
