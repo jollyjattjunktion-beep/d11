@@ -123,6 +123,33 @@ def normalize_fixture(item: dict, now: datetime | None = None) -> dict | None:
     }
 
 
+
+def manual_venue_is_locked(intelligence: Any, current_venue: Any = None) -> bool:
+    """Return whether an admin-selected stadium must survive provider syncs.
+
+    The timestamp fallback protects venue choices saved by older app versions
+    before the explicit lock flag was introduced.
+    """
+    data = intelligence if isinstance(intelligence, dict) else {}
+    if data.get("manual_venue_override") is True:
+        return True
+    return bool(current_venue) and bool(data.get("admin_match_updated_at"))
+
+
+def should_update_venue_from_feed(
+    current_venue: Any,
+    feed_venue: Any,
+    intelligence: Any,
+) -> bool:
+    """Only apply a provider venue when no admin selection has been locked."""
+    if manual_venue_is_locked(intelligence, current_venue):
+        return False
+    # A temporary null in the provider feed must not erase a known venue.
+    if not feed_venue and current_venue:
+        return False
+    return True
+
+
 def sort_fixture_key(record: dict) -> tuple[int, str]:
     status_rank = 0 if record.get("status") == "live" else 1
     return status_rank, str(record.get("start_time") or "9999")

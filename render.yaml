@@ -9,5 +9,6 @@ services:
     envVars:
       - key: APP_ENV
         value: production
+      # Required secret: durable PostgreSQL URL. Production startup rejects SQLite.
       - key: DATABASE_URL
         sync: false

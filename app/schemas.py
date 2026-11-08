@@ -89,6 +89,7 @@ class AdminMatchUpdate(BaseModel):
     team_b: str | None = Field(default=None, max_length=100)
     status: str | None = Field(default=None, max_length=30)
     venue_id: str | None = Field(default=None, max_length=160)
+    use_feed_venue: bool = False
 
 
 class SquadPlayerEdit(BaseModel):
@@ -181,3 +182,17 @@ class CricbuzzSeriesIndexImportRequest(BaseModel):
 
 class VenueEnrichRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=20)
+
+
+class CricsheetImportRequest(BaseModel):
+    source_url: str = Field(
+        default="https://cricsheet.org/downloads/2026_json.zip",
+        min_length=20,
+        max_length=500,
+    )
+    dry_run: bool = True
+    max_matches: int = Field(default=30000, ge=1, le=30000)
+
+
+class CricsheetPlayerQuery(BaseModel):
+    player_key: str = Field(min_length=1, max_length=180)
