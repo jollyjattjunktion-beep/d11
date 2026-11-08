@@ -23,6 +23,12 @@ def analyse_venue(report: dict, match_format: str) -> dict:
     """Explain format-matched ground trends; no inference is made from missing fields."""
     fmt = _fmt_key(match_format)
     stats = (report.get("formats") or {}).get(fmt)
+    proxy_format = None
+    # Cricbuzz venue profiles sometimes publish T20 history for T10 grounds,
+    # but no T10-only sample. Use it only as an explicitly labelled low-confidence proxy.
+    if not stats and fmt in {"T10", "WT10"} and (report.get("formats") or {}).get("T20"):
+        stats = (report.get("formats") or {}).get("T20")
+        proxy_format = "T20"
     profile = " ".join(str(x or "") for x in (
         report.get("pitch_text"), report.get("profile_text")
     )).casefold()
@@ -60,8 +66,11 @@ def analyse_venue(report: dict, match_format: str) -> dict:
     ))
 
     reasons = []
+    if proxy_format:
+        reasons.append(f"No T10-only venue sample was published; T20 venue statistics are shown as a proxy for {fmt}, not as T10 results.")
     if total is not None:
-        reasons.append(f"{int(total)} {fmt} matches in Cricbuzz venue sample.")
+        sample_label = proxy_format or fmt
+        reasons.append(f"{int(total)} {sample_label} matches in Cricbuzz venue sample.")
     if bat_rate is not None:
         reasons.append(f"Batting first won {int(bat_wins)} of {int(decided)} decided matches ({bat_rate*100:.1f}%).")
     if bowl_rate is not None:
@@ -123,7 +132,7 @@ def analyse_venue(report: dict, match_format: str) -> dict:
         toss_key = None
 
     # Sample-size confidence for ground/toss conclusions.
-    if total is None or total < 15:
+    if proxy_format or total is None or total < 15:
         confidence = "low"
     elif total < 40:
         confidence = "low" if (bat_rate is None or abs(bat_rate - 0.5) < 0.10) else "medium"
@@ -158,6 +167,8 @@ def analyse_venue(report: dict, match_format: str) -> dict:
     return {
         "format": fmt,
         "available": True,
+        "stats_source_format": proxy_format or fmt,
+        "is_format_proxy": bool(proxy_format),
         "pitch_type": pitch_type,
         "recommended_innings_mode": recommended_innings_mode,
         "recommended_innings_label": recommended_innings_label,

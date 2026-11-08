@@ -25,7 +25,9 @@ from app.importers.ai11 import (fetch_page, parse_analysis, parse_fantasy, AI11R
 from app.importers.crex import fetch_crex_page, parse_crex_venue_report
 from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_series_page,
     fetch_cricbuzz_series_index, parse_cricbuzz_venue, parse_cricbuzz_series_venues,
-    parse_cricbuzz_series_index)
+    parse_cricbuzz_series_index, fetch_cricbuzz_match_facts_page,
+    parse_cricbuzz_match_facts, fetch_cricbuzz_upcoming_schedule,
+    parse_cricbuzz_upcoming_schedule)
 from app.venue_analysis import analyse_venue, compare_squad_strength, analysis_context_fields
 from app.public_feed import normalize_fixture, sort_fixture_key, classify_fixture_status, parse_source_datetime
 from app.public_page import render_home, render_sitemap
@@ -44,6 +46,125 @@ _last_public_sync_monotonic = 0.0
 _last_public_sync_at: str | None = None
 _last_public_sync_summary: dict = {"ok": False, "message": "First sync has not run yet."}
 _public_sync_thread: threading.Thread | None = None
+
+
+
+
+def _cricbuzz_team_slug_aliases(value: str | None) -> set[str]:
+    words = re.findall(r"[a-z0-9]+", str(value or "").casefold())
+    if not words:
+        return set()
+    aliases = {"".join(words), "".join(word[0] for word in words if word)}
+    # Cricbuzz team slugs commonly use the first two letters of the first word
+    # followed by initials of the remaining words (e.g. Perth Scorchers Women -> PRSW).
+    if len(words) > 1:
+        aliases.add(words[0][:2] + "".join(word[0] for word in words[1:]))
+    return {alias for alias in aliases if len(alias) >= 2}
+
+
+def _slug_side_matches(side: str, aliases: set[str]) -> bool:
+    side = re.sub(r"[^a-z0-9]", "", side.casefold())
+    for alias in aliases:
+        if alias == side or side.startswith(alias):
+            return True
+        # Short team codes can be embedded in longer Cricbuzz abbreviations;
+        # require an ordered match and at least two characters.
+        position = 0
+        for char in side:
+            if position < len(alias) and char == alias[position]:
+                position += 1
+        if position == len(alias):
+            return True
+    return False
+
+
+def _auto_enrich_missing_fixture_venues(db: Session, fixtures: list[dict]) -> dict:
+    """Resolve missing Team Generation venues from the Cricbuzz schedule during fixture sync."""
+    pending = []
+    for record in fixtures:
+        match = db.get(Match, record["id"])
+        venue_text = re.sub(r"[^a-z]", "", str(match.venue or "").casefold()) if match else ""
+        placeholder = not venue_text or venue_text in {"tbc", "tobconfirmed", "venue", "venuetobeconfirmed", "tobefinalised", "tobefinalized"}
+        catalogue_missing = bool(match and not placeholder and _venue_report_for_match(db, match)[0] is None)
+        if match and (placeholder or catalogue_missing):
+            pending.append((record, match))
+    if not pending:
+        return {"venues_enriched": 0, "venue_enrichment_failed": 0, "venue_enrichment_skipped": 0}
+    try:
+        schedule_html = fetch_cricbuzz_upcoming_schedule()
+        schedule_matches = parse_cricbuzz_upcoming_schedule(schedule_html)
+    except Exception:
+        return {"venues_enriched": 0, "venue_enrichment_failed": 0, "venue_enrichment_skipped": len(pending)}
+
+    enriched = failed = skipped = 0
+    for record, match in pending[:12]:
+        names = [
+            record.get("team_a"), record.get("team_b"),
+            record.get("team_a_name"), record.get("team_b_name"),
+        ]
+        aliases_a = _cricbuzz_team_slug_aliases(record.get("team_a")) | _cricbuzz_team_slug_aliases(record.get("team_a_name"))
+        aliases_b = _cricbuzz_team_slug_aliases(record.get("team_b")) | _cricbuzz_team_slug_aliases(record.get("team_b_name"))
+        candidates = []
+        for entry in schedule_matches:
+            sides = entry["slug"].split("-vs-")
+            if len(sides) != 2:
+                continue
+            direct = _slug_side_matches(sides[0], aliases_a) and _slug_side_matches(sides[1], aliases_b)
+            reverse = _slug_side_matches(sides[0], aliases_b) and _slug_side_matches(sides[1], aliases_a)
+            if direct or reverse:
+                candidates.append(entry)
+        # Never attach a venue based on a non-unique team-pair match.
+        unique = {entry["provider_match_id"]: entry for entry in candidates}
+        if len(unique) != 1:
+            skipped += 1
+            continue
+        entry = next(iter(unique.values()))
+        try:
+            facts_html = fetch_cricbuzz_match_facts_page(entry["match_facts_url"])
+            facts = parse_cricbuzz_match_facts(facts_html, entry["match_facts_url"])
+            report = None
+            if facts.get("venue_url"):
+                venue_html = fetch_cricbuzz_venue_page(facts["venue_url"])
+                report = parse_cricbuzz_venue(venue_html, facts["venue_url"])
+            if report:
+                report["match_facts_url"] = entry["match_facts_url"]
+                venue_row = _save_cricbuzz_venue(db, report)
+                venue_name = report["name"]
+                city = (report.get("city_country") or facts.get("city_country") or "").split(",")[0].strip()
+                venue_value = venue_name + (", " + city if city else "")
+                venue_analysis = analyse_venue(report, match.format) if report.get("formats") else None
+            else:
+                venue_name = facts["venue_name"]
+                venue_value = venue_name + (", " + facts.get("city_country") if facts.get("city_country") else "")
+                venue_row = _save_cricbuzz_venue(db, {
+                    "provider_venue_id": "MATCHFACTS-" + str(facts.get("provider_match_id") or match.id),
+                    "name": venue_name, "city_country": facts.get("city_country"),
+                    "aliases": [], "facts": {}, "formats": {}, "source_url": entry["match_facts_url"],
+                })
+                venue_analysis = None
+            match.venue = venue_value[:200]
+            intel = db.get(MatchIntelligence, match.id)
+            data = dict(intel.data or {}) if intel and isinstance(intel.data, dict) else {}
+            data["cricbuzz_match_facts"] = facts
+            data["venue_match_facts_source_url"] = entry["match_facts_url"]
+            data["venue_report_source_url"] = facts.get("venue_url") or entry["match_facts_url"]
+            data["venue_provider"] = "CRICBUZZ"
+            data["venue_id"] = venue_row.provider_key
+            data["venue_auto_enriched_at"] = datetime.now(timezone.utc).isoformat()
+            if report:
+                data["cricbuzz_venue_report"] = report
+            if venue_analysis:
+                data["auto_venue_analysis"] = venue_analysis
+                data.update(analysis_context_fields(venue_analysis))
+            if intel is None:
+                db.add(MatchIntelligence(match_id=match.id, data=data))
+            else:
+                intel.data = data
+            enriched += 1
+        except (ValueError, httpx.HTTPError):
+            failed += 1
+            continue
+    return {"venues_enriched": enriched, "venue_enrichment_failed": failed, "venue_enrichment_skipped": skipped + max(0, len(pending) - 12)}
 
 
 def _sync_public_match_feed(db: Session, force: bool = False) -> dict:
@@ -121,6 +242,12 @@ def _sync_public_match_feed(db: Session, force: bool = False) -> dict:
             if not record["visible"]:
                 hidden += 1
 
+        venue_enrichment = _auto_enrich_missing_fixture_venues(db, [
+            record for item in payload if isinstance(item, dict)
+            if (record := normalize_fixture(item)) is not None
+        ])
+        venue_enrichment = {**venue_enrichment}
+
         # Hide provider-omitted fixtures from the public list but keep their
         # Match, squad, scorecards and player-history rows in SQL.
         existing_rows = db.scalars(
@@ -175,6 +302,7 @@ def _sync_public_match_feed(db: Session, force: bool = False) -> dict:
             "updated": updated,
             "hidden": hidden,
             "skipped": skipped,
+            **venue_enrichment,
             "synced_at": synced_at,
         }
         _last_public_sync_at = synced_at
@@ -2264,7 +2392,7 @@ def _venue_report_for_match(db: Session, match: Match):
     if len(ties) > 1:
         return None, None
     venue = best[2]
-    fmt = "T20" if match.format.upper() in {"T20", "T20I", "WT20", "WT20I"} else "ODI" if match.format.upper() in {"ODI", "WODI"} else "TEST"
+    fmt = "T20" if match.format.upper() in {"T20", "T20I", "WT20", "WT20I"} else "T10" if match.format.upper() in {"T10", "WT10"} else "ODI" if match.format.upper() in {"ODI", "WODI"} else "TEST"
     return venue, (venue.formats or {}).get(fmt)
 
 
@@ -2744,6 +2872,86 @@ FEATURED_CRICBUZZ_VENUES = [
     "https://www.cricbuzz.com/cricket-series/13430/nepal-premier-league-2026/venues/458/tribhuvan-university-international-cricket-ground",
     "https://www.cricbuzz.com/cricket-series/12677/womens-big-bash-league-2026/venues/122/junction-oval",
 ]
+
+
+
+
+@app.post("/api/v1/admin/matches/{match_id}/venue/import-match-facts")
+def import_venue_from_cricbuzz_match_facts(match_id: str, payload: CricbuzzVenueImportRequest,
+                                           _admin: bool = Depends(require_admin),
+                                           db: Session = Depends(get_db)):
+    """Resolve and save a match venue from a Cricbuzz match-facts URL; no stadium name entry required."""
+    match = db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "Match not found")
+    try:
+        facts_html = fetch_cricbuzz_match_facts_page(payload.url)
+        facts = parse_cricbuzz_match_facts(facts_html, payload.url)
+        report = None
+        if facts.get("venue_url"):
+            venue_html = fetch_cricbuzz_venue_page(facts["venue_url"])
+            report = parse_cricbuzz_venue(venue_html, facts["venue_url"])
+    except ValueError as exc:
+        raise HTTPException(422, "Cricbuzz match-facts import rejected: " + str(exc)[:400])
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(502, detail={
+            "message": "Cricbuzz match facts or linked venue page could not be fetched.",
+            "upstream_status": exc.response.status_code,
+            "action": "Retry the public Cricbuzz match-facts URL. The match venue is not guessed."
+        })
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Could not fetch Cricbuzz match facts: " + type(exc).__name__)
+
+    if report:
+        report["match_facts_url"] = payload.url
+        venue_row = _save_cricbuzz_venue(db, report)
+        venue_name = report["name"]
+        city = (report.get("city_country") or facts.get("city_country") or "").split(",")[0].strip()
+        venue_value = venue_name + (", " + city if city else "")
+        venue_analysis = analyse_venue(report, match.format) if report.get("formats") else None
+    else:
+        venue_name = facts["venue_name"]
+        venue_value = venue_name + (", " + facts["city_country"] if facts.get("city_country") else "")
+        venue_row = _save_cricbuzz_venue(db, {
+            "provider_venue_id": "MATCHFACTS-" + str(facts.get("provider_match_id") or match_id),
+            "name": venue_name,
+            "city_country": facts.get("city_country"),
+            "aliases": [],
+            "facts": {},
+            "formats": {},
+            "source_url": payload.url,
+        })
+        venue_analysis = None
+
+    match.venue = venue_value[:200]
+    intel_row = db.get(MatchIntelligence, match_id)
+    data = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+    data["cricbuzz_match_facts"] = facts
+    data["venue_report_source_url"] = facts.get("venue_url") or payload.url
+    data["venue_match_facts_source_url"] = payload.url
+    data["venue_provider"] = "CRICBUZZ"
+    data["venue_id"] = venue_row.provider_key
+    if report:
+        data["cricbuzz_venue_report"] = report
+    if venue_analysis:
+        data["auto_venue_analysis"] = venue_analysis
+        data.update(analysis_context_fields(venue_analysis))
+    if intel_row is None:
+        db.add(MatchIntelligence(match_id=match_id, data=data))
+    else:
+        intel_row.data = data
+    db.commit()
+    return {
+        "imported": True,
+        "match_id": match_id,
+        "venue": match.venue,
+        "venue_id": venue_row.provider_key,
+        "venue_stats_imported": bool(report and report.get("formats")),
+        "formats_available": sorted((report or {}).get("formats", {}).keys()),
+        "match_facts_url": payload.url,
+        "venue_url": facts.get("venue_url"),
+        "note": "Ground name was extracted from Cricbuzz match facts and saved to SQL. Linked format-specific venue statistics were imported when Cricbuzz exposed a venue page. Future matches at this ground can now auto-match the saved stadium catalogue."
+    }
 
 
 @app.post("/api/v1/admin/venues/import")

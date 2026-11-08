@@ -31,6 +31,8 @@ def normalize_match_format(series: Any, name: Any = None, explicit: Any = None) 
     text = " ".join(str(x or "") for x in (explicit, series, name)).upper()
     if "TEST" in text:
         return "TEST"
+    if "T10" in text or "TEN OVER" in text or "10 OVER" in text:
+        return "T10"
     if "ODI" in text or "ONE DAY" in text or "50 OVER" in text:
         return "ODI"
     return "T20"
