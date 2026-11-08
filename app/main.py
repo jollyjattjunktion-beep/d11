@@ -23,6 +23,7 @@ from app.optimizer import build_teams, build_team_diagnostic
 from app.config import MODEL_VERSION, ADMIN_TOKEN, TG_API_TOKEN
 from app.importers.ai11 import (fetch_page, parse_analysis, parse_fantasy, AI11RateLimitError)
 from app.importers.crex import fetch_crex_page, parse_crex_venue_report
+from app.importers.cricbuzz_scorecards import (fetch_series as fetch_cricbuzz_scorecard_series, fetch_scorecard as fetch_cricbuzz_scorecard, parse_series_scorecards, parse_scorecard)
 from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_series_page,
     fetch_cricbuzz_series_index, parse_cricbuzz_venue, parse_cricbuzz_series_venues,
     parse_cricbuzz_series_index)
@@ -2824,3 +2825,122 @@ def admin_page():
         raise HTTPException(500, "Admin interface file is missing.")
     return HTMLResponse(admin_file.read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
 
+
+
+@app.post("/api/v1/admin/history/import-cricbuzz-scorecard")
+async def import_cricbuzz_scorecard_history(request: Request,
+                                            _admin: bool = Depends(require_admin),
+                                            db: Session = Depends(get_db)):
+    """Discover a series' scorecards, then dry-run/import one into an existing D11 match."""
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(400, "JSON body required: match_id and series_url; optionally scorecard_url and confirm_import.")
+    if not isinstance(payload, dict):
+        raise HTTPException(422, "Expected a JSON object.")
+    match_id = str(payload.get("match_id") or "").strip()
+    series_url = str(payload.get("series_url") or "").strip()
+    scorecard_url = str(payload.get("scorecard_url") or "").strip()
+    match = db.get(Match, match_id) if match_id else None
+    if not match:
+        raise HTTPException(404, "Select an existing D11 match. This importer never creates matches.")
+    try:
+        series_html = fetch_cricbuzz_scorecard_series(series_url)
+        scorecard_urls = parse_series_scorecards(series_html, series_url)
+        if not scorecard_url:
+            return {
+                "mode": "scorecard_discovery_only", "match_id": match_id,
+                "match": {"name": match.name, "team_a": match.team_a, "team_b": match.team_b, "format": match.format},
+                "scorecards_found": len(scorecard_urls), "scorecard_urls": scorecard_urls,
+                "next_step": "Choose the scorecard URL for this exact completed fixture and submit it as scorecard_url with confirm_import=true. No database rows were changed."
+            }
+        if scorecard_url not in scorecard_urls:
+            raise ValueError("The selected scorecard URL was not linked from the supplied series Matches page.")
+        scorecard_html = fetch_cricbuzz_scorecard(scorecard_url)
+        card = parse_scorecard(scorecard_html, scorecard_url)
+    except ValueError as exc:
+        raise HTTPException(422, "Cricbuzz scorecard import rejected: " + str(exc)[:400])
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(502, detail={"message": "Cricbuzz page request failed.", "upstream_status": exc.response.status_code})
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Could not fetch Cricbuzz page: " + type(exc).__name__)
+
+    fmt = str(match.format or "").upper()
+    card_fmt = str(card.get("format") or "UNKNOWN").upper()
+    aliases = {"T20I":"T20", "WT20":"T20", "WT20I":"T20", "WODI":"ODI"}
+    if card_fmt == "UNKNOWN" or aliases.get(fmt, fmt) != aliases.get(card_fmt, card_fmt):
+        raise HTTPException(422, f"Format mismatch or unknown format: D11={fmt}, Cricbuzz={card_fmt}.")
+    title_norm = re.sub(r"[^a-z0-9]", "", card.get("title", "").casefold())
+    for team in (match.team_a, match.team_b):
+        team_norm = re.sub(r"[^a-z0-9]", "", str(team or "").casefold())
+        if len(team_norm) >= 3 and team_norm not in title_norm:
+            raise HTTPException(422, "Scorecard title does not confirm both D11 teams. Refusing an unsafe match mapping.")
+
+    squads = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match_id)).all()
+    players_by_name = {}
+    for squad in squads:
+        player = db.get(Player, squad.player_id)
+        if player:
+            key = re.sub(r"[^a-z0-9]", "", player.name.casefold())
+            if key:
+                players_by_name.setdefault(key, []).append((player, squad))
+    mapped, skipped = [], []
+    for item in card["players"]:
+        key = re.sub(r"[^a-z0-9]", "", item["name"].casefold())
+        matches = players_by_name.get(key, [])
+        if len(matches) != 1:
+            skipped.append({"name": item["name"], "reason": "no exact squad identity match" if not matches else "ambiguous squad identity"})
+            continue
+        player, squad = matches[0]
+        mapped.append((item, player, squad))
+    if not mapped:
+        raise HTTPException(422, "No scorecard players matched this D11 match's existing squad by exact normalized name.")
+
+    preview = [{
+        "player_id": player.id, "player_name": player.name, "team": squad.team,
+        "runs": item["runs"], "balls": item["balls"], "fours": item["fours"],
+        "sixes": item["sixes"], "wickets": item["wickets"], "overs": item["overs"],
+        "runs_conceded": item["runs_conceded"], "maidens": item["maidens"],
+    } for item, player, squad in mapped]
+    if not bool(payload.get("confirm_import")):
+        return {
+            "mode": "dry_run", "match_id": match_id, "scorecard_url": scorecard_url,
+            "scorecard_title": card["title"], "format": card_fmt, "match_date": card["match_date"],
+            "mapped_players": len(mapped), "skipped_players": skipped, "preview": preview,
+            "note": "No database writes. Review exact player mappings, then repeat with confirm_import=true."
+        }
+
+    saved = 0
+    try:
+        for item, player, squad in mapped:
+            row = db.scalar(select(PlayerMatchStats).where(
+                PlayerMatchStats.match_id == match_id,
+                PlayerMatchStats.player_id == player.id,
+            ))
+            values = {
+                "format": card_fmt, "runs": item["runs"], "balls": item["balls"],
+                "fours": item["fours"], "sixes": item["sixes"], "wickets": item["wickets"],
+                "overs": item["overs"], "runs_conceded": item["runs_conceded"],
+                "maidens": item["maidens"], "catches": item["catches"],
+                "stumpings": item["stumpings"], "run_outs": item["run_outs"],
+                "match_date": card["match_date"] or match.start_time,
+                "source": "CRICBUZZ_SCORECARD",
+            }
+            if row is None:
+                db.add(PlayerMatchStats(match_id=match_id, player_id=player.id,
+                                        fantasy_points=None, **values))
+            else:
+                # Keep verified fantasy points and only replace raw scorecard fields.
+                for key, value in values.items():
+                    setattr(row, key, value)
+            saved += 1
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(500, "Scorecard history transaction failed; no partial import was committed.")
+    return {
+        "mode": "imported", "match_id": match_id, "scorecard_url": scorecard_url,
+        "records_saved": saved, "skipped_players": skipped,
+        "fantasy_points": "NULL unless already verified; raw scorecard stats are not converted into fantasy points.",
+        "next_step": "Run the same match's team generation again. Raw scorecard performance is used only as provisional form evidence; no fantasy-point projection is manufactured."
+    }
