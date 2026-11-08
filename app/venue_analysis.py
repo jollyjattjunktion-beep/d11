@@ -69,7 +69,8 @@ def analyse_venue(report: dict, match_format: str) -> dict:
     if proxy_format:
         reasons.append(f"No T10-only venue sample was published; T20 venue statistics are shown as a proxy for {fmt}, not as T10 results.")
     if total is not None:
-        reasons.append(f"{int(total)} {fmt} matches in Cricbuzz venue sample.")
+        sample_label = proxy_format or fmt
+        reasons.append(f"{int(total)} {sample_label} matches in Cricbuzz venue sample.")
     if bat_rate is not None:
         reasons.append(f"Batting first won {int(bat_wins)} of {int(decided)} decided matches ({bat_rate*100:.1f}%).")
     if bowl_rate is not None:
