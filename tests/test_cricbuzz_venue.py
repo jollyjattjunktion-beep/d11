@@ -192,18 +192,18 @@ def test_rejects_invalid_match_facts_urls(url):
 def test_parse_upcoming_schedule_discovers_facts_links_once():
     html = """
     <html><body>
-      <a href="/cricket-match-facts/162813/prsw-vs-mlsw-16th-match-womens-big-bash-league-2026">
-        16th Match • Sydney, North Sydney Oval Perth Scorchers Women Melbourne Stars Women
+      <a href="/live-cricket-scores/176114/yl-vs-ee-4th-match-abu-dhabi-t10-league-2026">
+        4th Match • Abu Dhabi, Sheikh Zayed Stadium Yas Lions Emirates Eagles
       </a>
-      <a href="/cricket-match-facts/162813/prsw-vs-mlsw-16th-match-womens-big-bash-league-2026">duplicate</a>
-      <a href="/cricket-series/13307/abu-dhabi-t10-league-2026/matches">Abu Dhabi T10</a>
+      <a href="/live-cricket-scores/176114/yl-vs-ee-4th-match-abu-dhabi-t10-league-2026">duplicate</a>
+      <a href="/cricket-series/13307/abu-dhabi-t10-league-2026/venues/94/sheikh-zayed-stadium">Sheikh Zayed Stadium</a>
     </body></html>
     """
     matches = parse_cricbuzz_upcoming_schedule(html)
     assert len(matches) == 1
-    assert matches[0]["provider_match_id"] == "162813"
-    assert matches[0]["slug"].startswith("prsw-vs-mlsw")
-    assert "/cricket-match-facts/162813/" in matches[0]["match_facts_url"]
+    assert matches[0]["provider_match_id"] == "176114"
+    assert matches[0]["slug"].startswith("yl-vs-ee")
+    assert "/live-cricket-scores/176114/" in matches[0]["match_facts_url"]
 
 
 @pytest.mark.parametrize("url", [
@@ -238,3 +238,26 @@ def test_t10_venue_analysis_uses_explicit_low_confidence_t20_proxy():
     assert analysis["is_format_proxy"] is True
     assert analysis["confidence"] == "low"
     assert any("T20 venue statistics are shown as a proxy" in reason for reason in analysis["reasons"])
+
+
+LIVE_SCORE_URL = "https://www.cricbuzz.com/live-cricket-scores/176114/yl-vs-ee-4th-match-abu-dhabi-t10-league-2026"
+
+
+def test_parse_live_score_page_extracts_venue_and_stadium_link():
+    html = """
+    <html><body>
+      <div>Yas Lions vs Emirates Eagles, 4th Match, Abu Dhabi T10 League 2026</div>
+      <div>Venue: <a href="/cricket-series/13307/abu-dhabi-t10-league-2026/venues/94/sheikh-zayed-stadium">Sheikh Zayed Stadium, Abu Dhabi</a></div>
+      <div>Date &amp; Time: Today, 3:30 PM LOCAL</div>
+    </body></html>
+    """
+    facts = parse_cricbuzz_match_facts(html, LIVE_SCORE_URL)
+    assert facts["provider_match_id"] == "176114"
+    assert facts["slug"].startswith("yl-vs-ee")
+    assert facts["venue_name"] == "Sheikh Zayed Stadium"
+    assert facts["city_country"] == "Abu Dhabi"
+    assert facts["venue_url"].endswith("/venues/94/sheikh-zayed-stadium")
+
+
+def test_accept_live_score_url_for_match_detail_import():
+    assert validate_cricbuzz_match_facts_url(LIVE_SCORE_URL) == LIVE_SCORE_URL
