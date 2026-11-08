@@ -299,3 +299,40 @@ def parse_cricbuzz_match_facts(html: str, source_url: str) -> dict:
         "venue_url": venue_url,
         "source_url": source_url,
     }
+
+
+def validate_cricbuzz_upcoming_schedule_url(value: str) -> str:
+    parsed = _validate_cricbuzz_host(value)
+    if not re.fullmatch(r"/cricket-schedule/upcoming-series/all/?", parsed.path):
+        raise ValueError("Only Cricbuzz's public upcoming-series schedule is accepted.")
+    return value
+
+
+def fetch_cricbuzz_upcoming_schedule(value: str = "https://www.cricbuzz.com/cricket-schedule/upcoming-series/all") -> str:
+    return _fetch_html(value, validate_cricbuzz_upcoming_schedule_url)
+
+
+def parse_cricbuzz_upcoming_schedule(html: str, source_url: str = "https://www.cricbuzz.com/cricket-schedule/upcoming-series/all") -> list[dict]:
+    """Return unique match-facts links from Cricbuzz's public schedule; no venue is inferred here."""
+    validate_cricbuzz_upcoming_schedule_url(source_url)
+    soup = BeautifulSoup(html, "html.parser")
+    results = {}
+    for anchor in soup.find_all("a", href=True):
+        href = anchor.get("href", "")
+        if not re.search(r"/cricket-match-facts/\d+/[^/]+/?$", href):
+            continue
+        full_url = str(httpx.URL(source_url).join(href))
+        parsed = _validate_cricbuzz_host(full_url)
+        if parsed.hostname not in ALLOWED_HOSTS:
+            continue
+        match = re.search(r"/cricket-match-facts/(\d+)/([^/]+)/?$", parsed.path)
+        if not match:
+            continue
+        match_id, slug = match.group(1), match.group(2).lower()
+        results[match_id] = {
+            "provider_match_id": match_id,
+            "slug": slug,
+            "match_facts_url": full_url,
+            "schedule_label": re.sub(r"\s+", " ", anchor.get_text(" ", strip=True))[:500],
+        }
+    return list(results.values())
