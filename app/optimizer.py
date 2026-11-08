@@ -620,6 +620,7 @@ def build_team_diagnostic(players, team, strategy, scenario="neutral",
             "player_name": player.get("player_name"),
             "role": role,
             "selection_index": round(score, 2),
+            "opportunity_profile": _player_opportunity_profile(player, match_format),
             "reason": reason,
         })
         if len(near_misses) >= 6:
@@ -640,6 +641,24 @@ def build_team_diagnostic(players, team, strategy, scenario="neutral",
         warnings.append("Batting-friendly is a batting opportunity signal, not a reason to ignore specialist bowlers' powerplay/death-over wickets.")
     if any(p.get("expected_overs") is None for p in pool if p.get("role") in {"BOWL", "AR"}):
         warnings.append("Expected bowling overs are missing for some bowlers/all-rounders; workload comparison has lower confidence.")
+    low_opportunity_selected = [
+        p.get("player_name") for p in chosen
+        if _player_opportunity_profile(p, match_format)["score"] < 45.0
+    ]
+    if low_opportunity_selected:
+        warnings.append(
+            "Low player-opportunity selections need review: " + ", ".join(low_opportunity_selected)
+            + ". Check batting position and expected overs before locking this XI."
+        )
+    if any(
+        _player_opportunity_profile(p, match_format)["missing_batting_position"]
+        or _player_opportunity_profile(p, match_format)["missing_expected_overs"]
+        for p in chosen
+    ):
+        warnings.append(
+            "Some selected players have incomplete role-opportunity data; batting position and expected overs "
+            "should be verified before treating the ranking as high confidence."
+        )
     captain = next((p for p in chosen if p.get("player_id") == team.get("captain_id")), None)
     vice = next((p for p in chosen if p.get("player_id") == team.get("vice_captain_id")), None)
     captain_scores = sorted(
