@@ -84,7 +84,7 @@ def _auto_enrich_missing_fixture_venues(db: Session, fixtures: list[dict]) -> di
     for record in fixtures:
         match = db.get(Match, record["id"])
         venue_text = re.sub(r"[^a-z]", "", str(match.venue or "").casefold()) if match else ""
-        if match and (not venue_text or venue_text in {"tbc", "tobconfirmed", "venue"}):
+        if match and (not venue_text or venue_text in {"tbc", "tobconfirmed", "venue", "venuetobeconfirmed", "tobefinalised", "tobefinalized"}):
             pending.append((record, match))
     if not pending:
         return {"venues_enriched": 0, "venue_enrichment_failed": 0, "venue_enrichment_skipped": 0}
@@ -241,7 +241,8 @@ def _sync_public_match_feed(db: Session, force: bool = False) -> dict:
                 hidden += 1
 
         venue_enrichment = _auto_enrich_missing_fixture_venues(db, [
-            normalize_fixture(item) for item in payload if isinstance(item, dict)
+            record for item in payload if isinstance(item, dict)
+            if (record := normalize_fixture(item)) is not None
         ])
         venue_enrichment = {**venue_enrichment}
 
