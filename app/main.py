@@ -26,6 +26,9 @@ from app.importers.crex import fetch_crex_page, parse_crex_venue_report
 from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_series_page,
     fetch_cricbuzz_series_index, parse_cricbuzz_venue, parse_cricbuzz_series_venues,
     parse_cricbuzz_series_index)
+from app.importers.cricbuzz_squads import (
+    fetch_cricbuzz_squad_page, parse_cricbuzz_series_squads,
+)
 from app.venue_analysis import analyse_venue, compare_squad_strength, analysis_context_fields
 from app.public_feed import normalize_fixture, sort_fixture_key, classify_fixture_status, parse_source_datetime
 from app.public_page import render_home, render_sitemap
