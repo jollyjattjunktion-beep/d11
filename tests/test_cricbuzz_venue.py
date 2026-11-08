@@ -6,6 +6,8 @@ from app.importers.cricbuzz import (
     parse_cricbuzz_series_index,
     validate_cricbuzz_series_index_url,
     validate_cricbuzz_venue_url,
+    parse_cricbuzz_upcoming_schedule,
+    validate_cricbuzz_upcoming_schedule_url,
     parse_cricbuzz_match_facts,
     validate_cricbuzz_match_facts_url,
 )
@@ -185,3 +187,33 @@ def test_parse_match_facts_resolves_linked_stadium_page():
 def test_rejects_invalid_match_facts_urls(url):
     with pytest.raises(ValueError):
         validate_cricbuzz_match_facts_url(url)
+
+
+def test_parse_upcoming_schedule_discovers_facts_links_once():
+    html = """
+    <html><body>
+      <a href="/cricket-match-facts/162813/prsw-vs-mlsw-16th-match-womens-big-bash-league-2026">
+        16th Match • Sydney, North Sydney Oval Perth Scorchers Women Melbourne Stars Women
+      </a>
+      <a href="/cricket-match-facts/162813/prsw-vs-mlsw-16th-match-womens-big-bash-league-2026">duplicate</a>
+      <a href="/cricket-series/13307/abu-dhabi-t10-league-2026/matches">Abu Dhabi T10</a>
+    </body></html>
+    """
+    matches = parse_cricbuzz_upcoming_schedule(html)
+    assert len(matches) == 1
+    assert matches[0]["provider_match_id"] == "162813"
+    assert matches[0]["slug"].startswith("prsw-vs-mlsw")
+    assert "/cricket-match-facts/162813/" in matches[0]["match_facts_url"]
+
+
+@pytest.mark.parametrize("url", [
+    "https://www.cricbuzz.com/cricket-schedule/upcoming-series/all",
+    "https://cricbuzz.com/cricket-schedule/upcoming-series/all/",
+])
+def test_accept_cricbuzz_upcoming_schedule_urls(url):
+    assert validate_cricbuzz_upcoming_schedule_url(url) == url
+
+
+def test_reject_non_schedule_url_for_automatic_venue_discovery():
+    with pytest.raises(ValueError):
+        validate_cricbuzz_upcoming_schedule_url("https://evil.example/cricket-schedule/upcoming-series/all")
