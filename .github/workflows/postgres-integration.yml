@@ -1,0 +1,33 @@
+name: PostgreSQL integration validation
+on:
+  push:
+    branches: ["integration/**"]
+  pull_request:
+    branches: [main]
+jobs:
+  postgres-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: d11_test
+          POSTGRES_PASSWORD: d11_test
+          POSTGRES_DB: d11_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U d11_test -d d11_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://d11_test:d11_test@localhost:5432/d11_test
+      APP_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: PYTHONPATH=. pytest -q
