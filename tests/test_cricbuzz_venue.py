@@ -217,3 +217,24 @@ def test_accept_cricbuzz_upcoming_schedule_urls(url):
 def test_reject_non_schedule_url_for_automatic_venue_discovery():
     with pytest.raises(ValueError):
         validate_cricbuzz_upcoming_schedule_url("https://evil.example/cricket-schedule/upcoming-series/all")
+
+
+def test_t10_venue_analysis_uses_explicit_low_confidence_t20_proxy():
+    report = {
+        "formats": {
+            "T20": {
+                "total_matches": 98,
+                "matches_won_batting_first": 45,
+                "matches_won_bowling_first": 53,
+                "average_first_innings_score": 138,
+                "average_second_innings_score": 124,
+            }
+        }
+    }
+    analysis = analyse_venue(report, "T10")
+    assert analysis["available"] is True
+    assert analysis["format"] == "T10"
+    assert analysis["stats_source_format"] == "T20"
+    assert analysis["is_format_proxy"] is True
+    assert analysis["confidence"] == "low"
+    assert any("T20 venue statistics are shown as a proxy" in reason for reason in analysis["reasons"])
