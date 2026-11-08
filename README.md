@@ -309,3 +309,65 @@ The public match detail page includes four team-generation modes, all calling `P
 4. **Smart selection:** Shows only squad players with provider selection percentage >=80%, preselects the top four eligible players, allows up to five, and locks the chosen players into generated teams. Confirmed-XI mode excludes players outside the provider-confirmed XI.
 
 Team split controls remain available (automatic, 6:5, 5:6, 7:4, 4:7). AI estimate and provisional generation remain clearly distinguished; when format-matched fantasy history is unavailable, the API returns provisional selection-priority teams without claiming projected fantasy points.
+
+## Automatic player collector (separate Render worker)
+
+The player collector is an additive subsystem. It creates its own tables and does not
+alter or delete the existing `players`, `matches`, `match_squads`, or fantasy
+history tables. It discovers public player-profile and scorecard links from the
+configured CREX/Cricbuzz match and discovery pages, saves source identities and
+profile snapshots, and upserts scorecard rows by source + match + player. Discovered
+players are also added to the existing `players` catalogue when no name match exists.
+
+### Recommended deployment: GitHub Actions (no Render worker)
+
+The collector supports a bounded one-shot mode for scheduled runners:
+`python -m app.player_collector_worker --once --max-jobs 250`.
+The workflow at `.github/workflows/player-data-collector.yml` runs every 6 hours
+and can also be started manually from the GitHub Actions tab after the workflow
+has been merged into the default branch.
+
+In GitHub, open **Settings -> Secrets and variables -> Actions -> New repository
+secret** and create `D11_DATABASE_URL`. Set its value to the PostgreSQL **External
+Database URL** from Render (not the internal-only URL), with SSL enabled as required
+by the database connection details. The secret is injected only into the runner;
+never commit a database URL or password into this repository.
+
+GitHub-hosted runners execute the Python collector; PostgreSQL remains the permanent
+database. The existing Render web service continues to serve D11, but no Render
+Background Worker is required. GitHub Actions scheduled runs can be delayed and
+are not real-time; the default cadence is every 6 hours. GitHub Actions usage limits
+depend on whether the repository is public or private.
+
+The optional `render-worker.yaml` remains available for a future always-on worker,
+but it is not needed for the recommended scheduled setup.
+
+The initial test seeds are the supplied CREX India U19 vs Pakistan U19 match page
+and Cricbuzz Perth Scorchers Women vs Melbourne Stars Women scorecard. The worker
+then discovers linked player profiles and scorecards. Override them with
+`PLAYER_COLLECTOR_SEED_URLS` (comma-separated HTTPS URLs) if needed.
+`PLAYER_COLLECTOR_DISCOVERY_URLS` controls periodic discovery pages.
+
+Optional environment variables:
+- `COLLECTOR_POLL_SECONDS` (default 15)
+- `COLLECTOR_REQUEST_GAP_SECONDS` (default 3; minimum 2 seconds between requests)
+- `COLLECTOR_REFRESH_HOURS` (default 72; minimum 6)
+- `COLLECTOR_MAX_ATTEMPTS` (default 5)
+
+### Data and coverage
+
+The first release collects player profile pages and conventional scorecard batting/
+bowling tables when those tables are present in provider HTML. It stores source
+provenance, raw table values, career table snapshots and match-level player rows.
+It does **not** claim ball-by-ball coverage: powerplay/death splits and batter-vs-
+bowler matchups remain unavailable until a permitted delivery feed is integrated.
+Provider markup, robots/terms and access controls can change; the collector uses
+ordinary HTTPS requests and does not bypass logins, CAPTCHAs, or anti-bot controls.
+Failed pages are retried with backoff and eventually marked failed for inspection.
+
+### Identity caution
+
+The initial identity resolver normalizes player names and flags conflicting country
+observations. It is a practical deduplication baseline, not perfect proof that two
+same-named people are the same player. Review flagged conflicts before using those
+profiles for predictions. All imported records remain source-attributed.
