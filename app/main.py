@@ -2390,7 +2390,7 @@ def _venue_report_for_match(db: Session, match: Match):
     if len(ties) > 1:
         return None, None
     venue = best[2]
-    fmt = "T20" if match.format.upper() in {"T20", "T20I", "WT20", "WT20I"} else "ODI" if match.format.upper() in {"ODI", "WODI"} else "TEST"
+    fmt = "T20" if match.format.upper() in {"T20", "T20I", "WT20", "WT20I"} else "T10" if match.format.upper() in {"T10", "WT10"} else "ODI" if match.format.upper() in {"ODI", "WODI"} else "TEST"
     return venue, (venue.formats or {}).get(fmt)
 
 
