@@ -269,13 +269,13 @@ def parse_cricbuzz_match_facts(html: str, source_url: str) -> dict:
     """Extract the ground and its canonical Cricbuzz venue page from a match facts page."""
     validate_cricbuzz_match_facts_url(source_url)
     soup = BeautifulSoup(html, "html.parser")
-    text = re.sub(r"\\s+", " ", soup.get_text(" ", strip=True))
+    text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
     venue_name = None
     venue_url = None
     for anchor in soup.find_all("a", href=True):
-        label = re.sub(r"\\s+", " ", anchor.get_text(" ", strip=True)).strip()
+        label = re.sub(r"\s+", " ", anchor.get_text(" ", strip=True)).strip()
         href = anchor.get("href", "")
-        if label and re.search(r"/cricket-series/\\d+/[^/]+/venues/\\d+/[^/]+/?$", href):
+        if label and re.search(r"/cricket-series/\d+/[^/]+/venues/\d+/[^/]+/?$", href):
             full_url = str(httpx.URL(source_url).join(href))
             parsed = _validate_cricbuzz_host(full_url)
             if parsed.hostname in ALLOWED_HOSTS:
@@ -283,15 +283,15 @@ def parse_cricbuzz_match_facts(html: str, source_url: str) -> dict:
                 venue_url = full_url
                 break
     if not venue_name:
-        match = re.search(r"Venue\\s+(.+?)(?=Umpires|Date & Time|Toss|$)", text, re.I)
+        match = re.search(r"Venue\s+(.+?)(?=Umpires|Date & Time|Toss|$)", text, re.I)
         venue_name = match.group(1).strip() if match else None
     if not venue_name:
         raise ValueError("Cricbuzz match facts page did not expose a venue name.")
     city = None
-    location = re.search(r"VENUE GUIDE\\s+Stadium\\s+.+?\\s+City\\s+(.+?)(?=Capacity|Ends|Hosts To|$)", text, re.I)
+    location = re.search(r"VENUE GUIDE\s+Stadium\s+.+?\s+City\s+(.+?)(?=Capacity|Ends|Hosts To|$)", text, re.I)
     if location:
         city = location.group(1).strip()
-    id_match = re.search(r"/cricket-match-facts/(\\d+)/", urlparse(source_url).path)
+    id_match = re.search(r"/cricket-match-facts/(\d+)/", urlparse(source_url).path)
     return {
         "provider_match_id": id_match.group(1) if id_match else None,
         "venue_name": venue_name[:200],
