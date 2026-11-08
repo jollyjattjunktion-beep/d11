@@ -70,9 +70,26 @@ def _player_opportunity_profile(p, match_format="T20"):
         overs = None
     if overs is not None:
         quota_ratio = overs / max_overs if max_overs else 0.0
-        bowling_score = max(0.0, min(100.0, quota_ratio * 100.0))
-        components["bowling_opportunity"] = bowling_score
+        components["bowling_workload"] = max(0.0, min(100.0, quota_ratio * 100.0))
         evidence.append("expected_overs")
+    elif role in {"BOWL", "AR"}:
+        components["bowling_workload"] = 42.0
+
+    bowling_skill = p.get("ai11_bowling_score")
+    try:
+        if bowling_skill is not None:
+            components["bowling_skill"] = max(0.0, min(100.0, float(bowling_skill)))
+            evidence.append("bowling_skill")
+    except (TypeError, ValueError):
+        pass
+    workload = components.get("bowling_workload")
+    skill = components.get("bowling_skill")
+    if workload is not None or skill is not None:
+        # Workload is the opportunity gate; skill is a smaller wicket-threat proxy.
+        components["bowling_opportunity"] = (
+            0.75 * (workload if workload is not None else 42.0)
+            + 0.25 * (skill if skill is not None else 50.0)
+        )
     elif role == "BOWL":
         components["bowling_opportunity"] = 58.0
     elif role == "AR":
