@@ -6,6 +6,8 @@ from app.importers.cricbuzz import (
     parse_cricbuzz_series_index,
     validate_cricbuzz_series_index_url,
     validate_cricbuzz_venue_url,
+    parse_cricbuzz_match_facts,
+    validate_cricbuzz_match_facts_url,
 )
 from app.venue_analysis import analyse_venue, compare_squad_strength
 
@@ -156,3 +158,30 @@ def test_accept_cricbuzz_series_index_urls(url):
 def test_reject_non_index_cricbuzz_urls(url):
     with pytest.raises(ValueError):
         validate_cricbuzz_series_index_url(url)
+
+
+MATCH_FACTS_URL = "https://www.cricbuzz.com/cricket-match-facts/162813/prsw-vs-mlsw-16th-match-womens-big-bash-league-2026"
+
+
+def test_parse_match_facts_resolves_linked_stadium_page():
+    html = """
+    <html><body>
+      <h1>Perth Scorchers Women vs Melbourne Stars Women</h1>
+      <p>Venue: <a href="/cricket-series/12677/womens-big-bash-league-2026/venues/122/north-sydney-oval">North Sydney Oval, Sydney</a></p>
+      <section>VENUE GUIDE Stadium North Sydney Oval City Sydney, Australia Capacity 20,000</section>
+    </body></html>
+    """
+    facts = parse_cricbuzz_match_facts(html, MATCH_FACTS_URL)
+    assert facts["provider_match_id"] == "162813"
+    assert facts["venue_name"] == "North Sydney Oval, Sydney"
+    assert facts["venue_url"].endswith("/venues/122/north-sydney-oval")
+
+
+@pytest.mark.parametrize("url", [
+    "http://www.cricbuzz.com/cricket-match-facts/162813/match",
+    "https://evil.example/cricket-match-facts/162813/match",
+    "https://www.cricbuzz.com/cricket-match-facts/162813",
+])
+def test_rejects_invalid_match_facts_urls(url):
+    with pytest.raises(ValueError):
+        validate_cricbuzz_match_facts_url(url)
