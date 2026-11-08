@@ -199,6 +199,7 @@ def process_profile(db: Session, url: str, source: str, html: str | None = None)
 def process_scorecard(db: Session, url: str, source: str):
     html = fetch_html(url, source)
     card = parse_scorecard(html, url)
+    grouped = {}
     for item in card["player_records"]:
         name = item["player_name"]
         normalized = normalize_name(name)
@@ -213,6 +214,11 @@ def process_scorecard(db: Session, url: str, source: str):
         existing_player = db.scalar(select(Player).where(func.lower(Player.name) == name.lower()).limit(1))
         if existing_player is None:
             db.add(Player(id=identity.identity_key, name=identity.name))
+        row = grouped.setdefault(key, {"name": name, "batting": [], "bowling": [], "raw_tables": []})
+        row[item["kind"]].append({"table_index": item.get("table_index"), **item["values"]})
+        row["raw_tables"].append(item["values"])
+
+    for key, item in grouped.items():
         existing = db.scalar(select(PlayerMatchRecord).where(
             PlayerMatchRecord.source == source,
             PlayerMatchRecord.source_match_id == card["source_match_id"],
@@ -220,24 +226,21 @@ def process_scorecard(db: Session, url: str, source: str):
         ))
         values = {
             "format": card["format"], "match_date": card["match_date"],
-            "source_url": url, "raw_tables": [item["values"]],
+            "source_url": url, "raw_tables": item["raw_tables"],
         }
         if existing is None:
             existing = PlayerMatchRecord(
                 source=source, source_match_id=card["source_match_id"],
-                identity_key=key, batting={}, bowling={}, **values,
+                identity_key=key, batting=[], bowling=[], **values,
             )
             db.add(existing)
         else:
             existing.format, existing.match_date = card["format"], card["match_date"]
-            existing.source_url, existing.raw_tables = url, [item["values"]]
-        if item["kind"] == "batting":
-            existing.batting = item["values"]
-        else:
-            existing.bowling = item["values"]
+            existing.source_url, existing.raw_tables = url, item["raw_tables"]
+        existing.batting = item["batting"]
+        existing.bowling = item["bowling"]
     db.commit()
     log.info("Saved %s player scorecard rows from %s", len(card["player_records"]), url)
-
 
 def process_page(db: Session, job: CollectorJob):
     html = fetch_html(job.url, job.source)
