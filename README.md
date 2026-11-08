@@ -309,3 +309,16 @@ The public match detail page includes four team-generation modes, all calling `P
 4. **Smart selection:** Shows only squad players with provider selection percentage >=80%, preselects the top four eligible players, allows up to five, and locks the chosen players into generated teams. Confirmed-XI mode excludes players outside the provider-confirmed XI.
 
 Team split controls remain available (automatic, 6:5, 5:6, 7:4, 4:7). AI estimate and provisional generation remain clearly distinguished; when format-matched fantasy history is unavailable, the API returns provisional selection-priority teams without claiming projected fantasy points.
+
+
+## Opportunity-first team ranking (2026-11)
+
+The team optimizer now ranks player involvement before applying pitch suitability:
+
+- Batting opportunity uses expected batting position (top four receive the strongest opportunity index).
+- Bowling opportunity uses expected overs relative to the format quota (4 T20, 10 ODI, 20 Test).
+- Specialist batters and bowlers are scored on their relevant discipline. All-rounders are assessed across both batting and bowling routes, so one strong skill cannot hide missing workload evidence.
+- The opportunity index materially adjusts the candidate ranking. Pitch/weather condition influence is capped to a narrow adjustment so pitch labels cannot overwhelm a player's actual role and workload.
+- Diagnostics expose each selected/near-miss player's opportunity components and warn when selected players have low opportunity or incomplete batting-position/overs data.
+
+These are relative selection indices, not guaranteed fantasy points or probabilities. Missing batting positions/expected overs remain explicit uncertainty; verify sourced role data and confirmed Playing XI before locking a team. The change does not invent expected points when historical fantasy-point records are missing.
