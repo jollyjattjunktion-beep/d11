@@ -309,3 +309,50 @@ The public match detail page includes four team-generation modes, all calling `P
 4. **Smart selection:** Shows only squad players with provider selection percentage >=80%, preselects the top four eligible players, allows up to five, and locks the chosen players into generated teams. Confirmed-XI mode excludes players outside the provider-confirmed XI.
 
 Team split controls remain available (automatic, 6:5, 5:6, 7:4, 4:7). AI estimate and provisional generation remain clearly distinguished; when format-matched fantasy history is unavailable, the API returns provisional selection-priority teams without claiming projected fantasy points.
+
+## Automatic player collector (separate Render worker)
+
+The player collector is an additive subsystem. It creates its own tables and does not
+alter or delete the existing `players`, `matches`, `match_squads`, or fantasy
+history tables. It discovers public player-profile and scorecard links from the
+configured CREX/Cricbuzz match and discovery pages, saves source identities and
+profile snapshots, and upserts scorecard rows by source + match + player. Discovered
+players are also added to the existing `players` catalogue when no name match exists.
+
+### Deploy separately
+
+Use `render-worker.yaml` as a **separate Render Blueprint** (do not replace the
+existing `render.yaml`). It defines a Background Worker named
+`d11-player-collector` that shares the existing PostgreSQL `DATABASE_URL`.
+Render Background Workers require a paid instance; review the current Render price
+before creating the service. The worker is not started by the web request path.
+
+The initial test seeds are the supplied CREX India U19 vs Pakistan U19 match page
+and Cricbuzz Perth Scorchers Women vs Melbourne Stars Women scorecard. The worker
+then discovers linked player profiles and scorecards. Override them with
+`PLAYER_COLLECTOR_SEED_URLS` (comma-separated HTTPS URLs) if needed.
+`PLAYER_COLLECTOR_DISCOVERY_URLS` controls periodic discovery pages.
+
+Optional environment variables:
+- `COLLECTOR_POLL_SECONDS` (default 15)
+- `COLLECTOR_REQUEST_GAP_SECONDS` (default 3; minimum 2 seconds between requests)
+- `COLLECTOR_REFRESH_HOURS` (default 72; minimum 6)
+- `COLLECTOR_MAX_ATTEMPTS` (default 5)
+
+### Data and coverage
+
+The first release collects player profile pages and conventional scorecard batting/
+bowling tables when those tables are present in provider HTML. It stores source
+provenance, raw table values, career table snapshots and match-level player rows.
+It does **not** claim ball-by-ball coverage: powerplay/death splits and batter-vs-
+bowler matchups remain unavailable until a permitted delivery feed is integrated.
+Provider markup, robots/terms and access controls can change; the collector uses
+ordinary HTTPS requests and does not bypass logins, CAPTCHAs, or anti-bot controls.
+Failed pages are retried with backoff and eventually marked failed for inspection.
+
+### Identity caution
+
+The initial identity resolver normalizes player names and flags conflicting country
+observations. It is a practical deduplication baseline, not perfect proof that two
+same-named people are the same player. Review flagged conflicts before using those
+profiles for predictions. All imported records remain source-attributed.
