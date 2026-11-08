@@ -319,13 +319,28 @@ configured CREX/Cricbuzz match and discovery pages, saves source identities and
 profile snapshots, and upserts scorecard rows by source + match + player. Discovered
 players are also added to the existing `players` catalogue when no name match exists.
 
-### Deploy separately
+### Recommended deployment: GitHub Actions (no Render worker)
 
-Use `render-worker.yaml` as a **separate Render Blueprint** (do not replace the
-existing `render.yaml`). It defines a Background Worker named
-`d11-player-collector` that shares the existing PostgreSQL `DATABASE_URL`.
-Render Background Workers require a paid instance; review the current Render price
-before creating the service. The worker is not started by the web request path.
+The collector supports a bounded one-shot mode for scheduled runners:
+`python -m app.player_collector_worker --once --max-jobs 250`.
+The workflow at `.github/workflows/player-data-collector.yml` runs every 6 hours
+and can also be started manually from the GitHub Actions tab after the workflow
+has been merged into the default branch.
+
+In GitHub, open **Settings -> Secrets and variables -> Actions -> New repository
+secret** and create `D11_DATABASE_URL`. Set its value to the PostgreSQL **External
+Database URL** from Render (not the internal-only URL), with SSL enabled as required
+by the database connection details. The secret is injected only into the runner;
+never commit a database URL or password into this repository.
+
+GitHub-hosted runners execute the Python collector; PostgreSQL remains the permanent
+database. The existing Render web service continues to serve D11, but no Render
+Background Worker is required. GitHub Actions scheduled runs can be delayed and
+are not real-time; the default cadence is every 6 hours. GitHub Actions usage limits
+depend on whether the repository is public or private.
+
+The optional `render-worker.yaml` remains available for a future always-on worker,
+but it is not needed for the recommended scheduled setup.
 
 The initial test seeds are the supplied CREX India U19 vs Pakistan U19 match page
 and Cricbuzz Perth Scorchers Women vs Melbourne Stars Women scorecard. The worker
