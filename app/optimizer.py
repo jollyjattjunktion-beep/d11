@@ -33,12 +33,17 @@ def _role_opportunity(p):
 
 
 def _player_opportunity_profile(p, match_format="T20"):
-    """Source-aware batting/bowling involvement index (0-100), not fantasy points."""
-    role = p.get("role")
+    """Opportunity-first role profile (0-100), separate from fantasy-point estimates.
+
+    Batting opportunity is driven by expected batting position; bowling opportunity
+    is driven by expected overs relative to the format quota. Missing inputs lower
+    evidence confidence instead of being silently treated as confirmed workload.
+    """
+    role = str(p.get("role") or "").upper()
     fmt = str(match_format or "T20").upper()
     max_overs = {"T20": 4.0, "ODI": 10.0, "TEST": 20.0}.get(fmt, 4.0)
-    evidence = []
     components = {}
+    evidence = []
 
     position = p.get("batting_position")
     try:
@@ -46,57 +51,56 @@ def _player_opportunity_profile(p, match_format="T20"):
     except (TypeError, ValueError):
         position = None
     if position is not None and position > 0:
-        batting_position_score = 100 if position <= 2 else 92 if position <= 3 else 78 if position <= 5 else 55 if position <= 7 else 30
-        components["batting_position"] = batting_position_score
-        evidence.append((batting_position_score, 0.40))
-
-    batting_skill = p.get("ai11_batting_score")
-    if batting_skill is not None:
-        try:
-            components["batting_skill"] = max(0.0, min(100.0, float(batting_skill)))
-            evidence.append((components["batting_skill"], 0.25))
-        except (TypeError, ValueError):
-            pass
+        batting_score = (
+            100.0 if position <= 2 else 94.0 if position == 3
+            else 86.0 if position == 4 else 72.0 if position <= 6
+            else 48.0 if position <= 8 else 22.0
+        )
+        components["batting_opportunity"] = batting_score
+        evidence.append("batting_position")
+    elif role in {"BAT", "WK"}:
+        components["batting_opportunity"] = 58.0
+    elif role == "AR":
+        components["batting_opportunity"] = 48.0
 
     overs = p.get("expected_overs")
+    try:
+        overs = max(0.0, min(max_overs, float(overs))) if overs is not None else None
+    except (TypeError, ValueError):
+        overs = None
     if overs is not None:
-        try:
-            workload = max(0.0, min(1.0, float(overs) / max_overs)) * 100.0
-            components["bowling_workload"] = workload
-            evidence.append((workload, 0.35))
-        except (TypeError, ValueError):
-            pass
+        quota_ratio = overs / max_overs if max_overs else 0.0
+        bowling_score = max(0.0, min(100.0, quota_ratio * 100.0))
+        components["bowling_opportunity"] = bowling_score
+        evidence.append("expected_overs")
+    elif role == "BOWL":
+        components["bowling_opportunity"] = 58.0
+    elif role == "AR":
+        components["bowling_opportunity"] = 45.0
 
-    bowling_skill = p.get("ai11_bowling_score")
-    if bowling_skill is not None:
-        try:
-            components["bowling_skill"] = max(0.0, min(100.0, float(bowling_skill)))
-            evidence.append((components["bowling_skill"], 0.25))
-        except (TypeError, ValueError):
-            pass
-
-    if p.get("involvement_score") is not None:
-        try:
-            value = float(p["involvement_score"])
-            value = value * 100.0 if 0 <= value <= 1 else value
-            components["source_involvement"] = max(0.0, min(100.0, value))
-            evidence.append((components["source_involvement"], 0.30))
-        except (TypeError, ValueError):
-            pass
-
-    if evidence:
-        score = sum(value * weight for value, weight in evidence) / sum(weight for _, weight in evidence)
-        confidence = min(1.0, len(evidence) / 3.0)
+    bat = components.get("batting_opportunity")
+    bowl = components.get("bowling_opportunity")
+    if role == "BOWL":
+        score = bowl if bowl is not None else 45.0
+    elif role in {"BAT", "WK"}:
+        score = bat if bat is not None else 45.0
+    elif role == "AR":
+        # All-rounders must show two routes to points; one strong skill cannot
+        # completely hide a missing/weak second discipline.
+        score = 0.55 * (bat if bat is not None else 42.0) + 0.45 * (bowl if bowl is not None else 42.0)
     else:
-        # Conservative fallback: role alone is not enough to claim high opportunity.
-        score = 55.0
-        confidence = 0.0
+        available = [v for v in (bat, bowl) if v is not None]
+        score = sum(available) / len(available) if available else 45.0
 
+    confidence = min(1.0, len(evidence) / (2.0 if role == "AR" else 1.0))
     return {
         "score": round(max(0.0, min(100.0, score)), 1),
         "confidence": round(confidence, 2),
-        "components": components,
+        "components": {k: round(v, 1) for k, v in components.items()},
+        "evidence": evidence,
         "evidence_count": len(evidence),
+        "missing_batting_position": position is None and role in {"BAT", "WK", "AR"},
+        "missing_expected_overs": overs is None and role in {"BOWL", "AR"},
     }
 
 
@@ -284,8 +288,12 @@ def _player_signal(p, strategy, scenario, innings_mode="none", score_team=None,
         raw *= 1.035
     if scenario in {"bowling_friendly", "spin_friendly", "pace_friendly"} and role in {"BOWL", "AR"}:
         raw *= 1.03
-    raw *= availability * max(0.90, min(1.10, condition)) * scenario_factor * matchup_factor
-    raw *= 0.90 + 0.10 * opportunity
+    # Pitch/weather influence is deliberately capped so it cannot outweigh
+    # a player's batting position, expected bowling workload or proven output.
+    raw *= availability * max(0.94, min(1.06, condition)) * scenario_factor * matchup_factor
+    # Opportunity-first weighting: role workload can move the ranking materially;
+    # pitch fit remains a bounded secondary adjustment, not the selection driver.
+    raw *= 0.78 + 0.44 * opportunity
     return raw
 
 
