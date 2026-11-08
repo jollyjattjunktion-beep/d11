@@ -144,7 +144,7 @@ def parse_player_profile(html: str, profile_url: str) -> dict:
 
 def _table_records(soup: BeautifulSoup) -> list[dict]:
     records = []
-    for table in soup.find_all("table"):
+    for table_index, table in enumerate(soup.find_all("table")):
         rows = []
         for tr in table.find_all("tr"):
             cells = [c.get_text(" ", strip=True) for c in tr.find_all(["th", "td"])]
