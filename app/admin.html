@@ -228,6 +228,19 @@
             <div id="venueCatalogResults"></div>
           </div>
         </div>
+
+        <div class="panel" style="box-shadow:none;margin-bottom:16px">
+          <div class="panelhead"><div><h2>Automatic player data collection</h2><div class="helper">Scan matches already saved in D11 and queue verified CREX / Cricbuzz pages for player profiles and historical scorecards.</div></div><span class="pill">PLAYER INTELLIGENCE</span></div>
+          <div class="panelbody">
+            <div class="row" style="gap:10px;flex-wrap:wrap">
+              <button class="btn" id="scanSavedPlayerMatches">Scan all saved matches</button>
+              <button class="btn secondary" id="refreshPlayerCollectorStatus">Refresh collection status</button>
+            </div>
+            <div id="playerCollectorNotice" class="notice" style="margin-top:12px">No scan has been run from this panel yet.</div>
+            <div id="playerCollectorStatus" class="helper" style="margin-top:10px"></div>
+            <div id="playerCollectorUnmatched" class="helper" style="margin-top:10px"></div>
+          </div>
+        </div>
         <div class="section-label">Both teams — analysis at this venue</div>
         <div class="helper" style="margin-bottom:10px">Historical stats are matched to the current squad by player name. Team figures below are current-squad player records at this venue, not team win percentages.</div>
         <div id="venueTeamAnalysis" class="team-columns"></div>
@@ -506,6 +519,27 @@ async function importCricbuzzVenue(urlValue){
 $('importCricbuzzVenueStep3').onclick=()=>importCricbuzzVenue($('venueUrlStep3').value);
 $('importCricbuzzVenue').onclick=()=>importCricbuzzVenue($('venueUrl').value);
 $('continueVenue').onclick=()=>setStep(4);
+
+async function refreshPlayerCollectorStatus(){
+ try{
+  const d=await api('/api/v1/admin/player-collector/status');
+  $('playerCollectorStatus').textContent='Saved matches: '+d.matches_total+' • Matches with source label: '+d.matches_with_source_label+' • Profiles: '+d.profiles_saved+' • Source profile links: '+d.source_profiles+' • Scorecard player records: '+d.scorecard_records+' • Jobs: '+JSON.stringify(d.jobs);
+ }catch(e){$('playerCollectorStatus').textContent='Status error: '+e.message;}
+}
+async function scanSavedPlayerMatches(){
+ const btn=$('scanSavedPlayerMatches');btn.disabled=true;btn.textContent='Scanning…';
+ try{
+  const d=await api('/api/v1/admin/player-collector/scan',{method:'POST',body:'{}'});
+  $('playerCollectorNotice').textContent='Scanned '+d.matches_scanned+' saved matches • Queued '+d.jobs_queued+' new collection jobs • '+d.already_queued_or_completed+' already queued/completed • '+d.unmatched_count+' need source URLs.';
+  const list=(d.unmatched||[]).slice(0,25).map(x=>x.match_id+' — '+x.teams+' ('+x.reason+')');
+  $('playerCollectorUnmatched').textContent=list.length?'Matches needing a verified CREX/Cricbuzz URL: '+list.join(' | '):'All scanned matches had a usable saved source URL.';
+  if(d.unmatched_count>25)$('playerCollectorUnmatched').textContent+=' • Showing first 25 of '+d.unmatched_count+'.';
+  await refreshPlayerCollectorStatus();
+ }catch(e){$('playerCollectorNotice').textContent='Scan failed: '+e.message;}
+ finally{btn.disabled=false;btn.textContent='Scan all saved matches';}
+}
+$('scanSavedPlayerMatches').onclick=scanSavedPlayerMatches;
+$('refreshPlayerCollectorStatus').onclick=refreshPlayerCollectorStatus;
 async function discoverSeriesVenues(){
  const url=$('seriesIndexUrl').value.trim();if(!url){$('catalogueImportNotice').textContent='Paste the Cricbuzz all-series schedule or an archive page URL.';return;}
  if(url!==seriesIndexLastUrl){seriesIndexLastUrl=url;seriesDiscoveryOffset=0;}
