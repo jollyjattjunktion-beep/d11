@@ -331,7 +331,8 @@ def parse_cricbuzz_upcoming_schedule(html: str, source_url: str = "https://www.c
     results = {}
     for anchor in soup.find_all("a", href=True):
         href = anchor.get("href", "")
-        match = re.search(r"/live-cricket-scores/(\d+)/([^/?#]+)/?$", href)
+        href_path = urlparse(href).path
+        match = re.search(r"/live-cricket-scores/(\d+)/([^/?#]+)/?$", href_path)
         if not match:
             continue
         full_url = str(httpx.URL(source_url).join(href))
