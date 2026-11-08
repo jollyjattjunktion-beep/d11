@@ -25,7 +25,8 @@ from app.importers.ai11 import (fetch_page, parse_analysis, parse_fantasy, AI11R
 from app.importers.crex import fetch_crex_page, parse_crex_venue_report
 from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_series_page,
     fetch_cricbuzz_series_index, parse_cricbuzz_venue, parse_cricbuzz_series_venues,
-    parse_cricbuzz_series_index)
+    parse_cricbuzz_series_index, fetch_cricbuzz_match_facts_page,
+    parse_cricbuzz_match_facts)
 from app.venue_analysis import analyse_venue, compare_squad_strength, analysis_context_fields
 from app.public_feed import normalize_fixture, sort_fixture_key, classify_fixture_status, parse_source_datetime
 from app.public_page import render_home, render_sitemap
@@ -2744,6 +2745,86 @@ FEATURED_CRICBUZZ_VENUES = [
     "https://www.cricbuzz.com/cricket-series/13430/nepal-premier-league-2026/venues/458/tribhuvan-university-international-cricket-ground",
     "https://www.cricbuzz.com/cricket-series/12677/womens-big-bash-league-2026/venues/122/junction-oval",
 ]
+
+
+
+
+@app.post("/api/v1/admin/matches/{match_id}/venue/import-match-facts")
+def import_venue_from_cricbuzz_match_facts(match_id: str, payload: CricbuzzVenueImportRequest,
+                                           _admin: bool = Depends(require_admin),
+                                           db: Session = Depends(get_db)):
+    """Resolve and save a match venue from a Cricbuzz match-facts URL; no stadium name entry required."""
+    match = db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "Match not found")
+    try:
+        facts_html = fetch_cricbuzz_match_facts_page(payload.url)
+        facts = parse_cricbuzz_match_facts(facts_html, payload.url)
+        report = None
+        if facts.get("venue_url"):
+            venue_html = fetch_cricbuzz_venue_page(facts["venue_url"])
+            report = parse_cricbuzz_venue(venue_html, facts["venue_url"])
+    except ValueError as exc:
+        raise HTTPException(422, "Cricbuzz match-facts import rejected: " + str(exc)[:400])
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(502, detail={
+            "message": "Cricbuzz match facts or linked venue page could not be fetched.",
+            "upstream_status": exc.response.status_code,
+            "action": "Retry the public Cricbuzz match-facts URL. The match venue is not guessed."
+        })
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Could not fetch Cricbuzz match facts: " + type(exc).__name__)
+
+    if report:
+        report["match_facts_url"] = payload.url
+        venue_row = _save_cricbuzz_venue(db, report)
+        venue_name = report["name"]
+        city = (report.get("city_country") or facts.get("city_country") or "").split(",")[0].strip()
+        venue_value = venue_name + (", " + city if city else "")
+        venue_analysis = analyse_venue(report, match.format) if report.get("formats") else None
+    else:
+        venue_name = facts["venue_name"]
+        venue_value = venue_name + (", " + facts["city_country"] if facts.get("city_country") else "")
+        venue_row = _save_cricbuzz_venue(db, {
+            "provider_venue_id": "MATCHFACTS-" + str(facts.get("provider_match_id") or match_id),
+            "name": venue_name,
+            "city_country": facts.get("city_country"),
+            "aliases": [],
+            "facts": {},
+            "formats": {},
+            "source_url": payload.url,
+        })
+        venue_analysis = None
+
+    match.venue = venue_value[:200]
+    intel_row = db.get(MatchIntelligence, match_id)
+    data = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+    data["cricbuzz_match_facts"] = facts
+    data["venue_report_source_url"] = facts.get("venue_url") or payload.url
+    data["venue_match_facts_source_url"] = payload.url
+    data["venue_provider"] = "CRICBUZZ"
+    data["venue_id"] = venue_row.provider_key
+    if report:
+        data["cricbuzz_venue_report"] = report
+    if venue_analysis:
+        data["auto_venue_analysis"] = venue_analysis
+        data.update(analysis_context_fields(venue_analysis))
+    if intel_row is None:
+        db.add(MatchIntelligence(match_id=match_id, data=data))
+    else:
+        intel_row.data = data
+    db.commit()
+    return {
+        "imported": True,
+        "match_id": match_id,
+        "venue": match.venue,
+        "venue_id": venue_row.provider_key,
+        "venue_stats_imported": bool(report and report.get("formats")),
+        "formats_available": sorted((report or {}).get("formats", {}).keys()),
+        "match_facts_url": payload.url,
+        "venue_url": facts.get("venue_url"),
+        "note": "Ground name was extracted from Cricbuzz match facts and saved to SQL. Linked format-specific venue statistics were imported when Cricbuzz exposed a venue page. Future matches at this ground can now auto-match the saved stadium catalogue."
+    }
 
 
 @app.post("/api/v1/admin/venues/import")
