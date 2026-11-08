@@ -85,7 +85,7 @@ def parse_player_profile(html: str, profile_url: str) -> dict:
         raise ValueError("Could not reliably identify a player name on the profile page.")
     text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
     tables = []
-    for table in soup.find_all("table"):
+    for table_index, table in enumerate(soup.find_all("table")):
         rows = []
         for row in table.find_all("tr"):
             cells = [cell.get_text(" ", strip=True)[:160] for cell in row.find_all(["th", "td"])]
@@ -162,7 +162,7 @@ def _table_records(soup: BeautifulSoup) -> list[dict]:
                 if len(row) != len(header) or not row[0] or row[0].lower() in {"extras", "total"}:
                     continue
                 values = dict(zip(header, row))
-                records.append({"kind": "batting" if batting else "bowling", "player_name": row[0], "values": values})
+                records.append({"kind": "batting" if batting else "bowling", "table_index": table_index, "player_name": row[0], "values": values})
     return records
 
 
