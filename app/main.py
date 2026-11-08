@@ -2383,6 +2383,76 @@ def import_cricbuzz_series_venues(payload: CricbuzzSeriesImportRequest,
 
 
 
+@app.post("/api/v1/admin/players/import-cricbuzz-series")
+async def import_cricbuzz_series_players(request: Request,
+                                         _admin: bool = Depends(require_admin),
+                                         db: Session = Depends(get_db)):
+    """Import Cricbuzz player identities into explicitly selected existing matches."""
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(400, "A JSON body containing url and match_ids is required.")
+    if not isinstance(payload, dict):
+        raise HTTPException(422, "Expected a JSON object.")
+    url = str(payload.get("url") or "").strip()
+    match_ids = payload.get("match_ids")
+    if not isinstance(match_ids, list) or not match_ids or len(match_ids) > 50:
+        raise HTTPException(422, "Select one or more existing D11 match IDs (maximum 50).")
+    match_ids = list(dict.fromkeys(str(x).strip() for x in match_ids if str(x).strip()))
+    matches = [db.get(Match, mid) for mid in match_ids]
+    if any(match is None for match in matches):
+        raise HTTPException(404, "One or more selected D11 matches do not exist. This importer never creates matches.")
+    try:
+        html = fetch_cricbuzz_squad_page(url)
+        parsed = parse_cricbuzz_series_squads(html, url)
+    except ValueError as exc:
+        raise HTTPException(422, "Cricbuzz squad import rejected: " + str(exc)[:400])
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(502, detail={"message": "Cricbuzz series squad request failed.", "upstream_status": exc.response.status_code})
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Could not fetch Cricbuzz series squad page: " + type(exc).__name__)
+
+    created_players = added_squad_rows = skipped = 0
+    review = []
+    try:
+        for item in parsed["players"]:
+            player_id = "CRICBUZZ:" + str(item["source_player_id"])
+            if db.get(Player, player_id) is None:
+                db.add(Player(id=player_id, name=item["name"]))
+                created_players += 1
+            for match in matches:
+                label = str(item.get("team_label") or "")
+                norm = lambda value: re.sub(r"[^a-z0-9]", "", value.casefold())
+                team = next((candidate for candidate in (match.team_a, match.team_b)
+                             if label and norm(candidate) and norm(candidate) in norm(label)), None)
+                if not team:
+                    skipped += 1
+                    continue
+                existing = db.get(MatchSquad, (match.id, player_id))
+                if existing is None:
+                    # Schema-compatible placeholder; must be reviewed before generation.
+                    db.add(MatchSquad(
+                        match_id=match.id, player_id=player_id, team=team,
+                        role="AR", credits=None, selection_pct=None,
+                        status="unknown", source="Cricbuzz (role review required)",
+                    ))
+                    added_squad_rows += 1
+                    review.append({"player": item["name"], "match_id": match.id,
+                                   "review_required": "Confirm fantasy role and credits"})
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(500, "Cricbuzz players were not saved because the database transaction failed.")
+    return {
+        "provider": "CRICBUZZ", "series_id": parsed["series_id"],
+        "series_name": parsed.get("series_name"), "players_found": parsed["count"],
+        "players_created": created_players, "match_squad_rows_added": added_squad_rows,
+        "unmatched_team_rows_skipped": skipped, "selected_match_ids": match_ids,
+        "review_required": review[:200],
+        "note": "This imports identities and match membership only. Confirm roles/credits; historical scorecards and performance stats are not imported yet.",
+    }
+
+
 @app.post("/api/v1/admin/venues/discover-series")
 def discover_cricbuzz_series_and_venues(payload: CricbuzzSeriesIndexImportRequest,
                                         _admin: bool = Depends(require_admin),
