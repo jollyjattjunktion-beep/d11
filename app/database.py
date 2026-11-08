@@ -13,8 +13,24 @@ def normalize_database_url(url: str) -> str:
 
 
 ENGINE_DATABASE_URL = normalize_database_url(DATABASE_URL)
-connect_args = {"check_same_thread": False} if ENGINE_DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(ENGINE_DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
+if ENGINE_DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+    engine = create_engine(
+        ENGINE_DATABASE_URL,
+        connect_args=connect_args,
+        pool_pre_ping=True,
+    )
+else:
+    # Keep small connection pools for the single-instance Render web service
+    # and refresh idle connections to handle serverless/managed PG wake-ups.
+    engine = create_engine(
+        ENGINE_DATABASE_URL,
+        pool_pre_ping=True,
+        pool_size=3,
+        max_overflow=2,
+        pool_timeout=30,
+        pool_recycle=300,
+    )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 

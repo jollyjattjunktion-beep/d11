@@ -145,7 +145,7 @@
         <div class="match-edit-field"><label for="editMatchStatus">Status</label><select id="editMatchStatus"><option>upcoming</option><option>live</option><option>completed</option><option>cancelled</option><option>postponed</option></select></div>
         <div class="match-edit-field"><label for="editMatchStart">Start time (local or ISO)</label><input id="editMatchStart" type="text" placeholder="2026-11-07T02:00:00Z"></div>
         <div class="match-edit-field"><label for="editMatchVenue">Venue name</label><input id="editMatchVenue" placeholder="Ground, city"></div>
-        <div class="match-edit-field"><label for="editVenueCatalogue">Link to saved stadium</label><select id="editVenueCatalogue"><option value="__auto__">Auto-match by venue name</option></select></div>
+        <div class="match-edit-field"><label for="editVenueCatalogue">Link to saved stadium</label><select id="editVenueCatalogue"><option value="__auto__">Auto-match by venue name</option><option value="__feed__">Use live feed venue (release manual lock)</option></select></div>
       </div>
       <div class="match-edit-grid" style="margin-top:11px">
         <div class="match-edit-field" style="grid-column:span 2"><label for="editVenueUrl">Cricbuzz venue page URL — import or refresh ground stats</label><input id="editVenueUrl" placeholder="https://www.cricbuzz.com/cricket-series/.../venues/42/ground"></div>
@@ -313,7 +313,7 @@ async function loadAdminVenueOptions(){
  adminVenues=d.venues||[];
  const select=$('editVenueCatalogue');
  const keep=select.value;
- select.innerHTML='<option value="__auto__">Auto-match by venue name</option>';
+ select.innerHTML='<option value="__auto__">Auto-match by venue name</option><option value="__feed__">Use live feed venue (release manual lock)</option>';
  adminVenues.forEach(v=>{
   const opt=document.createElement('option');opt.value=v.venue_id;
   opt.textContent=v.name+(v.city_country?' — '+v.city_country:'')+' ['+(v.formats_available||[]).join('/')+']';
@@ -333,7 +333,7 @@ function renderAdminMatches(){
   main.append(title,sub);
   const venue=document.createElement('div');
   const venueStatus=document.createElement('span');venueStatus.className='admin-match-status '+(m.venue_data_available?'':'');
-  venueStatus.textContent=m.venue_data_available?'STADIUM DATA READY':m.venue_linked?'STADIUM LINKED — STATS MISSING':'NO STADIUM LINK';
+  venueStatus.textContent=m.venue_manual_override?'MANUAL STADIUM PROTECTED':m.venue_data_available?'STADIUM DATA READY':m.venue_linked?'STADIUM LINKED — STATS MISSING':'NO STADIUM LINK';
   const venueName=document.createElement('small');venueName.textContent=m.venue||'Venue not provided';
   const pitch=document.createElement('small');pitch.textContent=m.venue_pitch_recommendation||'Pitch analysis not available';
   venue.append(venueStatus,venueName,pitch);
@@ -386,7 +386,8 @@ async function saveAdminMatch(){
    venue:$('editMatchVenue').value.trim()||null
   };
   const venueChoice=$('editVenueCatalogue').value;
-  if(venueChoice!=='__auto__')payload.venue_id=venueChoice;
+  if(venueChoice==='__feed__'){payload.use_feed_venue=true;delete payload.venue;}
+  else if(venueChoice!=='__auto__')payload.venue_id=venueChoice;
   const d=await api('/api/v1/admin/matches/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify(payload)});
   adminLibraryNotice('adminMatchEditNotice','Saved '+d.match.team_a+' vs '+d.match.team_b+'. '+(d.venue_analysis?.pitch_recommendation||'No matching-format venue analysis is available yet.'),'good');
   await loadAdminMatches();
