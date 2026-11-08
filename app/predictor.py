@@ -53,9 +53,40 @@ def _condition_adjustment(role, context, fmt):
     return _bounded(factor, 0.82, 1.18), reasons
 
 
+def _scorecard_form_score(row, fmt):
+    """A provisional 0-100 raw-performance index; never fantasy points."""
+    fmt = str(fmt or "T20").upper()
+    batting_baseline = {"T20": 30.0, "ODI": 40.0, "TEST": 45.0}.get(fmt, 30.0)
+    bowling_baseline = {"T20": 1.5, "ODI": 1.8, "TEST": 2.0}.get(fmt, 1.5)
+    components = []
+    balls = int(row.balls or 0)
+    runs = int(row.runs or 0)
+    wickets = int(row.wickets or 0)
+    overs = float(row.overs or 0)
+    if balls > 0 or runs > 0:
+        batting = _bounded((runs / batting_baseline) * 70.0, 0.0, 100.0)
+        if balls > 0:
+            batting += _bounded((float(row.fours or 0) * 0.8 + float(row.sixes or 0) * 1.4), 0.0, 15.0)
+        components.append((min(100.0, batting), 0.60))
+    if overs > 0 or wickets > 0:
+        bowling = _bounded((wickets / bowling_baseline) * 75.0, 0.0, 100.0)
+        if overs > 0:
+            economy = float(row.runs_conceded or 0) / overs
+            baseline = {"T20": 8.5, "ODI": 5.5, "TEST": 3.2}.get(fmt, 8.5)
+            bowling += _bounded((baseline - economy) * 2.0, -15.0, 12.0)
+        bowling += min(12.0, float(row.maidens or 0) * 4.0)
+        components.append((max(0.0, min(100.0, bowling)), 0.40))
+    if not components:
+        return None
+    return sum(value * weight for value, weight in components) / sum(weight for _, weight in components)
+
+
 def _form_profile(rows, match_format="T20"):
     values = [float(r.fantasy_points) for r in rows if r.fantasy_points is not None]
     fmt = str(match_format or "T20").upper()
+    raw_values = [score for row in rows
+                  if (row.source or "").upper() == "CRICBUZZ_SCORECARD"
+                  for score in [_scorecard_form_score(row, fmt)] if score is not None]
     # Small match-by-match samples help rank players before three records
     # exist, but do not unlock expected/floor/ceiling fantasy-point estimates.
     format_baselines = {"T20": 42.0, "ODI": 52.0, "TEST": 60.0}
@@ -66,6 +97,12 @@ def _form_profile(rows, match_format="T20"):
         raw_score = max(0.0, min(100.0, 50.0 + ((recent_mean / baseline) - 1.0) * 32.0))
         reliability = min(1.0, len(values) / 3.0)
         recent_history_score = round(50.0 + (raw_score - 50.0) * reliability, 1)
+    elif raw_values:
+        # Raw scorecard rows affect provisional ranking only. They never unlock
+        # expected/floor/ceiling fantasy points without verified contest points.
+        raw_mean = _weighted_mean(raw_values)
+        reliability = min(1.0, len(raw_values) / 3.0)
+        recent_history_score = round(50.0 + (raw_mean - 50.0) * reliability, 1)
 
     if len(values) < 3:
         return {
@@ -167,7 +204,6 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
             PlayerMatchStats.player_id == player.id,
             PlayerMatchStats.format == fmt,
             PlayerMatchStats.match_id != match_id,
-            PlayerMatchStats.fantasy_points.is_not(None),
         ).order_by(PlayerMatchStats.match_date.desc(), PlayerMatchStats.id.desc()).limit(12)
     ).all()
     source_profile = db.get(PlayerSourceProfile, (match_id, player.id, "AI11"))
@@ -207,10 +243,10 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
     if form["expected_points"] is None:
         condition_factor, condition_reasons = _condition_adjustment(squad.role, context, fmt)
         reasons = ["Fewer than three imported match-level records; a fantasy-point projection is not available"]
-        if form.get("matches_used", 0) > 0:
+        if form.get("matches_used", 0) > 0 or form.get("raw_matches_used", 0) > 0:
             reasons.append(
-                f"Recent match-level history: {form['matches_used']} record(s), "
-                f"weighted mean {form.get('recent_history_mean')}, "
+                f"Recent match-level history: {form.get('matches_used', 0)} fantasy-point record(s), "
+                f"{form.get('raw_matches_used', 0)} raw scorecard record(s), "
                 f"provisional form score {form.get('recent_history_score')}/100"
             )
         warnings = ["Expected/floor/ceiling points remain unavailable until at least three format-matched historical records are imported"]
