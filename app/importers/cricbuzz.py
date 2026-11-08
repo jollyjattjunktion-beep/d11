@@ -252,3 +252,50 @@ def parse_cricbuzz_series_index(html: str, source_url: str) -> list[dict]:
     if not results:
         raise ValueError("No Cricbuzz series links were found. Check that the page is the all-series schedule or an archive page.")
     return list(results.values())
+
+
+def validate_cricbuzz_match_facts_url(value: str) -> str:
+    parsed = _validate_cricbuzz_host(value)
+    if not re.fullmatch(r"/cricket-match-facts/\d+/[^/]+/?", parsed.path):
+        raise ValueError("Paste a Cricbuzz match facts URL containing /cricket-match-facts/{match_id}/{slug}.")
+    return value
+
+
+def fetch_cricbuzz_match_facts_page(value: str) -> str:
+    return _fetch_html(value, validate_cricbuzz_match_facts_url)
+
+
+def parse_cricbuzz_match_facts(html: str, source_url: str) -> dict:
+    """Extract the ground and its canonical Cricbuzz venue page from a match facts page."""
+    validate_cricbuzz_match_facts_url(source_url)
+    soup = BeautifulSoup(html, "html.parser")
+    text = re.sub(r"\\s+", " ", soup.get_text(" ", strip=True))
+    venue_name = None
+    venue_url = None
+    for anchor in soup.find_all("a", href=True):
+        label = re.sub(r"\\s+", " ", anchor.get_text(" ", strip=True)).strip()
+        href = anchor.get("href", "")
+        if label and re.search(r"/cricket-series/\\d+/[^/]+/venues/\\d+/[^/]+/?$", href):
+            full_url = str(httpx.URL(source_url).join(href))
+            parsed = _validate_cricbuzz_host(full_url)
+            if parsed.hostname in ALLOWED_HOSTS:
+                venue_name = label
+                venue_url = full_url
+                break
+    if not venue_name:
+        match = re.search(r"Venue\\s+(.+?)(?=Umpires|Date & Time|Toss|$)", text, re.I)
+        venue_name = match.group(1).strip() if match else None
+    if not venue_name:
+        raise ValueError("Cricbuzz match facts page did not expose a venue name.")
+    city = None
+    location = re.search(r"VENUE GUIDE\\s+Stadium\\s+.+?\\s+City\\s+(.+?)(?=Capacity|Ends|Hosts To|$)", text, re.I)
+    if location:
+        city = location.group(1).strip()
+    id_match = re.search(r"/cricket-match-facts/(\\d+)/", urlparse(source_url).path)
+    return {
+        "provider_match_id": id_match.group(1) if id_match else None,
+        "venue_name": venue_name[:200],
+        "city_country": city[:200] if city else None,
+        "venue_url": venue_url,
+        "source_url": source_url,
+    }
