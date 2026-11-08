@@ -5,6 +5,7 @@ Run as a separate Render Background Worker:
 
 The worker is deliberately independent of FastAPI request handling.
 """
+import argparse
 import hashlib
 import logging
 import os
@@ -313,8 +314,30 @@ def run_one_job() -> bool:
         return True
 
 
+def run_batch(max_jobs: int = 250) -> int:
+    """Run a bounded batch for scheduled runners such as GitHub Actions."""
+    log.info("Starting D11 scheduled player collection batch")
+    Base.metadata.create_all(bind=engine)
+    seed_jobs()
+    processed = 0
+    while processed < max_jobs and run_one_job():
+        processed += 1
+    log.info("Scheduled collection batch finished; jobs attempted=%s", processed)
+    return processed
+
+
 def main():
-    log.info("Starting D11 player collector worker")
+    parser = argparse.ArgumentParser(description="D11 CREX/Cricbuzz player collector")
+    parser.add_argument("--once", action="store_true",
+                        help="seed and process a bounded batch, then exit")
+    parser.add_argument("--max-jobs", type=int, default=250,
+                        help="maximum jobs per --once run (default: 250)")
+    args = parser.parse_args()
+    if args.once:
+        run_batch(max_jobs=max(1, min(args.max_jobs, 1000)))
+        return
+
+    log.info("Starting continuous D11 player collector worker")
     Base.metadata.create_all(bind=engine)
     seed_jobs()
     last_seed = time.monotonic()
