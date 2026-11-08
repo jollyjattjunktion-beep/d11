@@ -55,7 +55,7 @@ def _safe_link(base: str, href: str) -> str | None:
 def classify_links(html: str, page_url: str) -> dict:
     source = source_for_url(page_url)
     soup = BeautifulSoup(html, "html.parser")
-    profiles, matches = set(), set()
+    profiles, matches, series = set(), set(), set()
     for anchor in soup.find_all("a", href=True):
         href = anchor.get("href", "")
         path = urlparse(href).path.lower()
@@ -66,11 +66,13 @@ def classify_links(html: str, page_url: str) -> dict:
             profiles.add(full.split("?")[0])
         elif source == "CREX" and re.search(r"/(?:player|players|cricket-player|cricket-players)/", path):
             profiles.add(full.split("?")[0])
+        if source == "CRICBUZZ" and re.search(r"/cricket-series/\d+/[^/]+/(?:matches|venues)/?$", path):
+            series.add(full.split("?")[0])
         if source == "CRICBUZZ" and re.search(r"/live-cricket-scorecard/\d+/", path):
             matches.add(full.split("?")[0])
         elif source == "CREX" and path.startswith("/cricket-live-score/"):
             matches.add(full.split("?")[0])
-    return {"source": source, "player_profile_urls": sorted(profiles), "match_urls": sorted(matches)}
+    return {"source": source, "player_profile_urls": sorted(profiles), "match_urls": sorted(matches), "series_urls": sorted(series)}
 
 
 def parse_player_profile(html: str, profile_url: str) -> dict:
@@ -154,7 +156,7 @@ def _table_records(soup: BeautifulSoup) -> list[dict]:
         if not header:
             continue
         batting = any(x in header for x in ("b", "balls")) and any(x in header for x in ("r", "runs")) and any(x in header for x in ("4s", "fours"))
-        bowling = any(x in header for x in ("o", "overs")) and any(x in header for x in ("w", "wkts", "wickets")) and any(x in header for x in ("econ", "economy"))
+        bowling = any(x in header for x in ("o", "overs")) and any(x in header for x in ("w", "wkts", "wickets")) and any(x in header for x in ("econ", "eco", "economy"))
         if batting or bowling:
             for row in rows[1:]:
                 if len(row) != len(header) or not row[0] or row[0].lower() in {"extras", "total"}:
