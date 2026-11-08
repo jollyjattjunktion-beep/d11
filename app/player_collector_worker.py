@@ -15,11 +15,12 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import Base, engine, SessionLocal
+from app.models import Player
 from app.models_player_collector import (
     CollectorJob, PlayerIdentity, PlayerSourceIdentity,
     PlayerProfileSnapshot, PlayerMatchRecord, utcnow,
@@ -160,10 +161,13 @@ def _upsert_identity(db: Session, profile: dict) -> PlayerIdentity:
     return row
 
 
-def process_profile(db: Session, url: str, source: str):
-    html = fetch_html(url, source)
+def process_profile(db: Session, url: str, source: str, html: str | None = None):
+    html = html if html is not None else fetch_html(url, source)
     profile = parse_player_profile(html, url)
     identity = _upsert_identity(db, profile)
+    existing_player = db.scalar(select(Player).where(func.lower(Player.name) == identity.name.lower()).limit(1))
+    if existing_player is None:
+        db.add(Player(id=identity.identity_key, name=identity.name))
     source_id = str(profile.get("source_player_id") or stable_hash(url)[:24])
     link = db.scalar(select(PlayerSourceIdentity).where(
         PlayerSourceIdentity.source == source,
@@ -206,6 +210,9 @@ def process_scorecard(db: Session, url: str, source: str):
             identity = PlayerIdentity(identity_key=key, normalized_name=normalized, name=name[:220])
             db.add(identity)
             db.flush()
+        existing_player = db.scalar(select(Player).where(func.lower(Player.name) == name.lower()).limit(1))
+        if existing_player is None:
+            db.add(Player(id=identity.identity_key, name=identity.name))
         existing = db.scalar(select(PlayerMatchRecord).where(
             PlayerMatchRecord.source == source,
             PlayerMatchRecord.source_match_id == card["source_match_id"],
@@ -235,7 +242,7 @@ def process_scorecard(db: Session, url: str, source: str):
 def process_page(db: Session, job: CollectorJob):
     html = fetch_html(job.url, job.source)
     if job.job_type == "profile_page":
-        process_profile(db, job.url, job.source)
+        process_profile(db, job.url, job.source, html)
         return
     if job.job_type == "scorecard_page":
         process_scorecard(db, job.url, job.source)
@@ -245,8 +252,11 @@ def process_page(db: Session, job: CollectorJob):
     for match_url in links["match_urls"]:
         job_type = "scorecard_page" if "live-cricket-scorecard" in match_url else "match_page"
         enqueue(db, job.source, job_type, match_url)
-    log.info("Discovered %s profiles and %s match links from %s",
-             len(links["player_profile_urls"]), len(links["match_urls"]), job.url)
+    for series_url in links.get("series_urls", []):
+        enqueue(db, job.source, "series_page", series_url)
+    log.info("Discovered %s profiles, %s match links and %s series links from %s",
+             len(links["player_profile_urls"]), len(links["match_urls"]),
+             len(links.get("series_urls", [])), job.url)
 
 
 def claim_job(db: Session):
