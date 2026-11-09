@@ -2734,8 +2734,8 @@ def import_cricbuzz_fixture_series(payload: CricbuzzFixtureSeriesImportRequest,
             if parsed_start:
                 values["start_time"] = parsed_start
             if match is None:
-                match = Match(id=match_id, venue=item.get("venue"), status="upcoming",
-                              format=item.get("format") or "UNKNOWN", **values)
+                values.setdefault("format", item.get("format") or "UNKNOWN")
+                match = Match(id=match_id, venue=item.get("venue"), status="upcoming", **values)
                 db.add(match)
                 created += 1
             else:
