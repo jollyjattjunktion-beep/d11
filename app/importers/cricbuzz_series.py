@@ -122,7 +122,15 @@ def _format(text: str) -> str | None:
     return None
 
 
-def _date_time(text: str) -> str | None:
+def _date_time(text: str, reference_month: str | None = None) -> str | None:
+    # Series pages often show "Match starts at Nov 05, 05:00 GMT" without
+    # repeating the year on every fixture card. Use the selected month/year.
+    clock = re.search(r"Match starts at\\s+([A-Za-z]{3,9})\\s+(\\d{1,2}),?\\s+(\\d{1,2}:\\d{2})\\s*(AM|PM)?\\s*\\(?GMT\\)?", text, re.I)
+    if clock and reference_month:
+        month_name, day, time_value, meridiem = clock.groups()
+        year = reference_month[:4]
+        suffix = (" " + meridiem.upper()) if meridiem else ""
+        return f"{month_name} {int(day):02d}, {year} {time_value}{suffix} GMT"
     patterns = (
         r"\b\d{1,2}\s+[A-Za-z]{3,9}\s+20\d{2}(?:\s*,?\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?\b",
         r"\b[A-Za-z]{3,9}\s+\d{1,2},?\s+20\d{2}(?:\s*,?\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?\b",
@@ -135,9 +143,11 @@ def _date_time(text: str) -> str | None:
     return None
 
 
-def parse_series_matches(html: str, source_url: str, series: dict) -> list[dict]:
+def parse_series_matches(html: str, source_url: str, series: dict, reference_month: str | None = None) -> list[dict]:
     _checked_url(source_url)
     soup = BeautifulSoup(html, "html.parser")
+    page_text = re.sub(r"\\s+", " ", soup.get_text(" ", strip=True))
+    series_format = _format(page_text)
     cards = {}
     for a in soup.find_all("a", href=True):
         absolute = _absolute(source_url, a["href"])
@@ -159,7 +169,7 @@ def parse_series_matches(html: str, source_url: str, series: dict) -> list[dict]
         card_text = re.sub(r"\s+", " ", node.get_text(" ", strip=True))
         entry = cards.setdefault(mid, {
             "cricbuzz_match_id": mid,
-            "title": a.get_text(" ", strip=True) or None,
+            "title": a.get("title") or a.get("aria-label") or a.get_text(" ", strip=True) or None,
             "card_text": card_text[:1800],
             "series_id": str(series["series_id"]),
             "series_name": series["name"],
@@ -169,8 +179,8 @@ def parse_series_matches(html: str, source_url: str, series: dict) -> list[dict]
             "info_url": None,
             "scorecard_url": None,
             "match_url": absolute,
-            "date_text": _date_time(card_text),
-            "format": _format(card_text),
+            "date_text": _date_time(card_text, reference_month),
+            "format": _format(card_text) or series_format,
             "venue": None,
             "team_a": None,
             "team_b": None,
