@@ -171,6 +171,17 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
 .mode-panel-recommendation{font-size:10px;color:#5a4782;margin:0 0 11px;padding:8px 10px;background:#f4f0fb;border-radius:8px}
 @media(max-width:650px){.venue-evidence-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.venue-guidance{padding:11px}}
 
+
+.match-centre{overflow:hidden}
+.match-tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;background:#078f78;border-bottom:0;position:sticky;top:0;z-index:5}
+.match-tab{appearance:none;border:0;border-bottom:3px solid transparent;background:transparent;color:#e9fff9;padding:15px 5px 12px;font:800 12px Inter,system-ui;cursor:pointer}
+.match-tab.active{color:#fff;border-bottom-color:#fff;background:#ffffff12}
+.match-pane[hidden]{display:none!important}
+.match-pane>.section-head{border-radius:0}
+.match-pane .info-grid{padding:14px 16px}
+.match-pane #cricbuzz-scorecard-frame{min-height:480px}
+@media(max-width:600px){.match-tabs{position:sticky;top:0}.match-tab{font-size:11px;padding:14px 2px 11px}.match-pane .info-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.match-pane #cricbuzz-scorecard-frame{min-height:420px}}
+
 </style>
 </head>
 <body>
@@ -266,33 +277,74 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
   </div>
  </section>
 
- <section class="section">
-  <div class="section-head"><h2>Squads & player information</h2><small>Source: Team Generation</small></div>
-  {{SQUAD_CONTENT}}
- </section>
-
-<section class="section">
-  <div class="section-head"><h2>Live Cricbuzz scoreboard</h2><small>Official provider page • opens on Cricbuzz if embedding is restricted</small></div>
-  {{CRICBUZZ_SCORECARD}}
- </section>
- <section class="section">
-  <div class="section-head"><h2>Scorecard & player statistics</h2><small>Match-specific imported records only</small></div>
-  {{SCORECARD_CONTENT}}
- </section>
-
-  <section class="section">
-  <div class="section-head"><h2>Venue & match information</h2><small>Only available source data is shown</small></div>
-  <div class="info-grid">
-   <div class="info"><small>Venue</small><strong>{{VENUE}}</strong></div>
-   <div class="info"><small>Pitch report</small><strong>{{PITCH}}</strong></div>
-   <div class="info"><small>Toss</small><strong>{{TOSS}}</strong></div>
-  </div>
-  <div class="notice">{{DATA_NOTE}}</div>
+ <section class="section match-centre" id="matchCentre">
+  <nav class="match-tabs" role="tablist" aria-label="Match centre sections">
+   <button class="match-tab active" id="tab-live" type="button" role="tab" aria-selected="true" aria-controls="pane-live" data-match-tab="live">Live</button>
+   <button class="match-tab" id="tab-info" type="button" role="tab" aria-selected="false" aria-controls="pane-info" data-match-tab="info">Info</button>
+   <button class="match-tab" id="tab-scorecard" type="button" role="tab" aria-selected="false" aria-controls="pane-scorecard" data-match-tab="scorecard">Scorecard</button>
+   <button class="match-tab" id="tab-squads" type="button" role="tab" aria-selected="false" aria-controls="pane-squads" data-match-tab="squads">Squads</button>
+   <button class="match-tab" id="tab-overs" type="button" role="tab" aria-selected="false" aria-controls="pane-overs" data-match-tab="overs">Overs</button>
+  </nav>
+  <section class="match-pane" id="pane-live" role="tabpanel" aria-labelledby="tab-live">
+   <div class="section-head"><h2>Live score</h2><small>{{STATUS_LABEL}}</small></div>
+   {{CRICBUZZ_SCORECARD}}
+  </section>
+  <section class="match-pane" id="pane-info" role="tabpanel" aria-labelledby="tab-info" hidden>
+   <div class="section-head"><h2>Match information</h2><small>{{FORMAT}} • {{KICKOFF}}</small></div>
+   <div class="info-grid">
+    <div class="info"><small>Venue</small><strong>{{VENUE}}</strong></div>
+    <div class="info"><small>Pitch report</small><strong>{{PITCH}}</strong></div>
+    <div class="info"><small>Toss</small><strong>{{TOSS}}</strong></div>
+    <div class="info"><small>Team A</small><strong>{{TEAM_A_FULL}}</strong></div>
+    <div class="info"><small>Team B</small><strong>{{TEAM_B_FULL}}</strong></div>
+    <div class="info"><small>Playing XI</small><strong>{{XI_STATUS}}</strong></div>
+   </div>
+   <div class="notice">{{DATA_NOTE}}</div>
+  </section>
+  <section class="match-pane" id="pane-scorecard" role="tabpanel" aria-labelledby="tab-scorecard" hidden>
+   <div class="section-head"><h2>Scorecard & player statistics</h2><small>Imported match figures</small></div>
+   {{SCORECARD_CONTENT}}
+  </section>
+  <section class="match-pane" id="pane-squads" role="tabpanel" aria-labelledby="tab-squads" hidden>
+   <div class="section-head"><h2>Squads & player information</h2><small>{{PLAYER_COUNT}} players</small></div>
+   {{SQUAD_CONTENT}}
+  </section>
+  <section class="match-pane" id="pane-overs" role="tabpanel" aria-labelledby="tab-overs" hidden>
+   <div class="section-head"><h2>Over-by-over</h2><small>Ball-by-ball feed</small></div>
+   <div class="empty">Over-by-over details will appear here when verified ball-by-ball data is available for this match.</div>
+  </section>
  </section>
  <div class="footer">Preet Fantasy AI • Independent cricket information and fantasy analysis • Not an official broadcast</div>
 </main>
 
 <script>
+
+(()=>{
+ const tabs=[...document.querySelectorAll('[data-match-tab]')];
+ if(!tabs.length)return;
+ function activate(name,focus){
+  tabs.forEach(tab=>{
+   const selected=tab.dataset.matchTab===name;
+   tab.classList.toggle('active',selected);
+   tab.setAttribute('aria-selected',String(selected));
+   tab.tabIndex=selected?0:-1;
+   const pane=document.getElementById('pane-'+tab.dataset.matchTab);
+   if(pane)pane.hidden=!selected;
+  });
+  if(focus){const target=tabs.find(t=>t.dataset.matchTab===name);target?.focus();}
+ }
+ tabs.forEach((tab,index)=>{
+  tab.addEventListener('click',()=>activate(tab.dataset.matchTab,false));
+  tab.addEventListener('keydown',event=>{
+   if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+   event.preventDefault();
+   const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:tabs.length-1))%tabs.length;
+   activate(tabs[next].dataset.matchTab,true);
+  });
+ });
+ activate('live',false);
+})();
+
 (()=>{
  const root=document.getElementById('teamBuilder');
  if(!root)return;
