@@ -2585,6 +2585,16 @@ def _cricbuzz_fixture_start(value: str | None) -> str | None:
     if not value:
         return None
     raw = re.sub(r"\\s+", " ", value).strip()
+    formats_utc = (
+        ("%b %d, %Y %H:%M GMT", "%b %d, %Y %I:%M %p GMT"),
+        ("%B %d, %Y %H:%M GMT", "%B %d, %Y %I:%M %p GMT"),
+    )
+    for group in formats_utc:
+        for fmt in group:
+            try:
+                return datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc).isoformat()
+            except ValueError:
+                continue
     formats = (
         "%d %b %Y, %I:%M %p", "%d %B %Y, %I:%M %p",
         "%d %b %Y %I:%M %p", "%d %B %Y %I:%M %p",
@@ -2664,7 +2674,7 @@ def preview_cricbuzz_fixture_series(payload: CricbuzzSeriesPreviewRequest,
         slug = parsed.path.strip("/").split("/")[2]
         series = {"series_id": series_id, "name": re.sub(r"[-_]+", " ", slug).title(),
                   "series_url": payload.series_url, "matches_url": payload.series_url}
-        fixtures = parse_series_matches(html, payload.series_url, series)
+        fixtures = parse_series_matches(html, payload.series_url, series, payload.month)
     except ValueError as exc:
         raise HTTPException(422, "Cricbuzz preview rejected: " + str(exc)[:350])
     except httpx.HTTPStatusError as exc:
