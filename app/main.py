@@ -22,6 +22,7 @@ from app.predictor import predict_match
 from app.ai11_analysis import build_ai11_match_analysis
 from app.optimizer import build_teams, build_team_diagnostic
 from app.config import MODEL_VERSION, ADMIN_TOKEN, TG_API_TOKEN
+from app.admin_auth import COOKIE_NAME, verify_password, issue_session, verify_session, SESSION_TTL_SECONDS
 from app.importers.ai11 import (fetch_page, parse_analysis, parse_fantasy, AI11RateLimitError)
 from app.importers.crex import fetch_crex_page, parse_crex_venue_report
 from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_series_page,
@@ -652,12 +653,68 @@ def import_squad(match_id: str, payload: SquadImport, db: Session = Depends(get_
     db.commit()
     return {"saved":saved,"match_id":match_id}
 
-def require_admin(x_admin_token: str | None = Header(default=None)):
-    if not ADMIN_TOKEN:
-        raise HTTPException(503, "Admin importer is disabled. Configure ADMIN_TOKEN in Render environment.")
-    if not x_admin_token or not secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
-        raise HTTPException(401, "Valid X-Admin-Token header required.")
-    return True
+def require_admin(request: Request, x_admin_token: str | None = Header(default=None)):
+    # Keep legacy API-token access working while allowing browser login sessions.
+    if x_admin_token and ADMIN_TOKEN and secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
+        return True
+    username = os.getenv("ADMIN_USERNAME", "admin")
+    session_secret = os.getenv("ADMIN_SESSION_SECRET", "")
+    if verify_session(request.cookies.get(COOKIE_NAME), session_secret, username):
+        return True
+    if not ADMIN_TOKEN and not os.getenv("ADMIN_PASSWORD_HASH"):
+        raise HTTPException(503, "Admin authentication is not configured.")
+    raise HTTPException(401, "Admin login required.")
+
+
+
+@app.post("/api/v1/admin/auth/login")
+async def admin_login(request: Request):
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid login request.")
+    username = str(payload.get("username") or "").strip()
+    password = str(payload.get("password") or "")
+    expected_username = os.getenv("ADMIN_USERNAME", "admin")
+    password_hash = os.getenv("ADMIN_PASSWORD_HASH", "")
+    session_secret = os.getenv("ADMIN_SESSION_SECRET", "")
+    if not password_hash or not session_secret:
+        raise HTTPException(503, "Admin password login has not been bootstrapped on this server.")
+    if not secrets.compare_digest(username, expected_username) or not verify_password(password, password_hash):
+        raise HTTPException(401, "Incorrect admin ID or password.")
+    response = Response(
+        content='{"authenticated":true,"username":"admin","session_days":30}',
+        media_type="application/json",
+        headers={"Cache-Control": "no-store"},
+    )
+    forwarded_proto = request.headers.get("x-forwarded-proto", "")
+    secure_cookie = request.url.scheme == "https" or forwarded_proto.split(",")[0].strip().lower() == "https"
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=issue_session(expected_username, session_secret),
+        max_age=SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=secure_cookie,
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+
+@app.get("/api/v1/admin/auth/status")
+def admin_auth_status(request: Request):
+    username = os.getenv("ADMIN_USERNAME", "admin")
+    secret = os.getenv("ADMIN_SESSION_SECRET", "")
+    authenticated = verify_session(request.cookies.get(COOKIE_NAME), secret, username)
+    return {"authenticated": authenticated, "username": username if authenticated else None}
+
+
+@app.post("/api/v1/admin/auth/logout")
+def admin_logout():
+    response = Response(content='{"logged_out":true}', media_type="application/json",
+                        headers={"Cache-Control": "no-store"})
+    response.delete_cookie(key=COOKIE_NAME, path="/", httponly=True, samesite="lax")
+    return response
 
 
 def _venue_report_payload_from_row(venue: Venue) -> dict:
