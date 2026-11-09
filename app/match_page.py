@@ -179,8 +179,33 @@ def _scorecard_markup(scorecards: list[dict]) -> str:
     )
 
 
+def _cricbuzz_source_links(intelligence: dict) -> str:
+    source = intelligence.get("cricbuzz") if isinstance(intelligence.get("cricbuzz"), dict) else {}
+    links = [
+        ("Live", source.get("live_url") or intelligence.get("cricbuzz_live_url")),
+        ("Info", source.get("info_url") or intelligence.get("cricbuzz_info_url")),
+        ("Scorecard", source.get("scorecard_url") or intelligence.get("cricbuzz_scorecard_url")),
+    ]
+    anchors = []
+    for label, url in links:
+        if not url:
+            continue
+        parsed = urlparse(str(url))
+        if parsed.scheme != "https" or parsed.hostname not in {"cricbuzz.com", "www.cricbuzz.com", "m.cricbuzz.com"}:
+            continue
+        anchors.append(
+            f'<a href="{html.escape(str(url), quote=True)}" target="_blank" rel="noopener noreferrer">{label}</a>'
+        )
+    if not anchors:
+        return ""
+    return (
+        '<nav class="cricbuzz-source-links" aria-label="Cricbuzz match sources">'
+        '<strong>Cricbuzz sources</strong>' + "".join(anchors) + '</nav>'
+    )
+
+
 def _cricbuzz_scorecard_markup(intelligence: dict) -> str:
-    url = intelligence.get("cricbuzz_scorecard_url") or intelligence.get("cricbuzz_match_url")
+    url = intelligence.get("cricbuzz_scorecard_url") or (intelligence.get("cricbuzz") or {}).get("scorecard_url") or intelligence.get("cricbuzz_match_url")
     if not url:
         return '<div class="empty">Cricbuzz scoreboard URL has not been linked to this match yet. Admin can add it under Saved Match Library → Edit.</div>'
     safe = html.escape(str(url), quote=True)
@@ -241,9 +266,10 @@ def _match_info_markup(match: dict, intelligence: dict, analysis: dict) -> str:
         ("Pitch behaviour", analysis.get("pitch_recommendation") or intelligence.get("pitch_type") or "Not available"),
     ])
     return (
-        '<div class="info-block"><div class="info-block-title"><span class="info-icon">🏏</span>'
+        _cricbuzz_source_links(intelligence)
+        + '<div class="info-block"><div class="info-block-title"><span class="info-icon">🏏</span>'
         '<div><h3>Match information</h3><small>Fixture details and match officials</small></div></div>'
-        f'<div class="info-tiles">{main_tiles}</div></div>'
+        + f'<div class="info-tiles">{main_tiles}</div></div>'
         '<div class="info-block venue-info-block"><div class="info-block-title"><span class="info-icon">🏟️</span>'
         '<div><h3>Venue guide</h3><small>Ground details and playing conditions</small></div></div>'
         f'<div class="info-tiles venue-tiles">{venue_tiles}</div></div>'

@@ -17,7 +17,7 @@ from app.database import Base, engine, get_db, SessionLocal
 from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue
 from app.models_player_collector import CollectorJob, PlayerIdentity, PlayerSourceIdentity, PlayerProfileSnapshot, PlayerMatchRecord, utcnow
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
-                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, VenueEnrichRequest)
+                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, CricbuzzSeriesDiscoverRequest, CricbuzzSeriesPreviewRequest, CricbuzzFixtureSeriesImportRequest, VenueEnrichRequest)
 from app.predictor import predict_match
 from app.ai11_analysis import build_ai11_match_analysis
 from app.optimizer import build_teams, build_team_diagnostic
@@ -27,6 +27,10 @@ from app.importers.crex import fetch_crex_page, parse_crex_venue_report
 from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_series_page,
     fetch_cricbuzz_series_index, parse_cricbuzz_venue, parse_cricbuzz_series_venues,
     parse_cricbuzz_series_index)
+from app.importers.cricbuzz_series import (
+    fetch_series_index, fetch_series_matches, parse_series_index, parse_series_matches,
+    enrich_fixture_source_links,
+)
 from app.venue_analysis import analyse_venue, compare_squad_strength, analysis_context_fields
 from app.public_feed import normalize_fixture, sort_fixture_key, classify_fixture_status, parse_source_datetime
 from app.public_page import render_home, render_sitemap
@@ -995,10 +999,10 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
             "vice_captain_pct": vice_pct,
             "team_generation_image": prediction.get("team_generation_image"),
             "team_generation_fantasy_ids": prediction.get("team_generation_fantasy_ids"),
-            "batting_position": tg_data.get("batting_position", prediction.get("batting_position")),
-            "expected_overs": tg_data.get("expected_overs", prediction.get("expected_overs")),
-            "involvement_score": tg_data.get("involvement_score", prediction.get("involvement_score")),
-            "matchup_score": tg_data.get("matchup_score", prediction.get("matchup_score")),
+            "batting_position": prediction.get("batting_position"),
+            "expected_overs": prediction.get("expected_overs"),
+            "involvement_score": prediction.get("involvement_score"),
+            "matchup_score": prediction.get("matchup_score"),
             "batting_friendly": match_context.get("batting_friendly"),
             "pace_friendly": match_context.get("pace_friendly"),
             "spin_friendly": match_context.get("spin_friendly"),
@@ -2576,6 +2580,233 @@ def discover_cricbuzz_series_and_venues(payload: CricbuzzSeriesIndexImportReques
         "failed_series": failures,
         "note": "Stadiums are saved to SQL as soon as they are discovered. This is a progressively growing catalogue from the series listed on the supplied schedule/archive page, not a guaranteed complete census of every ground worldwide."
     }
+
+
+def _cricbuzz_fixture_start(value: str | None) -> str | None:
+    if not value:
+        return None
+    raw = re.sub(r"\s+", " ", value).strip()
+    formats_utc = (
+        ("%b %d, %Y %H:%M GMT", "%b %d, %Y %I:%M %p GMT"),
+        ("%B %d, %Y %H:%M GMT", "%B %d, %Y %I:%M %p GMT"),
+    )
+    for group in formats_utc:
+        for fmt in group:
+            try:
+                return datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc).isoformat()
+            except ValueError:
+                continue
+    formats = (
+        "%d %b %Y, %I:%M %p", "%d %B %Y, %I:%M %p",
+        "%d %b %Y %I:%M %p", "%d %B %Y %I:%M %p",
+        "%d %b %Y", "%d %B %Y",
+        "%b %d, %Y", "%B %d, %Y",
+        "%d/%m/%Y",
+    )
+    for fmt in formats:
+        try:
+            parsed = datetime.strptime(raw, fmt).replace(tzinfo=timezone(timedelta(hours=5, minutes=30)))
+            return parsed.isoformat()
+        except ValueError:
+            continue
+    return raw[:50]
+
+
+def _cricbuzz_fixture_in_month(item: dict, month: str) -> bool:
+    value = item.get("date_text")
+    if not value:
+        return False
+    normalized = _cricbuzz_fixture_start(value)
+    if not normalized:
+        return False
+    # Parse ISO strings and raw date strings; unparseable dates are not silently
+    # assigned to the requested month.
+    try:
+        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+        return parsed.strftime("%Y-%m") == month
+    except ValueError:
+        pass
+    for fmt in ("%d %b %Y", "%d %B %Y", "%b %d, %Y", "%B %d, %Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(value, fmt).strftime("%Y-%m") == month
+        except ValueError:
+            continue
+    return False
+
+
+@app.post("/api/v1/admin/cricbuzz/series/discover")
+def discover_cricbuzz_fixture_series(payload: CricbuzzSeriesDiscoverRequest,
+                                      _admin: bool = Depends(require_admin)):
+    try:
+        html = fetch_series_index(payload.url)
+        series = parse_series_index(html, payload.url)
+    except ValueError as exc:
+        raise HTTPException(422, "Cricbuzz series discovery rejected: " + str(exc)[:350])
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(502, detail={"message": "Cricbuzz schedule request failed.", "upstream_status": exc.response.status_code})
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Could not fetch Cricbuzz schedule: " + type(exc).__name__)
+    month_name = datetime.strptime(payload.month, "%Y-%m").strftime("%B").casefold()
+    matching = [item for item in series if item.get("month_label") and month_name in item["month_label"] and payload.month[:4] in item["month_label"]]
+    # Cricbuzz may change its heading markup. If no month labels can be read,
+    # retain the live results and let each series preview confirm fixture dates.
+    selected = matching if matching else series
+    return {
+        "provider": "CRICBUZZ",
+        "month": payload.month,
+        "series_count": len(selected),
+        "series_total_on_page": len(series),
+        "series": selected,
+        "month_filter_applied": bool(matching),
+        "note": "Series IDs and URLs are extracted from the live Cricbuzz schedule. Fixture counts are confirmed separately by Preview."
+    }
+
+
+@app.post("/api/v1/admin/cricbuzz/series/preview")
+def preview_cricbuzz_fixture_series(payload: CricbuzzSeriesPreviewRequest,
+                                    _admin: bool = Depends(require_admin)):
+    try:
+        parsed = urlparse(payload.series_url)
+        if not re.fullmatch(r"/cricket-series/\d+/[^/]+/matches/?", parsed.path):
+            raise ValueError("Use the exact Cricbuzz series Matches URL.")
+        series_id = re.search(r"/cricket-series/(\d+)/", parsed.path).group(1)
+        html = fetch_series_matches(payload.series_url)
+        # Reuse the series name/slug from the URL until the page supplies a heading.
+        slug = parsed.path.strip("/").split("/")[2]
+        series = {"series_id": series_id, "name": payload.series_name or re.sub(r"[-_]+", " ", slug).title(),
+                  "series_url": payload.series_url, "matches_url": payload.series_url}
+        fixtures = [enrich_fixture_source_links(x) for x in parse_series_matches(html, payload.series_url, series, payload.month)]
+    except ValueError as exc:
+        raise HTTPException(422, "Cricbuzz preview rejected: " + str(exc)[:350])
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(502, detail={"message": "Cricbuzz series Matches page failed.", "upstream_status": exc.response.status_code})
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Could not fetch Cricbuzz Matches page: " + type(exc).__name__)
+    selected = [x for x in fixtures if _cricbuzz_fixture_in_month(x, payload.month)]
+    return {"series_id": series_id, "series_name": series["name"], "series_url": payload.series_url,
+            "month": payload.month, "fixtures_found": len(fixtures), "fixtures_in_month": len(selected),
+            "fixtures": selected, "unclassified_dates": sum(1 for x in fixtures if not x.get("date_text"))}
+
+
+@app.post("/api/v1/admin/cricbuzz/series/import")
+def import_cricbuzz_fixture_series(payload: CricbuzzFixtureSeriesImportRequest,
+                                   _admin: bool = Depends(require_admin),
+                                   db: Session = Depends(get_db)):
+    # Always re-fetch on the server; never trust fixture IDs or source links sent
+    # by browser JavaScript during the preview step.
+    try:
+        parsed = urlparse(payload.series_url)
+        if not re.fullmatch(r"/cricket-series/\d+/[^/]+/matches/?", parsed.path):
+            raise ValueError("Use the exact Cricbuzz series Matches URL.")
+        series_id = re.search(r"/cricket-series/(\d+)/", parsed.path).group(1)
+        html = fetch_series_matches(payload.series_url)
+        slug = parsed.path.strip("/").split("/")[2]
+        series = {"series_id": series_id, "name": payload.series_name or re.sub(r"[-_]+", " ", slug).title(),
+                  "series_url": payload.series_url, "matches_url": payload.series_url}
+        fixtures = [enrich_fixture_source_links(x) for x in parse_series_matches(html, payload.series_url, series, payload.month)
+                    if _cricbuzz_fixture_in_month(x, payload.month)]
+    except ValueError as exc:
+        raise HTTPException(422, "Cricbuzz import rejected: " + str(exc)[:350])
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(502, detail={"message": "Cricbuzz series Matches page failed.", "upstream_status": exc.response.status_code})
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Could not fetch Cricbuzz Matches page: " + type(exc).__name__)
+
+    intelligence_rows = db.scalars(select(MatchIntelligence)).all()
+    existing_by_provider_id = {}
+    for row in intelligence_rows:
+        data = row.data if isinstance(row.data, dict) else {}
+        source = data.get("cricbuzz") if isinstance(data.get("cricbuzz"), dict) else {}
+        provider_id = str(source.get("match_id") or "")
+        if provider_id:
+            existing_by_provider_id[provider_id] = row.match_id
+
+    created = updated = unchanged = skipped = 0
+    errors = []
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        for item in fixtures:
+            provider_id = str(item.get("cricbuzz_match_id") or "")
+            team_a, team_b = item.get("team_a"), item.get("team_b")
+            if not provider_id or not team_a or not team_b:
+                skipped += 1
+                continue
+            match_id = existing_by_provider_id.get(provider_id) or ("cricbuzz_" + provider_id)
+            match = db.get(Match, match_id)
+            values = {
+                "name": item.get("series_name") or match_id,
+                "team_a": team_a[:100],
+                "team_b": team_b[:100],
+                "source": "Cricbuzz",
+            }
+            if item.get("format"):
+                values["format"] = item["format"]
+            parsed_start = _cricbuzz_fixture_start(item.get("date_text"))
+            if parsed_start:
+                values["start_time"] = parsed_start
+            if match is None:
+                values.setdefault("format", item.get("format") or "UNKNOWN")
+                match = Match(id=match_id, venue=item.get("venue"), status="upcoming", **values)
+                db.add(match)
+                created += 1
+            else:
+                changed = False
+                for key, value in values.items():
+                    if value is None or value == "":
+                        continue
+                    if key == "source" and match.source not in (None, "", "Cricbuzz"):
+                        continue
+                    if getattr(match, key) != value:
+                        setattr(match, key, value)
+                        changed = True
+                # A missing source venue must never erase an admin-assigned ground.
+                if item.get("venue") and not match.venue:
+                    match.venue = item["venue"][:200]
+                    changed = True
+                if changed:
+                    updated += 1
+                else:
+                    unchanged += 1
+            db.flush()
+            intel = db.get(MatchIntelligence, match_id)
+            data = dict(intel.data or {}) if intel and isinstance(intel.data, dict) else {}
+            cb = dict(data.get("cricbuzz") or {})
+            cb.update({
+                "provider": "CRICBUZZ",
+                "series_id": series_id,
+                "series_name": item.get("series_name") or cb.get("series_name"),
+                "series_url": item.get("series_url") or cb.get("series_url"),
+                "matches_url": item.get("matches_url") or cb.get("matches_url"),
+                "match_id": provider_id,
+                "last_imported_at": now,
+            })
+            # Blank source fields never erase previously saved or manually added URLs.
+            for key in ("match_url", "live_url", "info_url", "scorecard_url", "date_text", "format"):
+                if item.get(key):
+                    cb[key] = item[key]
+            data["cricbuzz"] = cb
+            # Keep legacy URL keys consumed by existing D11 components.
+            if item.get("live_url"):
+                data["cricbuzz_live_url"] = item["live_url"]
+                data["cricbuzz_match_url"] = item["live_url"]
+            if item.get("info_url"):
+                data["cricbuzz_info_url"] = item["info_url"]
+            if item.get("scorecard_url"):
+                data["cricbuzz_scorecard_url"] = item["scorecard_url"]
+            if intel is None:
+                db.add(MatchIntelligence(match_id=match_id, data=data))
+            else:
+                intel.data = data
+            existing_by_provider_id[provider_id] = match_id
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(500, "Cricbuzz import transaction rolled back: " + type(exc).__name__)
+
+    return {"provider": "CRICBUZZ", "series_id": series_id, "month": payload.month,
+            "fixtures_found": len(fixtures), "created": created, "updated": updated,
+            "unchanged": unchanged, "skipped": skipped, "errors": errors,
+            "message": "Imported fixtures are available in the D11 Saved Match Library and /match/{match_id} pages."}
 
 
 @app.post("/api/v1/admin/venues/enrich")

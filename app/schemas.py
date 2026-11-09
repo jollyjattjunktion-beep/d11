@@ -179,5 +179,22 @@ class CricbuzzSeriesIndexImportRequest(BaseModel):
     series_offset: int = Field(default=0, ge=0, le=10000)
 
 
+class CricbuzzSeriesDiscoverRequest(BaseModel):
+    url: str = Field(default="https://www.cricbuzz.com/cricket-schedule/series/all", min_length=20, max_length=1200)
+    month: str = Field(pattern=r"^20\d{2}-(0[1-9]|1[0-2])$")
+
+
+class CricbuzzSeriesPreviewRequest(BaseModel):
+    series_url: str = Field(min_length=20, max_length=1200)
+    series_name: str | None = Field(default=None, max_length=200)
+    month: str = Field(pattern=r"^20\d{2}-(0[1-9]|1[0-2])$")
+
+
+class CricbuzzFixtureSeriesImportRequest(BaseModel):
+    series_url: str = Field(min_length=20, max_length=1200)
+    series_name: str | None = Field(default=None, max_length=200)
+    month: str = Field(pattern=r"^20\d{2}-(0[1-9]|1[0-2])$")
+
+
 class VenueEnrichRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=20)
