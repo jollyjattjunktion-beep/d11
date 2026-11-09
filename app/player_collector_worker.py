@@ -48,8 +48,18 @@ def _stop(*_args):
     STOP = True
 
 
-signal.signal(signal.SIGTERM, _stop)
-signal.signal(signal.SIGINT, _stop)
+def _install_signal_handlers():
+    """Install process signal handlers only when called from the main thread."""
+    try:
+        signal.signal(signal.SIGTERM, _stop)
+        signal.signal(signal.SIGINT, _stop)
+    except ValueError:
+        # The worker module is also imported by the FastAPI admin scan route.
+        # Request handlers run in threadpool workers, where signal.signal is forbidden.
+        log.debug("Signal handlers not installed outside the main interpreter thread")
+
+
+_install_signal_handlers()
 
 
 def _urls_from_env(name: str, defaults: list[str]) -> list[str]:
