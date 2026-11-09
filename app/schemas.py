@@ -189,7 +189,7 @@ class CricbuzzSeriesPreviewRequest(BaseModel):
     month: str = Field(pattern=r"^20\\d{2}-(0[1-9]|1[0-2])$")
 
 
-class CricbuzzSeriesImportRequest(BaseModel):
+class CricbuzzFixtureSeriesImportRequest(BaseModel):
     series_url: str = Field(min_length=20, max_length=1200)
     month: str = Field(pattern=r"^20\\d{2}-(0[1-9]|1[0-2])$")
 
