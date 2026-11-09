@@ -21,6 +21,7 @@ HEADERS = {
 MAX_BYTES = 5_000_000
 MATCH_ID_PATHS = (
     r"/live-cricket-score/(\d+)/",
+    r"/live-cricket-scores/(\d+)/",
     r"/live-cricket-scorecard/(\d+)/",
     r"/cricket-match-facts/(\d+)/",
     r"/cricket-match-squads/(\d+)/",
@@ -222,7 +223,7 @@ def parse_series_matches(html: str, source_url: str, series: dict, reference_mon
             "team_b": None,
         })
         path = urlparse(absolute).path
-        if "/live-cricket-score/" in path:
+        if "/live-cricket-score/" in path or "/live-cricket-scores/" in path:
             entry["live_url"] = absolute
         elif "/live-cricket-scorecard/" in path:
             entry["scorecard_url"] = absolute
