@@ -121,6 +121,23 @@
 <main class="wrap">
   <div class="intro"><div><h1>Fantasy Team Workspace</h1><div class="muted">Import the match, confirm availability and build teams with venue context.</div></div><span class="pill" id="workspaceStatus">No match loaded</span></div>
 
+  <section class="match-library" id="playerCollectorPanel" style="margin-top:0">
+    <div class="match-library-head">
+      <div><h2>Automatic Player Data Collection</h2><p>Scan every match already saved in D11. Queue verified CREX / Cricbuzz pages for player profiles and historical batting/bowling scorecards.</p></div>
+      <span class="pill">PLAYER INTELLIGENCE</span>
+    </div>
+    <div style="padding:15px 17px">
+      <div class="row" style="gap:10px;flex-wrap:wrap">
+        <button class="btn" id="scanSavedPlayerMatches" type="button">Scan all saved matches</button>
+        <button class="btn secondary" id="refreshPlayerCollectorStatus" type="button">Refresh collection status</button>
+      </div>
+      <div id="playerCollectorNotice" class="notice" style="margin-top:12px">Enter your admin token, then scan all saved matches.</div>
+      <div id="playerCollectorStatus" class="helper" style="margin-top:10px"></div>
+      <div id="playerCollectorUnmatched" class="helper" style="margin-top:10px"></div>
+    </div>
+  </section>
+  </section>
+
   <section class="match-library">
     <div class="match-library-head">
       <div><h2>Saved Match Library</h2><p>Search, edit, assign a stadium and open any imported match in the team workspace.</p></div>
@@ -154,22 +171,6 @@
       <div class="match-edit-actions"><button class="btn green" id="saveAdminMatch" type="button">Save match changes</button><button class="btn secondary" id="openAdminMatch" type="button">Open in team workspace</button><span class="helper">When you link a stadium, pitch and first-innings/chase recommendations are recalculated from that format's saved records.</span></div>
       <div id="adminMatchEditNotice" class="notice" style="display:none"></div>
     </div>
-  <section class="match-library" id="playerCollectorPanel" style="margin-top:0">
-    <div class="match-library-head">
-      <div><h2>Automatic Player Data Collection</h2><p>Scan every match already saved in D11. Queue verified CREX / Cricbuzz pages for player profiles and historical batting/bowling scorecards.</p></div>
-      <span class="pill">PLAYER INTELLIGENCE</span>
-    </div>
-    <div style="padding:15px 17px">
-      <div class="row" style="gap:10px;flex-wrap:wrap">
-        <button class="btn" id="scanSavedPlayerMatches" type="button">Scan all saved matches</button>
-        <button class="btn secondary" id="refreshPlayerCollectorStatus" type="button">Refresh collection status</button>
-      </div>
-      <div id="playerCollectorNotice" class="notice" style="margin-top:12px">Enter your admin token, then scan all saved matches.</div>
-      <div id="playerCollectorStatus" class="helper" style="margin-top:10px"></div>
-      <div id="playerCollectorUnmatched" class="helper" style="margin-top:10px"></div>
-    </div>
-  </section>
-  </section>
   <nav class="stepper" id="stepper">
     <div class="step active" data-step="1"><span class="num">1</span><span><strong>Match Import</strong><small>Fetch squads & credits</small></span></div>
     <div class="step" data-step="2"><span class="num">2</span><span><strong>Playing XI</strong><small>Confirm both teams</small></span></div>
