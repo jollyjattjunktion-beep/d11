@@ -204,6 +204,19 @@ def parse_series_matches(html: str, source_url: str, series: dict, reference_mon
             if len(text) >= 18 and len(text) <= 1800:
                 break
         card_text = re.sub(r"\s+", " ", node.get_text(" ", strip=True))
+        date_text = _date_time(card_text, reference_month)
+        if not date_text:
+            day_heading = a.find_previous(["h2", "h3", "h4"])
+            date_text = _date_time(day_heading.get_text(" ", strip=True), reference_month) if day_heading else None
+        team_candidates = []
+        for team_node in node.find_all(["span", "div", "a"], class_=re.compile(r"team[-_ ]?(?:name|title)|cb-team", re.I)):
+            label = re.sub(r"\s+", " ", team_node.get_text(" ", strip=True)).strip()
+            if label and label not in team_candidates and len(label) <= 80:
+                team_candidates.append(label)
+        for image_node in node.find_all("img"):
+            label = (image_node.get("alt") or image_node.get("title") or "").strip()
+            if label and label not in team_candidates and len(label) <= 80 and not label.casefold().startswith(("flag", "image")):
+                team_candidates.append(label)
         entry = cards.setdefault(mid, {
             "cricbuzz_match_id": mid,
             "title": a.get("title") or a.get("aria-label") or a.get_text(" ", strip=True) or None,
@@ -216,11 +229,11 @@ def parse_series_matches(html: str, source_url: str, series: dict, reference_mon
             "info_url": None,
             "scorecard_url": None,
             "match_url": absolute,
-            "date_text": _date_time(card_text, reference_month),
+            "date_text": date_text,
             "format": _format(card_text) or series_format,
             "venue": None,
-            "team_a": None,
-            "team_b": None,
+            "team_a": team_candidates[0] if len(team_candidates) > 0 else None,
+            "team_b": team_candidates[1] if len(team_candidates) > 1 else None,
         })
         path = urlparse(absolute).path
         if "/live-cricket-score/" in path or "/live-cricket-scores/" in path:
@@ -239,7 +252,7 @@ def parse_series_matches(html: str, source_url: str, series: dict, reference_mon
         if not mid or mid not in cards:
             continue
         path = urlparse(absolute).path
-        if "/live-cricket-score/" in path:
+        if "/live-cricket-score/" in path or "/live-cricket-scores/" in path:
             cards[mid]["live_url"] = absolute
         elif "/live-cricket-scorecard/" in path:
             cards[mid]["scorecard_url"] = absolute
