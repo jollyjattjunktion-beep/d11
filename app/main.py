@@ -953,11 +953,12 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
     if not squads:
         raise HTTPException(422, "No squad players are imported for this match.")
 
+    missing_credit_ids = [squad.player_id for squad in squads if squad.credits is None]
     missing_credit_players = []
-    for squad in squads:
-        if squad.credits is None:
-            player = db.get(Player, squad.player_id)
-            missing_credit_players.append(player.name if player else squad.player_id)
+    if missing_credit_ids:
+        missing_players = db.scalars(select(Player).where(Player.id.in_(missing_credit_ids))).all()
+        missing_names = {player.id: player.name for player in missing_players}
+        missing_credit_players = [missing_names.get(player_id, player_id) for player_id in missing_credit_ids]
     if missing_credit_players:
         raise HTTPException(422, detail={
             "message": "Team generation requires verified player credits.",
@@ -973,10 +974,8 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
     combined = []
     for prediction in predictions:
         squad = squad_by_id[prediction["player_id"]]
-        tg_profile = db.get(PlayerSourceProfile, (match_id, squad.player_id, "TEAM_GENERATION"))
-        tg_data = tg_profile.data if tg_profile and isinstance(tg_profile.data, dict) else {}
-        captain_pct = tg_data.get("captain_pct", prediction.get("ai11_captain_pct"))
-        vice_pct = tg_data.get("vice_captain_pct", prediction.get("ai11_vice_captain_pct"))
+        captain_pct = prediction.get("team_generation_captain_pct", prediction.get("ai11_captain_pct"))
+        vice_pct = prediction.get("team_generation_vice_captain_pct", prediction.get("ai11_vice_captain_pct"))
         combined.append({
             **prediction,
             "credits": squad.credits,
@@ -984,8 +983,8 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
             "status": squad.status,
             "captain_pct": captain_pct,
             "vice_captain_pct": vice_pct,
-            "team_generation_image": tg_data.get("image"),
-            "team_generation_fantasy_ids": tg_data.get("fantasy_ids"),
+            "team_generation_image": prediction.get("team_generation_image"),
+            "team_generation_fantasy_ids": prediction.get("team_generation_fantasy_ids"),
             "batting_position": tg_data.get("batting_position", prediction.get("batting_position")),
             "expected_overs": tg_data.get("expected_overs", prediction.get("expected_overs")),
             "involvement_score": tg_data.get("involvement_score", prediction.get("involvement_score")),
