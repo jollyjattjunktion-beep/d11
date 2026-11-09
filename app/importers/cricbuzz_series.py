@@ -1,0 +1,215 @@
+"""Cricbuzz series and fixture discovery.
+
+Only URLs extracted from Cricbuzz pages are persisted. Parsing is deliberately
+best-effort: absent upstream fields remain None and never overwrite admin data.
+"""
+from __future__ import annotations
+
+import re
+from datetime import datetime, timezone
+from urllib.parse import urlparse
+
+import httpx
+from bs4 import BeautifulSoup
+
+HOSTS = {"cricbuzz.com", "www.cricbuzz.com", "m.cricbuzz.com", "mlb.cricbuzz.com"}
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; D11FixtureImporter/1.0)",
+    "Accept": "text/html,application/xhtml+xml",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+MAX_BYTES = 5_000_000
+MATCH_ID_PATHS = (
+    r"/live-cricket-score/(\d+)/",
+    r"/live-cricket-scorecard/(\d+)/",
+    r"/cricket-match-facts/(\d+)/",
+    r"/cricket-match-squads/(\d+)/",
+    r"/cricket-match-commentary/(\d+)/",
+)
+
+
+def _checked_url(value: str) -> str:
+    parsed = urlparse(value)
+    if (parsed.scheme != "https" or parsed.hostname not in HOSTS
+            or parsed.username or parsed.password or parsed.port not in (None, 443)):
+        raise ValueError("Only public HTTPS Cricbuzz pages are accepted.")
+    return value
+
+
+def _fetch(value: str) -> str:
+    _checked_url(value)
+    with httpx.Client(timeout=25, follow_redirects=False, headers=HEADERS, trust_env=False) as client:
+        response = client.get(value)
+        if response.is_redirect:
+            target = str(httpx.URL(value).join(response.headers.get("location", "")))
+            _checked_url(target)
+            response = client.get(target)
+        response.raise_for_status()
+        if len(response.content) > MAX_BYTES:
+            raise ValueError("Cricbuzz page exceeds the 5 MB import limit.")
+        if "html" not in response.headers.get("content-type", "").lower() and not response.text.lstrip().lower().startswith(("<!doctype html", "<html")):
+            raise ValueError("Cricbuzz returned a non-HTML response.")
+        return response.text
+
+
+def fetch_series_matches(url: str) -> str:
+    parsed = urlparse(_checked_url(url))
+    if not re.fullmatch(r"/cricket-series/\d+/[^/]+/matches/?", parsed.path):
+        raise ValueError("Use a Cricbuzz series Matches page URL.")
+    return _fetch(url)
+
+
+def fetch_series_index(url: str) -> str:
+    parsed = urlparse(_checked_url(url))
+    if not re.fullmatch(r"/cricket-schedule/series/all/?", parsed.path) and not re.fullmatch(r"/cricket-scorecard-archives(?:/\d{4})?/?", parsed.path):
+        raise ValueError("Use Cricbuzz all-series schedule or a year archive URL.")
+    return _fetch(url)
+
+
+def _absolute(base: str, href: str) -> str | None:
+    if not href:
+        return None
+    value = str(httpx.URL(base).join(href))
+    parsed = urlparse(value)
+    return value if parsed.scheme == "https" and parsed.hostname in HOSTS else None
+
+
+def parse_series_index(html: str, source_url: str) -> list[dict]:
+    _checked_url(source_url)
+    soup = BeautifulSoup(html, "html.parser")
+    found = {}
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        m = re.search(r"/cricket-series/(\d+)/([^/?#]+)/(?:matches|venues)/?$", href)
+        if not m:
+            continue
+        sid, slug = m.groups()
+        name = a.get_text(" ", strip=True) or re.sub(r"[-_]+", " ", slug).title()
+        found[sid] = {
+            "series_id": sid,
+            "name": name[:200],
+            "series_url": f"https://www.cricbuzz.com/cricket-series/{sid}/{slug}/matches",
+            "matches_url": f"https://www.cricbuzz.com/cricket-series/{sid}/{slug}/matches",
+            "venues_url": f"https://www.cricbuzz.com/cricket-series/{sid}/{slug}/venues",
+        }
+    if not found:
+        raise ValueError("No Cricbuzz series links were found on the supplied page.")
+    return list(found.values())
+
+
+def _match_id(url: str) -> str | None:
+    path = urlparse(url).path
+    for pattern in MATCH_ID_PATHS:
+        m = re.search(pattern, path)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _format(text: str) -> str | None:
+    t = text.upper()
+    if re.search(r"\bTEST\b|\b(ONE[- ]OFF )?TEST MATCH\b", t):
+        return "TEST"
+    if re.search(r"\bODI\b|\bONE DAY INTERNATIONAL\b", t):
+        return "ODI"
+    if re.search(r"\bT20I?\b|\bT20 MATCH\b|\bTWENTY20\b", t):
+        return "T20"
+    if "T10" in t:
+        return "T10"
+    return None
+
+
+def _date_time(text: str) -> str | None:
+    patterns = (
+        r"\b\d{1,2}\s+[A-Za-z]{3,9}\s+20\d{2}(?:\s*,?\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?\b",
+        r"\b[A-Za-z]{3,9}\s+\d{1,2},?\s+20\d{2}(?:\s*,?\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?\b",
+        r"\b\d{1,2}/\d{1,2}/20\d{2}\b",
+    )
+    for p in patterns:
+        m = re.search(p, text, re.I)
+        if m:
+            return m.group(0)
+    return None
+
+
+def parse_series_matches(html: str, source_url: str, series: dict) -> list[dict]:
+    _checked_url(source_url)
+    soup = BeautifulSoup(html, "html.parser")
+    cards = {}
+    for a in soup.find_all("a", href=True):
+        absolute = _absolute(source_url, a["href"])
+        if not absolute:
+            continue
+        mid = _match_id(absolute)
+        if not mid:
+            continue
+        # Match card text provides team names, start date, format and ground
+        # when Cricbuzz includes them in the same card/container.
+        node = a
+        for _ in range(5):
+            if node.parent is None:
+                break
+            node = node.parent
+            text = re.sub(r"\s+", " ", node.get_text(" ", strip=True))
+            if len(text) >= 18 and len(text) <= 1800:
+                break
+        card_text = re.sub(r"\s+", " ", node.get_text(" ", strip=True))
+        entry = cards.setdefault(mid, {
+            "cricbuzz_match_id": mid,
+            "title": a.get_text(" ", strip=True) or None,
+            "card_text": card_text[:1800],
+            "series_id": str(series["series_id"]),
+            "series_name": series["name"],
+            "series_url": series["series_url"],
+            "matches_url": series["matches_url"],
+            "live_url": None,
+            "info_url": None,
+            "scorecard_url": None,
+            "match_url": absolute,
+            "date_text": _date_time(card_text),
+            "format": _format(card_text),
+            "venue": None,
+            "team_a": None,
+            "team_b": None,
+        })
+        path = urlparse(absolute).path
+        if "/live-cricket-score/" in path:
+            entry["live_url"] = absolute
+        elif "/live-cricket-scorecard/" in path:
+            entry["scorecard_url"] = absolute
+        elif "/cricket-match-facts/" in path:
+            entry["info_url"] = absolute
+        elif "/cricket-match-squads/" in path and not entry["info_url"]:
+            entry["info_url"] = absolute
+
+    # Enrich link roles from all links sharing the same provider match ID.
+    for a in soup.find_all("a", href=True):
+        absolute = _absolute(source_url, a["href"])
+        mid = _match_id(absolute) if absolute else None
+        if not mid or mid not in cards:
+            continue
+        path = urlparse(absolute).path
+        if "/live-cricket-score/" in path:
+            cards[mid]["live_url"] = absolute
+        elif "/live-cricket-scorecard/" in path:
+            cards[mid]["scorecard_url"] = absolute
+        elif "/cricket-match-facts/" in path:
+            cards[mid]["info_url"] = absolute
+    results = list(cards.values())
+    for item in results:
+        text = item["card_text"]
+        # Team names are extracted only when an unambiguous "A vs B" label exists.
+        teams = re.search(r"(.{2,80}?)\s+vs\.?\s+(.{2,80}?)(?=\s+(?:\d{1,2}\s+[A-Z][a-z]{2}|T20I?\b|ODI\b|TEST\b|Match\b)|$)", text, re.I)
+        if teams:
+            item["team_a"] = re.sub(r"\s+", " ", teams.group(1)).strip(" •|-")
+            item["team_b"] = re.sub(r"\s+", " ", teams.group(2)).strip(" •|-")
+        # Ground is a best-effort label; never fabricate a ground from series metadata.
+        venue = re.search(r"\b(?:at|Venue:)\s+(.{3,100}?)(?=\s+(?:\d{1,2}\s+[A-Z][a-z]{2}|T20I?\b|ODI\b|TEST\b)|$)", text, re.I)
+        if venue:
+            item["venue"] = venue.group(1).strip(" •|-")
+        item["name"] = item["title"] or (
+            f"{item['team_a']} vs {item['team_b']}" if item["team_a"] and item["team_b"] else
+            f"{item['series_name']} fixture {item['cricbuzz_match_id']}"
+        )
+        item.pop("card_text", None)
+    return results
