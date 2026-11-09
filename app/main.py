@@ -218,6 +218,7 @@ def _public_match_records(db: Session) -> list[dict]:
             "format": match.format,
             "start_time": match.start_time,
             "venue": match.venue,
+            "cricbuzz_match_url": intel.get("cricbuzz_match_url"),
             "team_a": match.team_a,
             "team_b": match.team_b,
             "team_a_name": feed.get("team_a_name") or match.team_a,
@@ -808,6 +809,43 @@ def admin_update_match(match_id: str, payload: AdminMatchUpdate,
         "venue_analysis": data.get("auto_venue_analysis"),
         "note": "Match details saved. Venue recommendations are recalculated from the selected stadium's matching-format records."
     }
+
+
+@app.post("/api/v1/admin/matches/{match_id}/player-source")
+def admin_save_match_player_source(match_id: str, payload: dict,
+                                   _admin: bool = Depends(require_admin),
+                                   db: Session = Depends(get_db)):
+    """Save a verified Cricbuzz scorecard URL and queue player/profile history collection."""
+    match = db.get(Match, match_id)
+    if match is None:
+        raise HTTPException(404, "Match not found")
+    url = str(payload.get("url") or "").strip()
+    if not url:
+        raise HTTPException(400, "Paste the Cricbuzz match scorecard URL.")
+    from app.player_collector_sources import validate_public_url
+    try:
+        validate_public_url(url, "CRICBUZZ")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if not re.search(r"/live-cricket-scorecard/\d+/", urlparse(url).path):
+        raise HTTPException(400, "Use a Cricbuzz match scorecard URL, not a series or venue page.")
+    intel_row = db.get(MatchIntelligence, match_id)
+    data = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+    data["cricbuzz_match_url"] = url
+    data["player_source_provider"] = "CRICBUZZ"
+    data["player_source_saved_at"] = datetime.now(timezone.utc).isoformat()
+    if intel_row is None:
+        db.add(MatchIntelligence(match_id=match_id, data=data))
+    else:
+        intel_row.data = data
+    db.commit()
+    try:
+        from app.player_collector_worker import enqueue
+        queued = enqueue(db, "CRICBUZZ", "match_page", url, force=True)
+    except Exception as exc:
+        raise HTTPException(500, f"URL saved, but player collection could not be queued: {type(exc).__name__}: {exc}")
+    return {"saved": True, "queued": queued, "match_id": match_id, "url": url,
+            "message": "Cricbuzz scorecard URL saved. Player profiles and historical scorecard collection queued."}
 
 
 @app.post("/api/v1/admin/public-matches/sync")
