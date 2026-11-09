@@ -267,7 +267,7 @@ def parse_series_matches(html: str, source_url: str, series: dict, reference_mon
             item["team_a"] = re.sub(r"\s+", " ", teams.group(1)).strip(" •|-")
             item["team_b"] = re.sub(r"\s+", " ", teams.group(2)).strip(" •|-")
         # Ground is a best-effort label; never fabricate a ground from series metadata.
-        venue = re.search(r"\b(?:at|Venue:)\s+(.{3,100}?)(?=\s+(?:\d{1,2}\s+[A-Z][a-z]{2}|T20I?\b|ODI\b|TEST\b)|$)", text, re.I)
+        venue = re.search(r"•\s*(.{3,130}?(?:Ground|Oval|Stadium|Park)(?:\s*\([^)]*\))?)", text, re.I)
         if venue:
             item["venue"] = venue.group(1).strip(" •|-")
         item["name"] = item["title"] or (
