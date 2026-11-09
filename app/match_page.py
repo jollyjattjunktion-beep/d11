@@ -185,11 +185,9 @@ def _cricbuzz_scorecard_markup(intelligence: dict) -> str:
         return '<div class="empty">Cricbuzz scoreboard URL has not been linked to this match yet. Admin can add it under Saved Match Library → Edit.</div>'
     safe = html.escape(str(url), quote=True)
     return (
-        '<div style="display:grid;gap:10px">'
-        '<div style="position:relative;width:100%;aspect-ratio:16/9;min-height:260px;background:#101827;border-radius:14px;overflow:hidden">'
-        f'<iframe src="{safe}" title="Cricbuzz live cricket scorecard" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" '
-        'style="width:100%;height:100%;border:0" allow="fullscreen"></iframe></div>'
-        f'<p><a href="{safe}" target="_blank" rel="noopener noreferrer">Open full live scorecard on Cricbuzz</a></p>'
+        '<div style="position:relative;width:100%;min-height:480px;background:#fff;overflow:hidden">'
+        f'<iframe id="cricbuzz-scorecard-frame" src="{safe}" title="Live cricket score" loading="lazy" '
+        'referrerpolicy="strict-origin-when-cross-origin" style="display:block;width:100%;height:620px;border:0" allow="fullscreen"></iframe>'
         '</div>'
     )
 
