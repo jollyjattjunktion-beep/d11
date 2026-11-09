@@ -2701,7 +2701,7 @@ def import_cricbuzz_fixture_series(payload: CricbuzzFixtureSeriesImportRequest,
         series_id = re.search(r"/cricket-series/(\\d+)/", parsed.path).group(1)
         html = fetch_series_matches(payload.series_url)
         slug = parsed.path.strip("/").split("/")[2]
-        series = {"series_id": series_id, "name": re.sub(r"[-_]+", " ", slug).title(),
+        series = {"series_id": series_id, "name": payload.series_name or re.sub(r"[-_]+", " ", slug).title(),
                   "series_url": payload.series_url, "matches_url": payload.series_url}
         fixtures = [enrich_fixture_source_links(x) for x in parse_series_matches(html, payload.series_url, series, payload.month)
                     if _cricbuzz_fixture_in_month(x, payload.month)]
