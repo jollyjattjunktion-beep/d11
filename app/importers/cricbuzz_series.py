@@ -86,8 +86,12 @@ def parse_series_index(html: str, source_url: str) -> list[dict]:
             continue
         sid, slug = m.groups()
         name = a.get_text(" ", strip=True) or re.sub(r"[-_]+", " ", slug).title()
-        previous_heading = a.find_previous(["h2", "h3", "h4"])
-        month_label = previous_heading.get_text(" ", strip=True).strip().casefold() if previous_heading else None
+        month_label = None
+        for previous_text in a.find_all_previous(string=True, limit=60):
+            candidate = re.sub(r"\\s+", " ", str(previous_text)).strip().casefold()
+            if re.fullmatch(r"(?:january|february|march|april|may|june|july|august|september|october|november|december) 20\\d{2}", candidate):
+                month_label = candidate
+                break
         found[sid] = {
             "series_id": sid,
             "name": name[:200],
