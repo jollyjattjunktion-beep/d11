@@ -2770,24 +2770,21 @@ def import_cricbuzz_fixture_series(payload: CricbuzzFixtureSeriesImportRequest,
             db.flush()
             intel = db.get(MatchIntelligence, match_id)
             data = dict(intel.data or {}) if intel and isinstance(intel.data, dict) else {}
-            old_cb = dict(data.get("cricbuzz") or {})
-            cb = {
-                **old_cb,
+            cb = dict(data.get("cricbuzz") or {})
+            cb.update({
                 "provider": "CRICBUZZ",
                 "series_id": series_id,
-                "series_name": item.get("series_name"),
-                "series_url": item.get("series_url"),
-                "matches_url": item.get("matches_url"),
+                "series_name": item.get("series_name") or cb.get("series_name"),
+                "series_url": item.get("series_url") or cb.get("series_url"),
+                "matches_url": item.get("matches_url") or cb.get("matches_url"),
                 "match_id": provider_id,
-                "match_url": item.get("match_url"),
-                "live_url": item.get("live_url"),
-                "info_url": item.get("info_url"),
-                "scorecard_url": item.get("scorecard_url"),
-                "date_text": item.get("date_text"),
-                "format": item.get("format"),
                 "last_imported_at": now,
-            }
-            data["cricbuzz"] = {k: v for k, v in cb.items() if v is not None}
+            })
+            # Blank source fields never erase previously saved or manually added URLs.
+            for key in ("match_url", "live_url", "info_url", "scorecard_url", "date_text", "format"):
+                if item.get(key):
+                    cb[key] = item[key]
+            data["cricbuzz"] = cb
             # Keep legacy URL keys consumed by existing D11 components.
             if item.get("live_url"):
                 data["cricbuzz_live_url"] = item["live_url"]
