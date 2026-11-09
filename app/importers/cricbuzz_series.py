@@ -154,6 +154,17 @@ def enrich_fixture_source_links(item: dict) -> dict:
         return item
     soup = BeautifulSoup(html, "html.parser")
     expected_id = str(item.get("cricbuzz_match_id") or "")
+    page_text = re.sub(r"\\s+", " ", soup.get_text(" ", strip=True))
+    page_title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    title_match = re.search(r"(.{2,80}?)\\s+vs\\.?\\s+(.{2,80}?)(?=\\s+(?:Live|Scorecard|Cricket|Match)|$)", page_title, re.I)
+    if title_match and (not item.get("team_a") or not item.get("team_b")):
+        item["team_a"] = item.get("team_a") or title_match.group(1).strip()
+        item["team_b"] = item.get("team_b") or title_match.group(2).strip()
+    item["format"] = item.get("format") or _format(page_title + " " + page_text)
+    item["date_text"] = item.get("date_text") or _date_time(page_text, None)
+    venue_match = re.search(r"\\b(?:at|Venue:)\\s+(.{3,100}?)(?=\\s+(?:Live|Scorecard|Match starts|Toss)|$)", page_text, re.I)
+    if not item.get("venue") and venue_match:
+        item["venue"] = venue_match.group(1).strip()
     for anchor in soup.find_all("a", href=True):
         absolute = _absolute(page_url, anchor["href"])
         if not absolute or _match_id(absolute) != expected_id:
