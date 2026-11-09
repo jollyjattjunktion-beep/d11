@@ -159,10 +159,11 @@ def _ai11_profile_adjustment(role: str, fmt: str, profile: dict):
 
 
 def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad,
-                   match: Match | None = None, context: dict | None = None) -> dict:
+                   match: Match | None = None, context: dict | None = None,
+                   recent_rows=None, ai11_profile=None, team_generation_profile=None) -> dict:
     fmt = (match.format if match else "T20").upper()
     context = context or {}
-    rows = db.scalars(
+    rows = recent_rows if recent_rows is not None else db.scalars(
         select(PlayerMatchStats).where(
             PlayerMatchStats.player_id == player.id,
             PlayerMatchStats.format == fmt,
@@ -170,9 +171,9 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
             PlayerMatchStats.fantasy_points.is_not(None),
         ).order_by(PlayerMatchStats.match_date.desc(), PlayerMatchStats.id.desc()).limit(12)
     ).all()
-    source_profile = db.get(PlayerSourceProfile, (match_id, player.id, "AI11"))
+    source_profile = ai11_profile if ai11_profile is not None else db.get(PlayerSourceProfile, (match_id, player.id, "AI11"))
     source_data = source_profile.data if source_profile and isinstance(source_profile.data, dict) else {}
-    tg_profile = db.get(PlayerSourceProfile, (match_id, player.id, "TEAM_GENERATION"))
+    tg_profile = team_generation_profile if team_generation_profile is not None else db.get(PlayerSourceProfile, (match_id, player.id, "TEAM_GENERATION"))
     tg_data = tg_profile.data if tg_profile and isinstance(tg_profile.data, dict) else {}
     usage = _role_context(squad, context)
     ai11_factor, ai11_reasons = _ai11_profile_adjustment(squad.role, fmt, source_data)
@@ -251,13 +252,53 @@ def predict_player(db: Session, match_id: str, player: Player, squad: MatchSquad
             "prediction_type":"format_specific_statistical_estimate"}
 
 def predict_match(db: Session, match_id: str) -> list[dict]:
+    """Build all player predictions with bounded batch reads instead of per-player queries."""
     match = db.get(Match, match_id)
+    if not match:
+        return []
     intelligence = db.get(MatchIntelligence, match_id)
     context = intelligence.data if intelligence else {}
     squads = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match_id)).all()
+    player_ids = [s.player_id for s in squads]
+    if not player_ids:
+        return []
+
+    # One query for player identities, one for all format-matched history, and
+    # one for both source-profile types. Group in memory for constant-time lookup.
+    players = db.scalars(select(Player).where(Player.id.in_(player_ids))).all()
+    player_by_id = {player.id: player for player in players}
+    fmt = (match.format or "T20").upper()
+    history_rows = db.scalars(
+        select(PlayerMatchStats).where(
+            PlayerMatchStats.player_id.in_(player_ids),
+            PlayerMatchStats.format == fmt,
+            PlayerMatchStats.match_id != match_id,
+            PlayerMatchStats.fantasy_points.is_not(None),
+        ).order_by(PlayerMatchStats.player_id, PlayerMatchStats.match_date.desc(), PlayerMatchStats.id.desc())
+    ).all()
+    history_by_player = {}
+    for row in history_rows:
+        bucket = history_by_player.setdefault(row.player_id, [])
+        if len(bucket) < 12:
+            bucket.append(row)
+
+    profile_rows = db.scalars(
+        select(PlayerSourceProfile).where(
+            PlayerSourceProfile.match_id == match_id,
+            PlayerSourceProfile.player_id.in_(player_ids),
+            PlayerSourceProfile.source.in_(("AI11", "TEAM_GENERATION")),
+        )
+    ).all()
+    profiles = {(row.player_id, row.source): row for row in profile_rows}
+
     output = []
     for squad in squads:
-        player = db.get(Player, squad.player_id)
+        player = player_by_id.get(squad.player_id)
         if player:
-            output.append(predict_player(db, match_id, player, squad, match, context))
+            output.append(predict_player(
+                db, match_id, player, squad, match, context,
+                recent_rows=history_by_player.get(player.id, []),
+                ai11_profile=profiles.get((player.id, "AI11")),
+                team_generation_profile=profiles.get((player.id, "TEAM_GENERATION")),
+            ))
     return output
