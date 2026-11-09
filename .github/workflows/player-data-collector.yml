@@ -1,0 +1,43 @@
+name: D11 automatic player data collection
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d11-player-collector
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: ${{ secrets.D11_DATABASE_URL }}
+      APP_ENV: production
+      COLLECTOR_POLL_SECONDS: "5"
+      COLLECTOR_REQUEST_GAP_SECONDS: "3"
+      COLLECTOR_REFRESH_HOURS: "72"
+      COLLECTOR_MAX_ATTEMPTS: "5"
+    steps:
+      - name: Check out D11
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Validate database secret
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "Missing GitHub Actions secret D11_DATABASE_URL"
+            exit 1
+          fi
+      - name: Run bounded collection batch
+        run: python -m app.player_collector_worker --once --max-jobs 250
