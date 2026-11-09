@@ -143,6 +143,31 @@ def _date_time(text: str, reference_month: str | None = None) -> str | None:
     return None
 
 
+def enrich_fixture_source_links(item: dict) -> dict:
+    """Fetch one verified match page and discover its other actual source anchors."""
+    page_url = item.get("match_url")
+    if not page_url:
+        return item
+    try:
+        html = _fetch(page_url)
+    except (httpx.HTTPError, ValueError):
+        return item
+    soup = BeautifulSoup(html, "html.parser")
+    expected_id = str(item.get("cricbuzz_match_id") or "")
+    for anchor in soup.find_all("a", href=True):
+        absolute = _absolute(page_url, anchor["href"])
+        if not absolute or _match_id(absolute) != expected_id:
+            continue
+        path = urlparse(absolute).path
+        if "/live-cricket-score/" in path:
+            item["live_url"] = absolute
+        elif "/live-cricket-scorecard/" in path:
+            item["scorecard_url"] = absolute
+        elif "/cricket-match-facts/" in path:
+            item["info_url"] = absolute
+    return item
+
+
 def parse_series_matches(html: str, source_url: str, series: dict, reference_month: str | None = None) -> list[dict]:
     _checked_url(source_url)
     soup = BeautifulSoup(html, "html.parser")
