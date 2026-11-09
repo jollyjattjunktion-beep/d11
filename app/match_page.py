@@ -179,6 +179,21 @@ def _scorecard_markup(scorecards: list[dict]) -> str:
     )
 
 
+def _cricbuzz_scorecard_markup(intelligence: dict) -> str:
+    url = intelligence.get("cricbuzz_scorecard_url") or intelligence.get("cricbuzz_match_url")
+    if not url:
+        return '<div class="empty">Cricbuzz scoreboard URL has not been linked to this match yet. Admin can add it under Saved Match Library → Edit.</div>'
+    safe = html.escape(str(url), quote=True)
+    return (
+        '<div style="display:grid;gap:10px">'
+        '<div style="position:relative;width:100%;aspect-ratio:16/9;min-height:260px;background:#101827;border-radius:14px;overflow:hidden">'
+        f'<iframe src="{safe}" title="Cricbuzz live cricket scorecard" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" '
+        'style="width:100%;height:100%;border:0" allow="fullscreen"></iframe></div>'
+        f'<p><a href="{safe}" target="_blank" rel="noopener noreferrer">Open full live scorecard on Cricbuzz</a></p>'
+        '</div>'
+    )
+
+
 def _venue_guidance_markup(analysis: dict | None, report: dict | None) -> str:
     if not analysis or not analysis.get("available"):
         return (
@@ -310,6 +325,7 @@ def render_match_detail(
         "{{SQUAD_CONTENT}}": _squad_markup(str(match.get("team_a")), str(match.get("team_b")), players),
         "{{FIXED_PLAYER_OPTIONS}}": _fixed_player_picker(players, lineup_confirmed),
         "{{SCORECARD_CONTENT}}": _scorecard_markup(scorecards),
+        "{{CRICBUZZ_SCORECARD}}": _cricbuzz_scorecard_markup(intelligence),
         "{{PITCH}}": html.escape(str(pitch)),
         "{{TOSS}}": html.escape(str(toss)),
         "{{DATA_NOTE}}": "Squads, roles, credits and selection trends are shown only when supplied by the connected provider. Historical fantasy points and scorecard figures are not invented.",
