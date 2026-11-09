@@ -2635,11 +2635,18 @@ def discover_cricbuzz_fixture_series(payload: CricbuzzSeriesDiscoverRequest,
         raise HTTPException(502, detail={"message": "Cricbuzz schedule request failed.", "upstream_status": exc.response.status_code})
     except httpx.RequestError as exc:
         raise HTTPException(502, "Could not fetch Cricbuzz schedule: " + type(exc).__name__)
+    month_name = datetime.strptime(payload.month, "%Y-%m").strftime("%B").casefold()
+    matching = [item for item in series if item.get("month_label") and month_name in item["month_label"] and payload.month[:4] in item["month_label"]]
+    # Cricbuzz may change its heading markup. If no month labels can be read,
+    # retain the live results and let each series preview confirm fixture dates.
+    selected = matching if matching else series
     return {
         "provider": "CRICBUZZ",
         "month": payload.month,
-        "series_count": len(series),
-        "series": series,
+        "series_count": len(selected),
+        "series_total_on_page": len(series),
+        "series": selected,
+        "month_filter_applied": bool(matching),
         "note": "Series IDs and URLs are extracted from the live Cricbuzz schedule. Fixture counts are confirmed separately by Preview."
     }
 
@@ -2717,15 +2724,18 @@ def import_cricbuzz_fixture_series(payload: CricbuzzFixtureSeriesImportRequest,
             match = db.get(Match, match_id)
             values = {
                 "name": item.get("series_name") or match_id,
-                "format": item.get("format") or "UNKNOWN",
-                "start_time": _cricbuzz_fixture_start(item.get("date_text")),
                 "team_a": team_a[:100],
                 "team_b": team_b[:100],
-                "status": "upcoming",
                 "source": "Cricbuzz",
             }
+            if item.get("format"):
+                values["format"] = item["format"]
+            parsed_start = _cricbuzz_fixture_start(item.get("date_text"))
+            if parsed_start:
+                values["start_time"] = parsed_start
             if match is None:
-                match = Match(id=match_id, venue=item.get("venue"), **values)
+                match = Match(id=match_id, venue=item.get("venue"), status="upcoming",
+                              format=item.get("format") or "UNKNOWN", **values)
                 db.add(match)
                 created += 1
             else:
