@@ -611,7 +611,7 @@ async function previewCricbuzzFixtures(item,card){
  const button=card.querySelector('button');button.disabled=true;button.textContent='Loading preview…';
  try{
   const month=$('cricbuzzImportMonth').value;
-  const d=await api('/api/v1/admin/cricbuzz/series/preview',{method:'POST',body:JSON.stringify({series_url:item.matches_url,month})});
+  const d=await api('/api/v1/admin/cricbuzz/series/preview',{method:'POST',body:JSON.stringify({series_url:item.matches_url,series_name:item.name,month})});
   item.previewMonth=month;item.preview=d;item._importButton.disabled=!d.fixtures_in_month;
   item._importButton.title=d.fixtures_in_month?'Re-fetch and import these fixtures using Cricbuzz match IDs':'No dated fixtures found for this month';
   const rows=(d.fixtures||[]).map(x=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.date_text||'Date unavailable')+'</td><td>'+esc(x.format||'Unknown')+'</td><td>'+esc(x.venue||'Ground not listed')+'</td><td>'+esc(x.cricbuzz_match_id)+'</td><td>'+(x.live_url?'<a target="_blank" rel="noopener" href="'+esc(x.live_url)+'">Live</a>':'—')+' / '+(x.info_url?'<a target="_blank" rel="noopener" href="'+esc(x.info_url)+'">Info</a>':'—')+' / '+(x.scorecard_url?'<a target="_blank" rel="noopener" href="'+esc(x.scorecard_url)+'">Scorecard</a>':'—')+'</td></tr>').join('');
@@ -624,7 +624,7 @@ async function importCricbuzzFixtures(item,card,button){
  if(!confirm('Import '+item.preview.fixtures_in_month+' fixtures from '+item.name+' into D11 PostgreSQL? Existing Cricbuzz match IDs will be updated, not duplicated.'))return;
  button.disabled=true;button.textContent='Importing…';
  try{
-  const d=await api('/api/v1/admin/cricbuzz/series/import',{method:'POST',body:JSON.stringify({series_url:item.matches_url,month:item.previewMonth})});
+  const d=await api('/api/v1/admin/cricbuzz/series/import',{method:'POST',body:JSON.stringify({series_url:item.matches_url,series_name:item.name,month:item.previewMonth})});
   cricbuzzNotice(item.name+': created '+d.created+', updated '+d.updated+', unchanged '+d.unchanged+', skipped '+d.skipped+'. D11 match pages are now available in Saved Match Library.','good');
   button.textContent='Imported • re-import safe';await loadAdminMatches();
  }catch(e){cricbuzzNotice('Import failed for '+item.name+': '+e.message,'warn');button.disabled=false;button.textContent='3. Import this series';}
