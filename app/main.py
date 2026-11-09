@@ -219,6 +219,8 @@ def _public_match_records(db: Session) -> list[dict]:
             "start_time": match.start_time,
             "venue": match.venue,
             "cricbuzz_match_url": intel.get("cricbuzz_match_url"),
+            "cricbuzz_scorecard_url": intel.get("cricbuzz_scorecard_url"),
+            "cricbuzz_squads_url": intel.get("cricbuzz_squads_url"),
             "team_a": match.team_a,
             "team_b": match.team_b,
             "team_a_name": feed.get("team_a_name") or match.team_a,
