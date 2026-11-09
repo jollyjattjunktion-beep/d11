@@ -114,9 +114,9 @@ def _format(text: str) -> str | None:
     t = text.upper()
     if re.search(r"\bTEST\b|\b(ONE[- ]OFF )?TEST MATCH\b", t):
         return "TEST"
-    if re.search(r"\bODI\b|\bONE DAY INTERNATIONAL\b", t):
+    if re.search(r"\bODIS?\b|\bONE DAY INTERNATIONAL\b", t):
         return "ODI"
-    if re.search(r"\bT20I?\b|\bT20 MATCH\b|\bTWENTY20\b", t):
+    if re.search(r"\bT20I?S?\b|\bT20 MATCH\b|\bTWENTY20\b", t):
         return "T20"
     if "T10" in t:
         return "T10"
@@ -126,7 +126,7 @@ def _format(text: str) -> str | None:
 def _date_time(text: str, reference_month: str | None = None) -> str | None:
     # Series pages often show "Match starts at Nov 05, 05:00 GMT" without
     # repeating the year on every fixture card. Use the selected month/year.
-    clock = re.search(r"Match starts at\\s+([A-Za-z]{3,9})\\s+(\\d{1,2}),?\\s+(\\d{1,2}:\\d{2})\\s*(AM|PM)?\\s*\\(?GMT\\)?", text, re.I)
+    clock = re.search(r"Match starts at\s+([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{1,2}:\d{2})\s*(AM|PM)?\s*\(?GMT\)?", text, re.I)
     if clock and reference_month:
         month_name, day, time_value, meridiem = clock.groups()
         year = reference_month[:4]
@@ -155,15 +155,15 @@ def enrich_fixture_source_links(item: dict) -> dict:
         return item
     soup = BeautifulSoup(html, "html.parser")
     expected_id = str(item.get("cricbuzz_match_id") or "")
-    page_text = re.sub(r"\\s+", " ", soup.get_text(" ", strip=True))
+    page_text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
     page_title = soup.title.get_text(" ", strip=True) if soup.title else ""
-    title_match = re.search(r"(.{2,80}?)\\s+vs\\.?\\s+(.{2,80}?)(?=\\s+(?:Live|Scorecard|Cricket|Match)|$)", page_title, re.I)
+    title_match = re.search(r"(.{2,80}?)\s+vs\.?\s+(.{2,80}?)(?=\s+(?:Live|Scorecard|Cricket|Match)|$)", page_title, re.I)
     if title_match and (not item.get("team_a") or not item.get("team_b")):
         item["team_a"] = item.get("team_a") or title_match.group(1).strip()
         item["team_b"] = item.get("team_b") or title_match.group(2).strip()
     item["format"] = item.get("format") or _format(page_title + " " + page_text)
     item["date_text"] = item.get("date_text") or _date_time(page_text, None)
-    venue_match = re.search(r"\\b(?:at|Venue:)\\s+(.{3,100}?)(?=\\s+(?:Live|Scorecard|Match starts|Toss)|$)", page_text, re.I)
+    venue_match = re.search(r"\b(?:at|Venue:)\s+(.{3,100}?)(?=\s+(?:Live|Scorecard|Match starts|Toss)|$)", page_text, re.I)
     if not item.get("venue") and venue_match:
         item["venue"] = venue_match.group(1).strip()
     for anchor in soup.find_all("a", href=True):
@@ -183,7 +183,7 @@ def enrich_fixture_source_links(item: dict) -> dict:
 def parse_series_matches(html: str, source_url: str, series: dict, reference_month: str | None = None) -> list[dict]:
     _checked_url(source_url)
     soup = BeautifulSoup(html, "html.parser")
-    page_text = re.sub(r"\\s+", " ", soup.get_text(" ", strip=True))
+    page_text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
     series_format = _format(page_text)
     cards = {}
     for a in soup.find_all("a", href=True):
