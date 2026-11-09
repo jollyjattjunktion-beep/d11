@@ -205,7 +205,7 @@ def _cricbuzz_source_links(intelligence: dict) -> str:
 
 
 def _cricbuzz_scorecard_markup(intelligence: dict) -> str:
-    url = intelligence.get("cricbuzz_scorecard_url") or intelligence.get("cricbuzz", {}).get("scorecard_url") or intelligence.get("cricbuzz_match_url")
+    url = intelligence.get("cricbuzz_scorecard_url") or (intelligence.get("cricbuzz") or {}).get("scorecard_url") or intelligence.get("cricbuzz_match_url")
     if not url:
         return '<div class="empty">Cricbuzz scoreboard URL has not been linked to this match yet. Admin can add it under Saved Match Library → Edit.</div>'
     safe = html.escape(str(url), quote=True)
