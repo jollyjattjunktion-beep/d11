@@ -192,6 +192,63 @@ def _cricbuzz_scorecard_markup(intelligence: dict) -> str:
     )
 
 
+
+def _match_info_markup(match: dict, intelligence: dict, analysis: dict) -> str:
+    """Render verified fixture and venue facts in the D11 visual language."""
+    feed = intelligence.get("public_feed") or {}
+    venue_report = intelligence.get("cricbuzz_venue_report") or {}
+    facts = venue_report.get("facts") or {}
+    start = parse_source_datetime(match.get("start_time"))
+    date_value = start.astimezone(IST).strftime("%A, %d %B %Y") if start else "To be confirmed"
+    time_value = start.astimezone(IST).strftime("%I:%M %p IST") if start else "To be confirmed"
+
+    def first(*values, default="Not available"):
+        for value in values:
+            if value is not None and str(value).strip() and str(value).strip().lower() not in {"none", "null"}:
+                return str(value).strip()
+        return default
+
+    def card(label, value, tone=""):
+        safe_label = html.escape(str(label))
+        safe_value = html.escape(str(value))
+        return f'<div class="info-tile {tone}"><span>{safe_label}</span><strong>{safe_value}</strong></div>'
+
+    officials = [
+        ("Umpires", first(intelligence.get("umpires"), intelligence.get("umpire"))),
+        ("Third umpire", first(intelligence.get("third_umpire"), intelligence.get("tv_umpire"))),
+        ("Match referee", first(intelligence.get("referee"), intelligence.get("match_referee"))),
+    ]
+    tiles = [
+        ("Series", first(feed.get("series"), match.get("series"), match.get("name"))),
+        ("Date", first(intelligence.get("match_date"), date_value)),
+        ("Time", first(intelligence.get("match_time"), time_value)),
+        ("Venue", first(match.get("venue"), venue_report.get("name"))),
+        ("Toss", first(intelligence.get("toss"), intelligence.get("toss_result"),
+                       (str(intelligence.get("toss_winner")) + " won the toss and chose to " + str(intelligence.get("toss_decision")))
+                       if intelligence.get("toss_winner") and intelligence.get("toss_decision") else None)),
+        ("Match status", first(match.get("status"), "upcoming").replace("_", " ").title()),
+        *officials,
+    ]
+    main_tiles = "".join(card(label, value, "primary" if label in {"Venue", "Toss"} else "") for label, value in tiles)
+    venue_name = first(venue_report.get("name"), match.get("venue"))
+    city = first(venue_report.get("city_country"), facts.get("location"))
+    capacity = first(facts.get("capacity"))
+    ends = first(facts.get("ends"), facts.get("ends_name"))
+    hosts = first(facts.get("home_to"), facts.get("hosts_to"))
+    venue_tiles = "".join(card(label, value) for label, value in [
+        ("Stadium", venue_name), ("City", city), ("Capacity", capacity),
+        ("Ends", ends), ("Hosts to", hosts),
+        ("Pitch behaviour", analysis.get("pitch_recommendation") or intelligence.get("pitch_type") or "Not available"),
+    ])
+    return (
+        '<div class="info-block"><div class="info-block-title"><span class="info-icon">🏏</span>'
+        '<div><h3>Match information</h3><small>Fixture details and match officials</small></div></div>'
+        f'<div class="info-tiles">{main_tiles}</div></div>'
+        '<div class="info-block venue-info-block"><div class="info-block-title"><span class="info-icon">🏟️</span>'
+        '<div><h3>Venue guide</h3><small>Ground details and playing conditions</small></div></div>'
+        f'<div class="info-tiles venue-tiles">{venue_tiles}</div></div>'
+    )
+
 def _venue_guidance_markup(analysis: dict | None, report: dict | None) -> str:
     if not analysis or not analysis.get("available"):
         return (
@@ -299,6 +356,7 @@ def render_match_detail(
         "{{STATUS_LABEL}}": status_label,
         "{{KICKOFF}}": html.escape(kickoff),
         "{{VENUE}}": html.escape(venue),
+        "{{MATCH_INFO_CONTENT}}": _match_info_markup(match, intelligence, analysis),
         "{{MATCH_ID}}": html.escape(str(match.get("id"))),
         "{{LINEUP_CONFIRMED}}": "true" if lineup_confirmed else "false",
         "{{VENUE_GUIDANCE}}": _venue_guidance_markup(analysis, venue_report),
