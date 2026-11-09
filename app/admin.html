@@ -139,7 +139,20 @@
 
   <section class="match-library">
     <div class="match-library-head">
-      <div><h2>Saved Match Library</h2><p>Search, edit, assign a stadium and open any imported match in the team workspace.</p></div>
+      <div>  <section class="match-library" id="cricbuzzSeriesImporter">
+    <div class="match-library-head"><div><h2>D11 Admin → Cricbuzz Series Importer</h2><p>Discover live Cricbuzz series, preview fixtures for a selected month, then import verified match IDs and source links into PostgreSQL.</p></div><span class="pill">IDEMPOTENT IMPORT</span></div>
+    <div style="padding:15px 18px">
+      <div class="match-library-tools" style="padding:0;background:transparent;border:0">
+        <label class="match-edit-field">Selected month<input id="cricbuzzImportMonth" type="month" value="2026-11"></label>
+        <label class="match-edit-field" style="grid-column:span 2">Cricbuzz series index URL<input id="cricbuzzImportIndexUrl" value="https://www.cricbuzz.com/cricket-schedule/series/all"></label>
+        <button class="btn" id="discoverCricbuzzFixtures" type="button">1. Discover series</button>
+      </div>
+      <div id="cricbuzzSeriesNotice" class="notice" style="display:none;margin-top:12px"></div>
+      <div id="cricbuzzSeriesResults" class="match-library-list" style="padding:12px 0;max-height:none"><div class="match-library-empty">Choose a month and click Discover series. Series IDs and links will be taken from Cricbuzz itself.</div></div>
+    </div>
+  </section>
+
+      <h2>Saved Match Library</h2><p>Search, edit, assign a stadium and open any imported match in the team workspace.</p></div>
       <div class="row"><span class="pill" id="adminMatchCount">Not loaded</span><button class="btn outline" id="loadAdminMatches" type="button">Load saved matches</button></div>
     </div>
     <div class="match-library-tools">
@@ -564,6 +577,60 @@ async function scanSavedPlayerMatches(){
 $('scanSavedPlayerMatches').onclick=scanSavedPlayerMatches;
 $('refreshPlayerCollectorStatus').onclick=refreshPlayerCollectorStatus;
 
+let cricbuzzSeriesCache=[];
+function cricbuzzNotice(message,kind=''){const el=$('cricbuzzSeriesNotice');el.className='notice '+kind;el.textContent=message;el.style.display='block';}
+function renderCricbuzzSeries(series){
+ const root=$('cricbuzzSeriesResults');root.innerHTML='';
+ if(!series.length){root.textContent='No series were returned by Cricbuzz.';return;}
+ series.forEach(item=>{
+  const card=document.createElement('div');card.style.cssText='border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;gap:9px';
+  const head=document.createElement('div');head.style.cssText='display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center';
+  const title=document.createElement('strong');title.textContent=item.name+' • Series ID '+item.series_id;head.append(title);
+  const open=document.createElement('a');open.href=item.matches_url;open.target='_blank';open.rel='noopener noreferrer';open.textContent='Open Cricbuzz Matches page';head.append(open);
+  const actions=document.createElement('div');actions.style.cssText='display:flex;gap:8px;flex-wrap:wrap';
+  const preview=document.createElement('button');preview.type='button';preview.className='btn secondary';preview.textContent='2. Preview fixtures';preview.onclick=()=>previewCricbuzzFixtures(item,card);
+  const importBtn=document.createElement('button');importBtn.type='button';importBtn.className='btn green';importBtn.textContent='3. Import this series';importBtn.disabled=true;importBtn.title='Preview this series before importing';importBtn.onclick=()=>importCricbuzzFixtures(item,card,importBtn);
+  actions.append(preview,importBtn);
+  const details=document.createElement('div');details.className='helper';details.textContent='Series URL: '+item.matches_url;
+  const result=document.createElement('div');result.className='cricbuzz-series-preview';
+  card.append(head,details,actions,result);root.append(card);
+  item._previewNode=result;item._importButton=importBtn;
+ });
+}
+async function discoverCricbuzzFixtures(){
+ const btn=$('discoverCricbuzzFixtures');btn.disabled=true;btn.textContent='Discovering…';
+ try{
+  const month=$('cricbuzzImportMonth').value;if(!month)throw new Error('Select a month first.');
+  const d=await api('/api/v1/admin/cricbuzz/series/discover',{method:'POST',body:JSON.stringify({url:$('cricbuzzImportIndexUrl').value.trim(),month})});
+  cricbuzzSeriesCache=d.series||[];renderCricbuzzSeries(cricbuzzSeriesCache);
+  cricbuzzNotice('Cricbuzz returned '+d.series_count+' series. Each series is listed with its actual provider ID and Matches URL. Preview each series to count fixtures scheduled in '+month+'.','good');
+ }catch(e){cricbuzzNotice(e.message,'warn');}
+ finally{btn.disabled=false;btn.textContent='1. Discover series';}
+}
+async function previewCricbuzzFixtures(item,card){
+ const button=card.querySelector('button');button.disabled=true;button.textContent='Loading preview…';
+ try{
+  const month=$('cricbuzzImportMonth').value;
+  const d=await api('/api/v1/admin/cricbuzz/series/preview',{method:'POST',body:JSON.stringify({series_url:item.matches_url,month})});
+  item.previewMonth=month;item.preview=d;item._importButton.disabled=!d.fixtures_in_month;
+  item._importButton.title=d.fixtures_in_month?'Re-fetch and import these fixtures using Cricbuzz match IDs':'No dated fixtures found for this month';
+  const rows=(d.fixtures||[]).map(x=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.date_text||'Date unavailable')+'</td><td>'+esc(x.format||'Unknown')+'</td><td>'+esc(x.venue||'Ground not listed')+'</td><td>'+esc(x.cricbuzz_match_id)+'</td><td>'+(x.live_url?'<a target="_blank" rel="noopener" href="'+esc(x.live_url)+'">Live</a>':'—')+' / '+(x.info_url?'<a target="_blank" rel="noopener" href="'+esc(x.info_url)+'">Info</a>':'—')+' / '+(x.scorecard_url?'<a target="_blank" rel="noopener" href="'+esc(x.scorecard_url)+'">Scorecard</a>':'—')+'</td></tr>').join('');
+  item._previewNode.innerHTML='<div class="notice good">'+d.fixtures_in_month+' fixtures in '+esc(month)+' ('+d.fixtures_found+' total detected). Missing dates: '+d.unclassified_dates+'.</div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr><th>Match</th><th>Date / time</th><th>Format</th><th>Ground</th><th>Cricbuzz ID</th><th>Source pages</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+ }catch(e){item._previewNode.textContent='Preview failed: '+e.message;item._importButton.disabled=true;}
+ finally{button.disabled=false;button.textContent='2. Preview fixtures';}
+}
+async function importCricbuzzFixtures(item,card,button){
+ if(!item.preview||item.previewMonth!==$('cricbuzzImportMonth').value){cricbuzzNotice('Preview this series again for the selected month before importing.','warn');return;}
+ if(!confirm('Import '+item.preview.fixtures_in_month+' fixtures from '+item.name+' into D11 PostgreSQL? Existing Cricbuzz match IDs will be updated, not duplicated.'))return;
+ button.disabled=true;button.textContent='Importing…';
+ try{
+  const d=await api('/api/v1/admin/cricbuzz/series/import',{method:'POST',body:JSON.stringify({series_url:item.matches_url,month:item.previewMonth})});
+  cricbuzzNotice(item.name+': created '+d.created+', updated '+d.updated+', unchanged '+d.unchanged+', skipped '+d.skipped+'. D11 match pages are now available in Saved Match Library.','good');
+  button.textContent='Imported • re-import safe';await loadAdminMatches();
+ }catch(e){cricbuzzNotice('Import failed for '+item.name+': '+e.message,'warn');button.disabled=false;button.textContent='3. Import this series';}
+}
+$('discoverCricbuzzFixtures').onclick=discoverCricbuzzFixtures;
+$('cricbuzzImportMonth').addEventListener('change',()=>{cricbuzzSeriesCache.forEach(x=>{x.preview=null;x.previewMonth=null;if(x._importButton)x._importButton.disabled=true;});cricbuzzNotice('Month changed. Preview each series again before importing.');});
 async function discoverSeriesVenues(){
  const url=$('seriesIndexUrl').value.trim();if(!url){$('catalogueImportNotice').textContent='Paste the Cricbuzz all-series schedule or an archive page URL.';return;}
  if(url!==seriesIndexLastUrl){seriesIndexLastUrl=url;seriesDiscoveryOffset=0;}
