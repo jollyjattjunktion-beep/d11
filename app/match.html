@@ -182,6 +182,24 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
 .match-pane #cricbuzz-scorecard-frame{min-height:480px}
 @media(max-width:600px){.match-tabs{position:sticky;top:0}.match-tab{font-size:11px;padding:14px 2px 11px}.match-pane .info-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.match-pane #cricbuzz-scorecard-frame{min-height:420px}}
 
+
+.info-block{padding:17px 18px;border-bottom:1px solid var(--line);background:#fff}
+.info-block:last-child{border-bottom:0}
+.info-block-title{display:flex;align-items:center;gap:11px;margin-bottom:13px}
+.info-icon{width:39px;height:39px;display:grid;place-items:center;border-radius:12px;background:linear-gradient(135deg,#e8f7f2,#d9f0e8);font-size:19px}
+.info-block-title h3{font-size:15px;margin:0;color:#203044}
+.info-block-title small{display:block;color:var(--muted);font-size:10px;margin-top:2px}
+.info-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.info-tile{min-width:0;border:1px solid #e6ebef;border-radius:11px;padding:11px 12px;background:linear-gradient(145deg,#fbfdfd,#f5f8fb)}
+.info-tile span{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.55px;font-weight:900;color:#758496;margin-bottom:4px}
+.info-tile strong{display:block;font-size:12px;line-height:1.45;color:#263449;overflow-wrap:anywhere}
+.info-tile.primary{background:linear-gradient(135deg,#effaf6,#e6f5ef);border-color:#d3eee2}
+.info-tile.primary strong{color:#126c51}
+.venue-info-block{background:#f8fafc}
+.venue-tiles .info-tile{background:#fff}
+@media(min-width:700px){.info-tiles{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:420px){.info-block{padding:14px 12px}.info-tiles{gap:7px}.info-tile{padding:10px}.info-tile strong{font-size:11px}}
+
 </style>
 </head>
 <body>
@@ -212,16 +230,8 @@ h1{font-size:clamp(22px,4vw,34px);line-height:1.2;margin:8px 0 5px}
    {{CRICBUZZ_SCORECARD}}
   </section>
   <section class="match-pane" id="pane-info" role="tabpanel" aria-labelledby="tab-info" hidden>
-   <div class="section-head"><h2>Match information</h2><small>{{FORMAT}} • {{KICKOFF}}</small></div>
-   <div class="info-grid">
-    <div class="info"><small>Venue</small><strong>{{VENUE}}</strong></div>
-    <div class="info"><small>Pitch report</small><strong>{{PITCH}}</strong></div>
-    <div class="info"><small>Toss</small><strong>{{TOSS}}</strong></div>
-    <div class="info"><small>Team A</small><strong>{{TEAM_A_FULL}}</strong></div>
-    <div class="info"><small>Team B</small><strong>{{TEAM_B_FULL}}</strong></div>
-    <div class="info"><small>Playing XI</small><strong>{{XI_STATUS}}</strong></div>
-   </div>
-   <div class="notice">{{DATA_NOTE}}</div>
+   <div class="section-head"><h2>Match centre information</h2><small>{{FORMAT}} • {{KICKOFF}}</small></div>
+   {{MATCH_INFO_CONTENT}}
   </section>
   <section class="match-pane" id="pane-scorecard" role="tabpanel" aria-labelledby="tab-scorecard" hidden>
    <div class="section-head"><h2>Scorecard & player statistics</h2><small>Imported match figures</small></div>
