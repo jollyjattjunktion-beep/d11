@@ -751,7 +751,7 @@ def build_teams(players, strategy, rules, count_teams=1, scenario="neutral",
     }
     locked_score = sum(candidate_scores.get(p["player_id"], 0.0) for p in locked)
     states = [(locked, locked_score)]
-    beam_width = min(2600, max(1200, len(pool) * 90))
+    # Bounded search keeps mobile/Render generation responsive. The previous\n    # 1,200–2,600 beam retained far more partial XIs than needed for the\n    # requested small portfolio, multiplying constraint checks at every slot.\n    beam_width = min(900, max(650, len(pool) * 35))
 
     def partial_is_feasible(chosen, available, remaining_slots):
         counts = Counter(p["role"] for p in chosen)
