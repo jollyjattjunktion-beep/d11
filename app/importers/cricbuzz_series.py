@@ -170,7 +170,7 @@ def enrich_fixture_source_links(item: dict) -> dict:
         if not absolute or _match_id(absolute) != expected_id:
             continue
         path = urlparse(absolute).path
-        if "/live-cricket-score/" in path:
+        if "/live-cricket-score/" in path or "/live-cricket-scores/" in path:
             item["live_url"] = absolute
         elif "/live-cricket-scorecard/" in path:
             item["scorecard_url"] = absolute
