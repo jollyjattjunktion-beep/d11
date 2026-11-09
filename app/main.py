@@ -430,7 +430,11 @@ def _load_public_match_detail(match_id: str, db: Session) -> dict:
     for profile in profiles:
         profile_map.setdefault(profile.player_id, {}).update(profile.data or {})
 
-    # Resolve all player names in one query; avoid one SELECT per squad row.
+    stat_rows = db.scalars(
+        select(PlayerMatchStats).where(PlayerMatchStats.match_id == match_id)
+    ).all()
+
+    # Resolve all player names in one query; avoid one SELECT per squad/scorecard row.
     player_ids = {squad.player_id for squad in squad_rows}
     player_ids.update(row.player_id for row in stat_rows)
     player_rows = db.scalars(select(Player).where(Player.id.in_(player_ids))).all() if player_ids else []
@@ -453,9 +457,6 @@ def _load_public_match_detail(match_id: str, db: Session) -> dict:
             "vice_captain_pct": profile.get("vice_captain_pct", profile.get("ai11_vice_captain_pct")),
         })
 
-    stat_rows = db.scalars(
-        select(PlayerMatchStats).where(PlayerMatchStats.match_id == match_id)
-    ).all()
     squad_by_player = {item.player_id: item for item in squad_rows}
     scorecards = []
     for row in stat_rows:
