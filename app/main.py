@@ -815,23 +815,38 @@ def admin_update_match(match_id: str, payload: AdminMatchUpdate,
 def admin_save_match_player_source(match_id: str, payload: dict,
                                    _admin: bool = Depends(require_admin),
                                    db: Session = Depends(get_db)):
-    """Save a verified Cricbuzz scorecard URL and queue player/profile history collection."""
+    """Save separate Cricbuzz scorecard and squad URLs; queue both before team generation."""
     match = db.get(Match, match_id)
     if match is None:
         raise HTTPException(404, "Match not found")
-    url = str(payload.get("url") or "").strip()
-    if not url:
-        raise HTTPException(400, "Paste the Cricbuzz match scorecard URL.")
+    scorecard_url = str(payload.get("scorecard_url") or payload.get("url") or "").strip()
+    squads_url = str(payload.get("squads_url") or "").strip()
+    if not scorecard_url and not squads_url:
+        raise HTTPException(400, "Paste at least one direct Cricbuzz scorecard or squads URL.")
     from app.player_collector_sources import validate_public_url
-    try:
-        validate_public_url(url, "CRICBUZZ")
-    except ValueError as exc:
-        raise HTTPException(400, str(exc))
-    if not re.search(r"/live-cricket-scorecard/\d+/", urlparse(url).path):
-        raise HTTPException(400, "Use a Cricbuzz match scorecard URL, not a series or venue page.")
+    for label, url, pattern in (
+        ("scorecard", scorecard_url, r"/live-cricket-scorecard/(\d+)/"),
+        ("squads", squads_url, r"/cricket-match-squads/(\d+)/"),
+    ):
+        if not url:
+            continue
+        try:
+            validate_public_url(url, "CRICBUZZ")
+        except ValueError as exc:
+            raise HTTPException(400, f"Invalid {label} URL: {exc}")
+        if not re.search(pattern, urlparse(url).path):
+            raise HTTPException(400, f"Use a direct Cricbuzz {label} URL, not a series or venue page.")
+    ids = [re.search(r"/(?:live-cricket-scorecard|cricket-match-squads)/(\d+)/", urlparse(u).path).group(1)
+           for u in (scorecard_url, squads_url) if u]
+    if len(set(ids)) > 1:
+        raise HTTPException(400, "The scorecard and squads URLs must belong to the same Cricbuzz match ID.")
     intel_row = db.get(MatchIntelligence, match_id)
     data = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
-    data["cricbuzz_match_url"] = url
+    if scorecard_url:
+        data["cricbuzz_match_url"] = scorecard_url
+        data["cricbuzz_scorecard_url"] = scorecard_url
+    if squads_url:
+        data["cricbuzz_squads_url"] = squads_url
     data["player_source_provider"] = "CRICBUZZ"
     data["player_source_saved_at"] = datetime.now(timezone.utc).isoformat()
     if intel_row is None:
@@ -839,13 +854,18 @@ def admin_save_match_player_source(match_id: str, payload: dict,
     else:
         intel_row.data = data
     db.commit()
+    queued = []
     try:
         from app.player_collector_worker import enqueue
-        queued = enqueue(db, "CRICBUZZ", "match_page", url, force=True)
+        if scorecard_url:
+            queued.append({"type": "scorecard", "queued": enqueue(db, "CRICBUZZ", "scorecard_page", scorecard_url, force=True)})
+        if squads_url:
+            queued.append({"type": "squads", "queued": enqueue(db, "CRICBUZZ", "squads_page", squads_url, force=True)})
     except Exception as exc:
-        raise HTTPException(500, f"URL saved, but player collection could not be queued: {type(exc).__name__}: {exc}")
-    return {"saved": True, "queued": queued, "match_id": match_id, "url": url,
-            "message": "Cricbuzz scorecard URL saved. Player profiles and historical scorecard collection queued."}
+        raise HTTPException(500, f"URLs saved, but collection could not be queued: {type(exc).__name__}: {exc}")
+    return {"saved": True, "match_id": match_id, "scorecard_url": scorecard_url,
+            "squads_url": squads_url, "jobs": queued,
+            "message": "Cricbuzz URLs saved. Scorecard and squad discovery jobs have been queued."}
 
 
 @app.post("/api/v1/admin/public-matches/sync")
@@ -1765,7 +1785,7 @@ def admin_player_collector_scan(_admin: bool = Depends(require_admin), db: Sessi
         # Match intelligence can retain provider URLs from previous imports.
         intel = db.get(MatchIntelligence, match.id)
         intel_data = intel.data if intel and isinstance(intel.data, dict) else {}
-        for key in ("source_url", "match_url", "cricbuzz_url", "cricbuzz_match_url", "crex_url", "scorecard_url"):
+        for key in ("source_url", "match_url", "cricbuzz_url", "cricbuzz_match_url", "cricbuzz_scorecard_url", "cricbuzz_squads_url", "crex_url", "scorecard_url"):
             value = intel_data.get(key)
             if isinstance(value, str) and value.startswith("https://"):
                 candidates.append(value)
