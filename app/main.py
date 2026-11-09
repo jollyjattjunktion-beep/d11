@@ -15,6 +15,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from app.database import Base, engine, get_db, SessionLocal
 from app.models import Match, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue
+from app.models_player_collector import CollectorJob, PlayerIdentity, PlayerSourceIdentity, PlayerProfileSnapshot, PlayerMatchRecord, utcnow
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
                          TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, VenueEnrichRequest)
 from app.predictor import predict_match
@@ -1688,6 +1689,71 @@ def save_manual_match_credit(match_id: str, payload: ManualCreditUpdate,
             "credits_verified_count":len(rows)-len(missing),
             "credits_missing_count":len(missing),"credits_missing_players":missing,
             "credits_ready_for_team_builder":bool(rows) and not missing}
+
+
+@app.get("/api/v1/admin/player-collector/status")
+def admin_player_collector_status(_admin: bool = Depends(require_admin), db: Session = Depends(get_db)):
+    from sqlalchemy import func
+    total_matches = db.query(Match).count()
+    matched = db.query(Match).filter(Match.source.isnot(None), Match.source != "").count()
+    jobs = db.query(CollectorJob.status, func.count(CollectorJob.id)).group_by(CollectorJob.status).all()
+    return {
+        "matches_total": total_matches,
+        "matches_with_source_label": matched,
+        "jobs": {status: count for status, count in jobs},
+        "profiles_saved": db.query(PlayerIdentity).count(),
+        "source_profiles": db.query(PlayerSourceIdentity).count(),
+        "scorecard_records": db.query(PlayerMatchRecord).count(),
+        "note": "A source label alone is not a verified source URL. Matches without a source URL must be linked or reported unmatched."
+    }
+
+
+@app.post("/api/v1/admin/player-collector/scan")
+def admin_player_collector_scan(_admin: bool = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.player_collector_sources import source_for_url, validate_public_url
+    from app.player_collector_worker import enqueue
+    matches = db.scalars(select(Match).order_by(Match.start_time.desc())).all()
+    queued, already, unmatched, errors = 0, 0, [], []
+    for match in matches:
+        candidates = []
+        # Existing per-player source profile data may contain a verified match page URL.
+        profiles = db.scalars(select(PlayerSourceProfile).where(PlayerSourceProfile.match_id == match.id)).all()
+        for profile in profiles:
+            data = profile.data if isinstance(profile.data, dict) else {}
+            for key in ("match_url", "scorecard_url", "source_url", "url"):
+                value = data.get(key)
+                if isinstance(value, str) and value.startswith("https://"):
+                    candidates.append(value)
+        # Match intelligence can retain provider URLs from previous imports.
+        intel = db.get(MatchIntelligence, match.id)
+        intel_data = intel.data if intel and isinstance(intel.data, dict) else {}
+        for key in ("source_url", "match_url", "cricbuzz_url", "crex_url", "scorecard_url"):
+            value = intel_data.get(key)
+            if isinstance(value, str) and value.startswith("https://"):
+                candidates.append(value)
+        candidates = list(dict.fromkeys(candidates))
+        valid = []
+        for url in candidates:
+            try:
+                validate_public_url(url, source_for_url(url))
+                valid.append(url)
+            except Exception:
+                continue
+        if not valid:
+            unmatched.append({"match_id": match.id, "name": match.name, "teams": f"{match.team_a} vs {match.team_b}", "reason": "No verified CREX/Cricbuzz match URL is saved."})
+            continue
+        for url in valid:
+            try:
+                added = enqueue(db, source_for_url(url), "match_page", url)
+                queued += int(added)
+                already += int(not added)
+            except Exception as exc:
+                errors.append({"match_id": match.id, "error": type(exc).__name__})
+    return {
+        "matches_scanned": len(matches), "jobs_queued": queued, "already_queued_or_completed": already,
+        "unmatched_count": len(unmatched), "unmatched": unmatched[:100], "errors": errors[:50],
+        "note": "This scan only queues verified source URLs already stored in D11. It does not guess provider match IDs from D11's internal match IDs."
+    }
 
 
 @app.get("/api/v1/admin/matches/{match_id}/source-profiles")
