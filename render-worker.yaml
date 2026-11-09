@@ -1,0 +1,21 @@
+# Optional separate Render Blueprint for the D11 collector.
+# Deploy this file as a separate Blueprint/service so the existing web service
+# is not replaced. Background Workers require a paid Render instance.
+services:
+  - type: worker
+    name: d11-player-collector
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.player_collector_worker
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: COLLECTOR_POLL_SECONDS
+        value: "15"
+      - key: COLLECTOR_REQUEST_GAP_SECONDS
+        value: "3"
+      - key: COLLECTOR_REFRESH_HOURS
+        value: "72"
