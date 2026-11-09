@@ -29,6 +29,7 @@ from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_se
     parse_cricbuzz_series_index)
 from app.importers.cricbuzz_series import (
     fetch_series_index, fetch_series_matches, parse_series_index, parse_series_matches,
+    enrich_fixture_source_links,
 )
 from app.venue_analysis import analyse_venue, compare_squad_strength, analysis_context_fields
 from app.public_feed import normalize_fixture, sort_fixture_key, classify_fixture_status, parse_source_datetime
@@ -2674,7 +2675,7 @@ def preview_cricbuzz_fixture_series(payload: CricbuzzSeriesPreviewRequest,
         slug = parsed.path.strip("/").split("/")[2]
         series = {"series_id": series_id, "name": re.sub(r"[-_]+", " ", slug).title(),
                   "series_url": payload.series_url, "matches_url": payload.series_url}
-        fixtures = parse_series_matches(html, payload.series_url, series, payload.month)
+        fixtures = [enrich_fixture_source_links(x) for x in parse_series_matches(html, payload.series_url, series, payload.month)]
     except ValueError as exc:
         raise HTTPException(422, "Cricbuzz preview rejected: " + str(exc)[:350])
     except httpx.HTTPStatusError as exc:
@@ -2702,7 +2703,7 @@ def import_cricbuzz_fixture_series(payload: CricbuzzFixtureSeriesImportRequest,
         slug = parsed.path.strip("/").split("/")[2]
         series = {"series_id": series_id, "name": re.sub(r"[-_]+", " ", slug).title(),
                   "series_url": payload.series_url, "matches_url": payload.series_url}
-        fixtures = [x for x in parse_series_matches(html, payload.series_url, series)
+        fixtures = [enrich_fixture_source_links(x) for x in parse_series_matches(html, payload.series_url, series, payload.month)
                     if _cricbuzz_fixture_in_month(x, payload.month)]
     except ValueError as exc:
         raise HTTPException(422, "Cricbuzz import rejected: " + str(exc)[:350])
