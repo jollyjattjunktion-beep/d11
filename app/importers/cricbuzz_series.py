@@ -85,9 +85,12 @@ def parse_series_index(html: str, source_url: str) -> list[dict]:
             continue
         sid, slug = m.groups()
         name = a.get_text(" ", strip=True) or re.sub(r"[-_]+", " ", slug).title()
+        previous_heading = a.find_previous(["h2", "h3", "h4"])
+        month_label = previous_heading.get_text(" ", strip=True).strip().casefold() if previous_heading else None
         found[sid] = {
             "series_id": sid,
             "name": name[:200],
+            "month_label": month_label,
             "series_url": f"https://www.cricbuzz.com/cricket-series/{sid}/{slug}/matches",
             "matches_url": f"https://www.cricbuzz.com/cricket-series/{sid}/{slug}/matches",
             "venues_url": f"https://www.cricbuzz.com/cricket-series/{sid}/{slug}/venues",
