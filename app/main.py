@@ -2585,7 +2585,7 @@ def discover_cricbuzz_series_and_venues(payload: CricbuzzSeriesIndexImportReques
 def _cricbuzz_fixture_start(value: str | None) -> str | None:
     if not value:
         return None
-    raw = re.sub(r"\\s+", " ", value).strip()
+    raw = re.sub(r"\s+", " ", value).strip()
     formats_utc = (
         ("%b %d, %Y %H:%M GMT", "%b %d, %Y %I:%M %p GMT"),
         ("%B %d, %Y %H:%M GMT", "%B %d, %Y %I:%M %p GMT"),
@@ -2667,9 +2667,9 @@ def preview_cricbuzz_fixture_series(payload: CricbuzzSeriesPreviewRequest,
                                     _admin: bool = Depends(require_admin)):
     try:
         parsed = urlparse(payload.series_url)
-        if not re.fullmatch(r"/cricket-series/\\d+/[^/]+/matches/?", parsed.path):
+        if not re.fullmatch(r"/cricket-series/\d+/[^/]+/matches/?", parsed.path):
             raise ValueError("Use the exact Cricbuzz series Matches URL.")
-        series_id = re.search(r"/cricket-series/(\\d+)/", parsed.path).group(1)
+        series_id = re.search(r"/cricket-series/(\d+)/", parsed.path).group(1)
         html = fetch_series_matches(payload.series_url)
         # Reuse the series name/slug from the URL until the page supplies a heading.
         slug = parsed.path.strip("/").split("/")[2]
@@ -2696,9 +2696,9 @@ def import_cricbuzz_fixture_series(payload: CricbuzzFixtureSeriesImportRequest,
     # by browser JavaScript during the preview step.
     try:
         parsed = urlparse(payload.series_url)
-        if not re.fullmatch(r"/cricket-series/\\d+/[^/]+/matches/?", parsed.path):
+        if not re.fullmatch(r"/cricket-series/\d+/[^/]+/matches/?", parsed.path):
             raise ValueError("Use the exact Cricbuzz series Matches URL.")
-        series_id = re.search(r"/cricket-series/(\\d+)/", parsed.path).group(1)
+        series_id = re.search(r"/cricket-series/(\d+)/", parsed.path).group(1)
         html = fetch_series_matches(payload.series_url)
         slug = parsed.path.strip("/").split("/")[2]
         series = {"series_id": series_id, "name": payload.series_name or re.sub(r"[-_]+", " ", slug).title(),
