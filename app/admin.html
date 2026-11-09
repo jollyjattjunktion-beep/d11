@@ -167,6 +167,11 @@
         <div class="match-edit-field" style="grid-column:span 2"><label for="editVenueUrl">Cricbuzz venue page URL — import or refresh ground stats</label><input id="editVenueUrl" placeholder="https://www.cricbuzz.com/cricket-series/.../venues/42/ground"></div>
         <div class="match-edit-field" style="align-self:end"><label>&nbsp;</label><button class="btn outline" id="importVenueForMatch" type="button" style="width:100%">Import & link venue</button></div>
       </div>
+      <div class="match-edit-grid" style="margin-top:11px">
+        <div class="match-edit-field" style="grid-column:span 2"><label for="editCricbuzzMatchUrl">Cricbuzz match scorecard URL — player profiles & historical stats</label><input id="editCricbuzzMatchUrl" type="url" placeholder="https://www.cricbuzz.com/live-cricket-scorecard/123456/team-a-vs-team-b"></div>
+        <div class="match-edit-field" style="align-self:end"><label>&nbsp;</label><button class="btn" id="saveCricbuzzPlayerUrl" type="button" style="width:100%">Save URL & fetch player data</button></div>
+      </div>
+      <div class="helper">Add the direct Cricbuzz scorecard URL for this fixture. D11 saves it against this match and queues player profiles and historical scorecards before pitch analysis or team generation.</div>
       <div class="match-edit-actions"><button class="btn green" id="saveAdminMatch" type="button">Save match changes</button><button class="btn secondary" id="openAdminMatch" type="button">Open in team workspace</button><span class="helper">When you link a stadium, pitch and first-innings/chase recommendations are recalculated from that format's saved records.</span></div>
       <div id="adminMatchEditNotice" class="notice" style="display:none"></div>
     </div>
@@ -385,8 +390,20 @@ function openAdminMatchEditor(m){
  $('editMatchStart').value=m.start_time||'';$('editMatchVenue').value=m.venue||'';
  $('editVenueCatalogue').value=m.venue_id||'__auto__';
  $('editVenueUrl').value='';
+ $('editCricbuzzMatchUrl').value=m.cricbuzz_match_url||'';
  $('adminMatchEditNotice').style.display='none';
  $('adminMatchEditor').scrollIntoView({behavior:'smooth',block:'center'});
+}
+async function saveCricbuzzPlayerUrl(){
+ const id=$('editMatchId').value;if(!id)return;
+ const button=$('saveCricbuzzPlayerUrl');button.disabled=true;button.textContent='Saving & queueing…';
+ try{
+  const url=$('editCricbuzzMatchUrl').value.trim();
+  const d=await api('/api/v1/admin/matches/'+encodeURIComponent(id)+'/player-source',{method:'POST',body:JSON.stringify({url})});
+  adminLibraryNotice('adminMatchEditNotice',d.message+(d.queued?' Collection job queued.':' URL saved; matching job already exists.'),'good');
+  await loadAdminMatches();
+ }catch(e){adminLibraryNotice('adminMatchEditNotice',e.message,'error');}
+ finally{button.disabled=false;button.textContent='Save URL & fetch player data';}
 }
 async function saveAdminMatch(){
  const id=$('editMatchId').value;if(!id)return;
@@ -422,6 +439,7 @@ $('refreshAdminMatches').onclick=loadAdminMatches;
 $('adminMatchSearch').addEventListener('keydown',e=>{if(e.key==='Enter')loadAdminMatches();});
 $('closeAdminMatchEditor').onclick=()=>{$('adminMatchEditor').hidden=true;};
 $('saveAdminMatch').onclick=saveAdminMatch;
+$('saveCricbuzzPlayerUrl').onclick=saveCricbuzzPlayerUrl;
 $('importVenueForMatch').onclick=async()=>{
  const id=$('editMatchId').value,url=$('editVenueUrl').value.trim(),button=$('importVenueForMatch');
  if(!url){adminLibraryNotice('adminMatchEditNotice','Paste the Cricbuzz venue profile URL first.','warn');return;}
