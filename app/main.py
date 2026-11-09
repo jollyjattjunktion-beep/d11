@@ -1765,7 +1765,7 @@ def admin_player_collector_scan(_admin: bool = Depends(require_admin), db: Sessi
         # Match intelligence can retain provider URLs from previous imports.
         intel = db.get(MatchIntelligence, match.id)
         intel_data = intel.data if intel and isinstance(intel.data, dict) else {}
-        for key in ("source_url", "match_url", "cricbuzz_url", "crex_url", "scorecard_url"):
+        for key in ("source_url", "match_url", "cricbuzz_url", "cricbuzz_match_url", "crex_url", "scorecard_url"):
             value = intel_data.get(key)
             if isinstance(value, str) and value.startswith("https://"):
                 candidates.append(value)
