@@ -168,8 +168,9 @@
         <div class="match-edit-field" style="align-self:end"><label>&nbsp;</label><button class="btn outline" id="importVenueForMatch" type="button" style="width:100%">Import & link venue</button></div>
       </div>
       <div class="match-edit-grid" style="margin-top:11px">
-        <div class="match-edit-field" style="grid-column:span 2"><label for="editCricbuzzMatchUrl">Cricbuzz match scorecard URL — player profiles & historical stats</label><input id="editCricbuzzMatchUrl" type="url" placeholder="https://www.cricbuzz.com/live-cricket-scorecard/123456/team-a-vs-team-b"></div>
-        <div class="match-edit-field" style="align-self:end"><label>&nbsp;</label><button class="btn" id="saveCricbuzzPlayerUrl" type="button" style="width:100%">Save URL & fetch player data</button></div>
+        <div class="match-edit-field"><label for="editCricbuzzMatchUrl">Cricbuzz scorecard URL (live scoreboard)</label><input id="editCricbuzzMatchUrl" type="url" placeholder="https://www.cricbuzz.com/live-cricket-scorecard/170703/..."></div>
+        <div class="match-edit-field"><label for="editCricbuzzSquadsUrl">Cricbuzz squads URL (player data)</label><input id="editCricbuzzSquadsUrl" type="url" placeholder="https://www.cricbuzz.com/cricket-match-squads/170703/..."></div>
+        <div class="match-edit-field" style="align-self:end"><label>&nbsp;</label><button class="btn" id="saveCricbuzzPlayerUrl" type="button" style="width:100%">Save URLs & fetch player data</button></div>
       </div>
       <div class="helper">Add the direct Cricbuzz scorecard URL for this fixture. D11 saves it against this match and queues player profiles and historical scorecards before pitch analysis or team generation.</div>
       <div class="match-edit-actions"><button class="btn green" id="saveAdminMatch" type="button">Save match changes</button><button class="btn secondary" id="openAdminMatch" type="button">Open in team workspace</button><span class="helper">When you link a stadium, pitch and first-innings/chase recommendations are recalculated from that format's saved records.</span></div>
@@ -390,7 +391,8 @@ function openAdminMatchEditor(m){
  $('editMatchStart').value=m.start_time||'';$('editMatchVenue').value=m.venue||'';
  $('editVenueCatalogue').value=m.venue_id||'__auto__';
  $('editVenueUrl').value='';
- $('editCricbuzzMatchUrl').value=m.cricbuzz_match_url||'';
+ $('editCricbuzzMatchUrl').value=m.cricbuzz_scorecard_url||m.cricbuzz_match_url||'';
+ $('editCricbuzzSquadsUrl').value=m.cricbuzz_squads_url||'';
  $('adminMatchEditNotice').style.display='none';
  $('adminMatchEditor').scrollIntoView({behavior:'smooth',block:'center'});
 }
@@ -399,11 +401,12 @@ async function saveCricbuzzPlayerUrl(){
  const button=$('saveCricbuzzPlayerUrl');button.disabled=true;button.textContent='Saving & queueing…';
  try{
   const url=$('editCricbuzzMatchUrl').value.trim();
-  const d=await api('/api/v1/admin/matches/'+encodeURIComponent(id)+'/player-source',{method:'POST',body:JSON.stringify({url})});
+  const squadsUrl=$('editCricbuzzSquadsUrl').value.trim();
+  const d=await api('/api/v1/admin/matches/'+encodeURIComponent(id)+'/player-source',{method:'POST',body:JSON.stringify({scorecard_url:url,squads_url:squadsUrl})});
   adminLibraryNotice('adminMatchEditNotice',d.message+(d.queued?' Collection job queued.':' URL saved; matching job already exists.'),'good');
   await loadAdminMatches();
  }catch(e){adminLibraryNotice('adminMatchEditNotice',e.message,'error');}
- finally{button.disabled=false;button.textContent='Save URL & fetch player data';}
+ finally{button.disabled=false;button.textContent='Save URLs & fetch player data';}
 }
 async function saveAdminMatch(){
  const id=$('editMatchId').value;if(!id)return;
