@@ -295,9 +295,11 @@ def _load_public_match_detail(match_id: str, db: Session) -> dict:
     now = datetime.now(timezone.utc)
     detail_stale = last_detail_sync is None or (now - last_detail_sync) >= timedelta(minutes=15)
     failed_last_attempt = intel.get("public_detail_import_status") == "failed"
-    retry_minutes = 5 if failed_last_attempt else 15
+    # Public page views must not synchronously refresh an already populated squad.
+    # Existing squads are refreshed through the admin/source sync workflow instead.
+    retry_minutes = 30 if failed_last_attempt else 60
     retry_allowed = last_detail_attempt is None or (now - last_detail_attempt) >= timedelta(minutes=retry_minutes)
-    should_import_detail = bool(retry_allowed and (not existing_squads or detail_stale))
+    should_import_detail = bool(retry_allowed and not existing_squads)
     import_ok = not failed_last_attempt
     import_note = (
         "The latest squad refresh was unsuccessful. Saved SQL data is shown, and another source retry will be allowed shortly."
@@ -428,9 +430,15 @@ def _load_public_match_detail(match_id: str, db: Session) -> dict:
     for profile in profiles:
         profile_map.setdefault(profile.player_id, {}).update(profile.data or {})
 
+    # Resolve all player names in one query; avoid one SELECT per squad row.
+    player_ids = {squad.player_id for squad in squad_rows}
+    player_ids.update(row.player_id for row in stat_rows)
+    player_rows = db.scalars(select(Player).where(Player.id.in_(player_ids))).all() if player_ids else []
+    player_by_id = {player.id: player for player in player_rows}
+
     players = []
     for squad in squad_rows:
-        player = db.get(Player, squad.player_id)
+        player = player_by_id.get(squad.player_id)
         profile = profile_map.get(squad.player_id, {})
         players.append({
             "player_id": squad.player_id,
@@ -448,10 +456,11 @@ def _load_public_match_detail(match_id: str, db: Session) -> dict:
     stat_rows = db.scalars(
         select(PlayerMatchStats).where(PlayerMatchStats.match_id == match_id)
     ).all()
+    squad_by_player = {item.player_id: item for item in squad_rows}
     scorecards = []
     for row in stat_rows:
-        player = db.get(Player, row.player_id)
-        squad = next((item for item in squad_rows if item.player_id == row.player_id), None)
+        player = player_by_id.get(row.player_id)
+        squad = squad_by_player.get(row.player_id)
         scorecards.append({
             "player_name": player.name if player else row.player_id,
             "team": squad.team if squad else None,
