@@ -137,9 +137,7 @@
     </div>
   </section>
 
-  <section class="match-library">
-    <div class="match-library-head">
-      <div>  <section class="match-library" id="cricbuzzSeriesImporter">
+  <section class="match-library" id="cricbuzzSeriesImporter">
     <div class="match-library-head"><div><h2>D11 Admin → Cricbuzz Series Importer</h2><p>Discover live Cricbuzz series, preview fixtures for a selected month, then import verified match IDs and source links into PostgreSQL.</p></div><span class="pill">IDEMPOTENT IMPORT</span></div>
     <div style="padding:15px 18px">
       <div class="match-library-tools" style="padding:0;background:transparent;border:0">
@@ -152,7 +150,9 @@
     </div>
   </section>
 
-      <h2>Saved Match Library</h2><p>Search, edit, assign a stadium and open any imported match in the team workspace.</p></div>
+  <section class="match-library">
+    <div class="match-library-head">
+      <div><h2>Saved Match Library</h2><p>Search, edit, assign a stadium and open any imported match in the team workspace.</p></div>
       <div class="row"><span class="pill" id="adminMatchCount">Not loaded</span><button class="btn outline" id="loadAdminMatches" type="button">Load saved matches</button></div>
     </div>
     <div class="match-library-tools">
