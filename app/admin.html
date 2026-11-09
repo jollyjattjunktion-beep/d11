@@ -116,7 +116,7 @@
 <body>
 <header class="topbar">
   <div><div class="brand">PREET <span>FANTASY AI</span></div><div class="subbrand">CRICKET INTELLIGENCE • STEP-BY-STEP TEAM BUILDER</div></div>
-  <div class="auth"><a href="/" class="btn outline" style="background:#ffffff15;color:#fff;border:1px solid #ffffff55;text-decoration:none">Public Homepage</a><a href="/admin/stadiums" class="btn outline" style="background:#ffffff15;color:#fff;border:1px solid #ffffff55;text-decoration:none">Stadium Database</a><button id="syncPublicFeed" class="btn" type="button">Sync Fixtures</button><input id="adminToken" type="password" autocomplete="off" placeholder="Admin token (session only)"><span style="font-size:11px;color:#ddd">Secure admin session</span></div>
+  <div class="auth"><a href="/" class="btn outline" style="background:#ffffff15;color:#fff;border:1px solid #ffffff55;text-decoration:none">Public Homepage</a><a href="/admin/stadiums" class="btn outline" style="background:#ffffff15;color:#fff;border:1px solid #ffffff55;text-decoration:none">Stadium Database</a><button id="syncPublicFeed" class="btn" type="button">Sync Fixtures</button><span id="adminLoginControls" class="auth"><input id="adminUsername" type="text" autocomplete="username" value="admin" placeholder="Admin ID" aria-label="Admin ID"><input id="adminPassword" type="password" autocomplete="current-password" placeholder="Admin password" aria-label="Admin password"><button id="adminLoginButton" class="btn green" type="button">Login</button></span><span id="adminSessionStatus" style="font-size:11px;color:#d7f7e8" hidden>Logged in • session remembered for 30 days</span><button id="adminLogoutButton" class="btn secondary" type="button" hidden>Logout</button><input id="adminToken" type="password" autocomplete="off" placeholder="Legacy API token" style="display:none"></div>
 </header>
 <main class="wrap">
   <div class="intro"><div><h1>Fantasy Team Workspace</h1><div class="muted">Import the match, confirm availability and build teams with venue context.</div></div><span class="pill" id="workspaceStatus">No match loaded</span></div>
@@ -323,8 +323,32 @@ let seriesIndexLastUrl='';
 const $=id=>document.getElementById(id);
 const token=()=> $('adminToken').value.trim();
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function headers(){if(!token())throw new Error('Enter your admin token first.');return {'Content-Type':'application/json','X-Admin-Token':token()};}
-async function api(url,options={}){const r=await fetch(url,{...options,headers:{...headers(),...(options.headers||{})}});const raw=await r.text();let data;try{data=JSON.parse(raw)}catch{data={detail:raw.slice(0,1000)}}if(!r.ok){if(r.status===401)$('adminToken').value='';throw new Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail||data));}return data;}
+function headers(){const h={'Content-Type':'application/json'};if(token())h['X-Admin-Token']=token();return h;}
+async function api(url,options={}){const r=await fetch(url,{credentials:'same-origin',...options,headers:{...headers(),...(options.headers||{})}});const raw=await r.text();let data;try{data=JSON.parse(raw)}catch{data={detail:raw.slice(0,1000)}}if(!r.ok){if(r.status===401){$('adminToken').value='';showAdminLogin();}throw new Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail||data));}return data;}
+function showAdminLogin(authenticated){
+ $('adminLoginControls').hidden=!!authenticated;
+ $('adminSessionStatus').hidden=!authenticated;
+ $('adminLogoutButton').hidden=!authenticated;
+}
+async function checkAdminSession(){
+ try{const r=await fetch('/api/v1/admin/auth/status',{credentials:'same-origin',cache:'no-store'});const d=await r.json();showAdminLogin(!!d.authenticated);}catch{showAdminLogin(false);}
+}
+$('adminLoginButton').addEventListener('click',async()=>{
+ const button=$('adminLoginButton');button.disabled=true;button.textContent='Signing in…';
+ try{
+  const r=await fetch('/api/v1/admin/auth/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:$('adminUsername').value.trim(),password:$('adminPassword').value})});
+  const d=await r.json();if(!r.ok)throw new Error(d.detail||'Login failed.');
+  $('adminPassword').value='';showAdminLogin(true);
+  const notice=$('playerCollectorNotice');if(notice){notice.className='notice good';notice.textContent='Admin login successful. This browser will remember your session for 30 days.';}
+ }catch(e){alert(e.message);}
+ finally{button.disabled=false;button.textContent='Login';}
+});
+$('adminPassword').addEventListener('keydown',e=>{if(e.key==='Enter')$('adminLoginButton').click();});
+$('adminLogoutButton').addEventListener('click',async()=>{
+ await fetch('/api/v1/admin/auth/logout',{method:'POST',credentials:'same-origin'});
+ showAdminLogin(false);
+});
+checkAdminSession();
 
 let adminMatches=[],adminVenues=[];
 function adminLibraryNotice(id,msg,kind=''){
