@@ -1,15 +1,15 @@
-name: D11 automatic player data collection
+name: D11 demo player data collection
 
 on:
-  schedule:
-    - cron: "0 */6 * * *"
+  # Scheduled collection remains on the production default branch only.
+  # A manual run on this demo branch must use the separate demo database secret.
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: d11-player-collector
+  group: d11-demo-player-collector
   cancel-in-progress: false
 
 jobs:
@@ -17,8 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      DATABASE_URL: ${{ secrets.D11_DATABASE_URL }}
-      APP_ENV: production
+      DATABASE_URL: ${{ secrets.D11_DEMO_DATABASE_URL }}
+      APP_ENV: demo
       COLLECTOR_POLL_SECONDS: "5"
       COLLECTOR_REQUEST_GAP_SECONDS: "3"
       COLLECTOR_REFRESH_HOURS: "72"
@@ -33,11 +33,11 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Validate database secret
+      - name: Validate demo database secret
         run: |
           if [ -z "$DATABASE_URL" ]; then
-            echo "Missing GitHub Actions secret D11_DATABASE_URL"
+            echo "Missing GitHub Actions secret D11_DEMO_DATABASE_URL"
             exit 1
           fi
-      - name: Run bounded collection batch
+      - name: Run bounded demo collection batch
         run: python -m app.player_collector_worker --once --max-jobs 250
