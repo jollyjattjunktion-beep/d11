@@ -281,7 +281,7 @@ def parse_series_matches(html: str, source_url: str, series: dict, reference_mon
     # Knockout cards may have no scorecard URL until teams are confirmed.
     for node in soup.find_all(["div", "li", "article"], class_=re.compile(r"(?:match[-_ ]?(?:card|item|list)|cb-match)", re.I)):
         card_text = re.sub(r"\s+", " ", node.get_text(" ", strip=True))
-        title_match = re.search(r"((?:\d+(?:st|nd|rd|th)\s+Match|Qualifier|Eliminator|Semi[- ]?Final\\s*\\d*|Final)(?:[^•|]{0,100})?)", card_text, re.I)
+        title_match = re.search(r"((?:\d+(?:st|nd|rd|th)\s+Match|Qualifier|Eliminator|Semi[- ]?Final\s*\d*|Final)(?:[^•|]{0,100})?)", card_text, re.I)
         if not title_match or not re.search(r"\bTBC\b", card_text, re.I):
             continue
         title = title_match.group(1).strip(" •|-")
