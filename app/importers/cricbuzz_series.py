@@ -298,7 +298,10 @@ def parse_series_matches(html: str, source_url: str, series: dict, reference_mon
     for item in results:
         text = item["card_text"]
         # Team names are extracted only when an unambiguous "A vs B" label exists.
-        teams = re.search(r"(.{2,80}?)\s+vs\.?\s+(.{2,80}?)(?=\s+(?:\d{1,2}\s+[A-Z][a-z]{2}|T20I?\b|ODI\b|TEST\b|Match\b)|$)", text, re.I)
+        # Knockout placeholders explicitly remain TBC; do not mistake the
+        # bracket notation "(A1 vs B2)" in the title for confirmed team names.
+        is_tbc_fixture = not item.get("cricbuzz_match_id") and bool(re.search(r"\bTBC\b", text, re.I))
+        teams = None if is_tbc_fixture else re.search(r"(.{2,80}?)\s+vs\.?\s+(.{2,80}?)(?=\s+(?:\d{1,2}\s+[A-Z][a-z]{2}|T20I?\b|ODI\b|TEST\b|Match\b)|$)", text, re.I)
         if teams:
             item["team_a"] = re.sub(r"\s+", " ", teams.group(1)).strip(" •|-")
             item["team_b"] = re.sub(r"\s+", " ", teams.group(2)).strip(" •|-")
