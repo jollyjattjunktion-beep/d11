@@ -3,6 +3,18 @@ from sqlalchemy import String, Float, Integer, DateTime, ForeignKey, UniqueConst
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
+class Competition(Base):
+    __tablename__ = "competitions"
+    id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(40), default="CRICBUZZ", index=True)
+    provider_series_id: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    season: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    series_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    matches_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+
+
 class Match(Base):
     __tablename__ = "matches"
     id: Mapped[str] = mapped_column(String(100), primary_key=True)
@@ -14,6 +26,8 @@ class Match(Base):
     team_b: Mapped[str] = mapped_column(String(100))
     status: Mapped[str] = mapped_column(String(30), default="upcoming")
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    competition_id: Mapped[str | None] = mapped_column(ForeignKey("competitions.id"), nullable=True, index=True)
+    source_fixture_key: Mapped[str | None] = mapped_column(String(220), nullable=True, unique=True, index=True)
     squad: Mapped[list["MatchSquad"]] = relationship(back_populates="match", cascade="all, delete-orphan")
 
 class Player(Base):
