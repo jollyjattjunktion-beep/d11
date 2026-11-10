@@ -6,11 +6,16 @@ best-effort: absent upstream fields remain None and never overwrite admin data.
 from __future__ import annotations
 
 import re
+import hashlib
+import unicodedata
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from app.models import Competition, Match, MatchIntelligence
 
 HOSTS = {"cricbuzz.com", "www.cricbuzz.com", "m.cricbuzz.com", "mlb.cricbuzz.com"}
 HEADERS = {
@@ -184,6 +189,17 @@ def enrich_fixture_source_links(item: dict) -> dict:
     return item
 
 
+def fixture_identity_key(series_id: str, fixture: dict) -> str:
+    provider_id = str(fixture.get('cricbuzz_match_id') or '').strip()
+    if provider_id:
+        return 'cricbuzz:match:' + provider_id
+    title = unicodedata.normalize('NFKD', str(fixture.get('title') or fixture.get('name') or 'fixture'))
+    title = re.sub(r'[^a-z0-9]+', '-', title.casefold()).strip('-')[:100] or 'fixture'
+    date = re.sub(r'[^0-9]', '', str(fixture.get('date_text') or ''))[:12] or 'undated'
+    raw = series_id + '|' + title + '|' + date
+    return ('cricbuzz:fixture:' + series_id + ':' + title + ':' + date + ':' + hashlib.sha256(raw.encode()).hexdigest()[:16])[:220]
+
+
 def parse_series_matches(html: str, source_url: str, series: dict, reference_month: str | None = None) -> list[dict]:
     _checked_url(source_url)
     soup = BeautifulSoup(html, "html.parser")
@@ -278,5 +294,6 @@ def parse_series_matches(html: str, source_url: str, series: dict, reference_mon
             f"{item['team_a']} vs {item['team_b']}" if item["team_a"] and item["team_b"] else
             f"{item['series_name']} fixture {item['cricbuzz_match_id']}"
         )
+        item["fixture_identity_key"] = fixture_identity_key(str(series["series_id"]), item)
         item.pop("card_text", None)
     return results
