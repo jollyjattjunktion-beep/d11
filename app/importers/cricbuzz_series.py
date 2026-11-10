@@ -314,3 +314,83 @@ def parse_series_matches(html: str, source_url: str, series: dict, reference_mon
         item["fixture_identity_key"] = fixture_identity_key(str(series["series_id"]), item)
         item.pop("card_text", None)
     return results
+
+
+def upsert_cricbuzz_series(db: Session, series: dict, fixtures: list[dict], month: str) -> dict:
+    """Idempotently save competition fixtures and preserve manually entered venues."""
+    sid = str(series["series_id"])
+    competition = db.scalar(select(Competition).where(Competition.provider_series_id == sid))
+    if competition is None:
+        competition = Competition(id="cricbuzz_" + sid, provider="CRICBUZZ",
+            provider_series_id=sid, name=series["name"], season=month[:4],
+            series_url=series.get("series_url"), matches_url=series.get("matches_url"), metadata_json={})
+        db.add(competition)
+    else:
+        competition.name = series["name"] or competition.name
+        competition.series_url = series.get("series_url") or competition.series_url
+        competition.matches_url = series.get("matches_url") or competition.matches_url
+    db.flush()
+    created = updated = unchanged = skipped = 0
+    now = datetime.now(timezone.utc).isoformat()
+    for item in fixtures:
+        if not item.get("team_a") or not item.get("team_b"):
+            skipped += 1
+            continue
+        identity = item.get("fixture_identity_key") or fixture_identity_key(sid, item)
+        match = db.scalar(select(Match).where(Match.source_fixture_key == identity))
+        provider_id = str(item.get("cricbuzz_match_id") or "")
+        if match is None and provider_id:
+            for intel in db.scalars(select(MatchIntelligence)).all():
+                cb_old = (intel.data or {}).get("cricbuzz", {})
+                if str(cb_old.get("match_id") or "") == provider_id:
+                    match = db.get(Match, intel.match_id)
+                    break
+        match_id = match.id if match else ("cricbuzz_" + provider_id if provider_id else "cricbuzz_" + hashlib.sha256(identity.encode()).hexdigest()[:24])
+        values = {"name": (item.get("title") or item.get("name") or "Fixture")[:250],
+            "team_a": str(item["team_a"])[:100], "team_b": str(item["team_b"])[:100],
+            "source": "Cricbuzz", "competition_id": competition.id, "source_fixture_key": identity}
+        if item.get("format"):
+            values["format"] = item["format"]
+        if match is None:
+            match = Match(id=match_id, venue=item.get("venue"), status="upcoming",
+                format=item.get("format") or "UNKNOWN", **values)
+            db.add(match)
+            created += 1
+        else:
+            changed = False
+            for field, value in values.items():
+                if value and getattr(match, field) != value:
+                    setattr(match, field, value)
+                    changed = True
+            if item.get("venue") and not match.venue:
+                match.venue = str(item["venue"])[:200]
+                changed = True
+            if changed:
+                updated += 1
+            else:
+                unchanged += 1
+        db.flush()
+        intel = db.get(MatchIntelligence, match_id)
+        data = dict(intel.data or {}) if intel and isinstance(intel.data, dict) else {}
+        cb = dict(data.get("cricbuzz") or {})
+        cb.update({"provider": "CRICBUZZ", "series_id": sid, "series_name": series["name"],
+            "series_url": series.get("series_url"), "matches_url": series.get("matches_url"),
+            "match_id": provider_id or None, "fixture_identity_key": identity, "last_imported_at": now})
+        for field in ("match_url", "live_url", "info_url", "scorecard_url", "date_text", "format"):
+            if item.get(field):
+                cb[field] = item[field]
+        data["cricbuzz"] = cb
+        if item.get("live_url"):
+            data["cricbuzz_live_url"] = item["live_url"]
+            data["cricbuzz_match_url"] = item["live_url"]
+        if item.get("info_url"):
+            data["cricbuzz_info_url"] = item["info_url"]
+        if item.get("scorecard_url"):
+            data["cricbuzz_scorecard_url"] = item["scorecard_url"]
+        if intel is None:
+            db.add(MatchIntelligence(match_id=match_id, data=data))
+        else:
+            intel.data = data
+    db.commit()
+    return {"created": created, "updated": updated, "unchanged": unchanged,
+            "skipped": skipped, "competition_id": competition.id}
