@@ -280,9 +280,9 @@ def parse_series_matches(html: str, source_url: str, series: dict, reference_mon
             cards[mid]["info_url"] = absolute
     # Knockout cards may have no scorecard URL until teams are confirmed.
     for node in soup.find_all(["div", "li", "article"], class_=re.compile(r"(?:match[-_ ]?(?:card|item|list)|cb-match)", re.I)):
-        card_text = re.sub(r"\\s+", " ", node.get_text(" ", strip=True))
-        title_match = re.search(r"((?:\\d+(?:st|nd|rd|th)\\s+Match|Qualifier|Eliminator|Semi[- ]?Final\\s*\\d*|Final)(?:[^•|]{0,100})?)", card_text, re.I)
-        if not title_match or not re.search(r"\\bTBC\\b", card_text, re.I):
+        card_text = re.sub(r"\s+", " ", node.get_text(" ", strip=True))
+        title_match = re.search(r"((?:\d+(?:st|nd|rd|th)\s+Match|Qualifier|Eliminator|Semi[- ]?Final\\s*\\d*|Final)(?:[^•|]{0,100})?)", card_text, re.I)
+        if not title_match or not re.search(r"\bTBC\b", card_text, re.I):
             continue
         title = title_match.group(1).strip(" •|-")
         date_text = _date_time(card_text, reference_month)
@@ -293,7 +293,7 @@ def parse_series_matches(html: str, source_url: str, series: dict, reference_mon
                 "series_url": series["series_url"], "matches_url": series["matches_url"],
                 "live_url": None, "info_url": None, "scorecard_url": None, "match_url": None,
                 "date_text": date_text, "format": _format(card_text) or series_format,
-                "venue": None, "team_a": "TBC", "team_b": "TBC"}
+                "venue": None, "team_a": "TBC", "team_b": "TBC", "card_text": card_text}
     results = list(cards.values())
     for item in results:
         text = item["card_text"]
@@ -352,8 +352,7 @@ def upsert_cricbuzz_series(db: Session, series: dict, fixtures: list[dict], mont
         if item.get("format"):
             values["format"] = item["format"]
         if match is None:
-            match = Match(id=match_id, venue=item.get("venue"), status="upcoming",
-                format=item.get("format") or "UNKNOWN", **values)
+            match = Match(id=match_id, venue=item.get("venue"), status="upcoming", **values)
             db.add(match)
             created += 1
         else:
