@@ -278,6 +278,22 @@ def parse_series_matches(html: str, source_url: str, series: dict, reference_mon
             cards[mid]["scorecard_url"] = absolute
         elif "/cricket-match-facts/" in path:
             cards[mid]["info_url"] = absolute
+    # Knockout cards may have no scorecard URL until teams are confirmed.
+    for node in soup.find_all(["div", "li", "article"], class_=re.compile(r"(?:match[-_ ]?(?:card|item|list)|cb-match)", re.I)):
+        card_text = re.sub(r"\\s+", " ", node.get_text(" ", strip=True))
+        title_match = re.search(r"((?:\\d+(?:st|nd|rd|th)\\s+Match|Qualifier|Eliminator|Semi[- ]?Final\\s*\\d*|Final)(?:[^•|]{0,100})?)", card_text, re.I)
+        if not title_match or not re.search(r"\\bTBC\\b", card_text, re.I):
+            continue
+        title = title_match.group(1).strip(" •|-")
+        date_text = _date_time(card_text, reference_month)
+        key = "tbc:" + re.sub(r"[^a-z0-9]+", "-", title.casefold()).strip("-") + ":" + (date_text or "")
+        if key not in cards:
+            cards[key] = {"cricbuzz_match_id": None, "title": title, "name": title,
+                "series_id": str(series["series_id"]), "series_name": series["name"],
+                "series_url": series["series_url"], "matches_url": series["matches_url"],
+                "live_url": None, "info_url": None, "scorecard_url": None, "match_url": None,
+                "date_text": date_text, "format": _format(card_text) or series_format,
+                "venue": None, "team_a": "TBC", "team_b": "TBC"}
     results = list(cards.values())
     for item in results:
         text = item["card_text"]
@@ -294,6 +310,7 @@ def parse_series_matches(html: str, source_url: str, series: dict, reference_mon
             f"{item['team_a']} vs {item['team_b']}" if item["team_a"] and item["team_b"] else
             f"{item['series_name']} fixture {item['cricbuzz_match_id']}"
         )
+        item["fixture_identity_key"] = fixture_identity_key(str(series["series_id"]), item)
         item["fixture_identity_key"] = fixture_identity_key(str(series["series_id"]), item)
         item.pop("card_text", None)
     return results
