@@ -2712,101 +2712,15 @@ def import_cricbuzz_fixture_series(payload: CricbuzzFixtureSeriesImportRequest,
     except httpx.RequestError as exc:
         raise HTTPException(502, "Could not fetch Cricbuzz Matches page: " + type(exc).__name__)
 
-    intelligence_rows = db.scalars(select(MatchIntelligence)).all()
-    existing_by_provider_id = {}
-    for row in intelligence_rows:
-        data = row.data if isinstance(row.data, dict) else {}
-        source = data.get("cricbuzz") if isinstance(data.get("cricbuzz"), dict) else {}
-        provider_id = str(source.get("match_id") or "")
-        if provider_id:
-            existing_by_provider_id[provider_id] = row.match_id
-
-    created = updated = unchanged = skipped = 0
-    errors = []
-    now = datetime.now(timezone.utc).isoformat()
     try:
-        for item in fixtures:
-            provider_id = str(item.get("cricbuzz_match_id") or "")
-            team_a, team_b = item.get("team_a"), item.get("team_b")
-            if not provider_id or not team_a or not team_b:
-                skipped += 1
-                continue
-            match_id = existing_by_provider_id.get(provider_id) or ("cricbuzz_" + provider_id)
-            match = db.get(Match, match_id)
-            values = {
-                "name": item.get("series_name") or match_id,
-                "team_a": team_a[:100],
-                "team_b": team_b[:100],
-                "source": "Cricbuzz",
-            }
-            if item.get("format"):
-                values["format"] = item["format"]
-            parsed_start = _cricbuzz_fixture_start(item.get("date_text"))
-            if parsed_start:
-                values["start_time"] = parsed_start
-            if match is None:
-                values.setdefault("format", item.get("format") or "UNKNOWN")
-                match = Match(id=match_id, venue=item.get("venue"), status="upcoming", **values)
-                db.add(match)
-                created += 1
-            else:
-                changed = False
-                for key, value in values.items():
-                    if value is None or value == "":
-                        continue
-                    if key == "source" and match.source not in (None, "", "Cricbuzz"):
-                        continue
-                    if getattr(match, key) != value:
-                        setattr(match, key, value)
-                        changed = True
-                # A missing source venue must never erase an admin-assigned ground.
-                if item.get("venue") and not match.venue:
-                    match.venue = item["venue"][:200]
-                    changed = True
-                if changed:
-                    updated += 1
-                else:
-                    unchanged += 1
-            db.flush()
-            intel = db.get(MatchIntelligence, match_id)
-            data = dict(intel.data or {}) if intel and isinstance(intel.data, dict) else {}
-            cb = dict(data.get("cricbuzz") or {})
-            cb.update({
-                "provider": "CRICBUZZ",
-                "series_id": series_id,
-                "series_name": item.get("series_name") or cb.get("series_name"),
-                "series_url": item.get("series_url") or cb.get("series_url"),
-                "matches_url": item.get("matches_url") or cb.get("matches_url"),
-                "match_id": provider_id,
-                "last_imported_at": now,
-            })
-            # Blank source fields never erase previously saved or manually added URLs.
-            for key in ("match_url", "live_url", "info_url", "scorecard_url", "date_text", "format"):
-                if item.get(key):
-                    cb[key] = item[key]
-            data["cricbuzz"] = cb
-            # Keep legacy URL keys consumed by existing D11 components.
-            if item.get("live_url"):
-                data["cricbuzz_live_url"] = item["live_url"]
-                data["cricbuzz_match_url"] = item["live_url"]
-            if item.get("info_url"):
-                data["cricbuzz_info_url"] = item["info_url"]
-            if item.get("scorecard_url"):
-                data["cricbuzz_scorecard_url"] = item["scorecard_url"]
-            if intel is None:
-                db.add(MatchIntelligence(match_id=match_id, data=data))
-            else:
-                intel.data = data
-            existing_by_provider_id[provider_id] = match_id
-        db.commit()
+        result = upsert_cricbuzz_series(db, series, fixtures, payload.month)
     except Exception as exc:
         db.rollback()
         raise HTTPException(500, "Cricbuzz import transaction rolled back: " + type(exc).__name__)
 
     return {"provider": "CRICBUZZ", "series_id": series_id, "month": payload.month,
-            "fixtures_found": len(fixtures), "created": created, "updated": updated,
-            "unchanged": unchanged, "skipped": skipped, "errors": errors,
-            "message": "Imported fixtures are available in the D11 Saved Match Library and /match/{match_id} pages."}
+            "fixtures_found": len(fixtures), **result, "errors": [],
+            "message": "Competition and fixtures are saved in the D11 Saved Match Library."}
 
 
 @app.post("/api/v1/admin/venues/enrich")
