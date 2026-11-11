@@ -1,0 +1,92 @@
+name: Deploy D11 PHP to GoogieHost
+
+on:
+  push:
+    branches:
+      - php/installation-mysql
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout D11
+        uses: actions/checkout@v4
+
+      # Private application code is deployed ABOVE public_html.
+      - name: Deploy private application code
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.D11_FTP_SERVER }}
+          username: ${{ secrets.D11_FTP_USERNAME }}
+          password: ${{ secrets.D11_FTP_PASSWORD }}
+          protocol: ftp
+          port: 21
+          server-dir: ${{ secrets.D11_FTP_SERVER_DIR }}app/
+          local-dir: ./php-site/app/
+          state-name: .d11-app-ftp-sync-state.json
+          dangerous-clean-slate: false
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/*.log
+
+      - name: Deploy database schema files
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.D11_FTP_SERVER }}
+          username: ${{ secrets.D11_FTP_USERNAME }}
+          password: ${{ secrets.D11_FTP_PASSWORD }}
+          protocol: ftp
+          port: 21
+          server-dir: ${{ secrets.D11_FTP_SERVER_DIR }}database/
+          local-dir: ./php-site/database/
+          state-name: .d11-database-ftp-sync-state.json
+          dangerous-clean-slate: false
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/*.log
+
+      - name: Deploy public website to document root
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.D11_FTP_SERVER }}
+          username: ${{ secrets.D11_FTP_USERNAME }}
+          password: ${{ secrets.D11_FTP_PASSWORD }}
+          protocol: ftp
+          port: 21
+          server-dir: ${{ secrets.D11_FTP_SERVER_DIR }}public_html/
+          local-dir: ./php-site/public/
+          state-name: .d11-public-ftp-sync-state.json
+          dangerous-clean-slate: false
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/storage/**
+            **/*.log
+
+      # The config directory is deployed only as a safe example template.
+      # The live config/config.php and storage/installed.lock are created by
+      # the installer and are deliberately never uploaded or overwritten.
+      - name: Deploy safe configuration template
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.D11_FTP_SERVER }}
+          username: ${{ secrets.D11_FTP_USERNAME }}
+          password: ${{ secrets.D11_FTP_PASSWORD }}
+          protocol: ftp
+          port: 21
+          server-dir: ${{ secrets.D11_FTP_SERVER_DIR }}config/
+          local-dir: ./php-site/config/
+          state-name: .d11-config-ftp-sync-state.json
+          dangerous-clean-slate: false
+          exclude: |
+            config.php
+            **/config.php
+            **/.git*
+            **/.git*/**
+            **/*.log
