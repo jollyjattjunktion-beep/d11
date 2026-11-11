@@ -1,0 +1,39 @@
+name: Deploy D11 PHP to GoogieHost
+
+on:
+  push:
+    branches:
+      - php/installation-mysql
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout D11
+        uses: actions/checkout@v4
+
+      # IMPORTANT:
+      # Set D11_FTP_SERVER_DIR to the remote directory whose contents are
+      # configured as the domain document root (it must serve php-site/public).
+      # Do not point this at an existing production Python deployment.
+      - name: Deploy PHP application files
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.D11_FTP_SERVER }}
+          username: ${{ secrets.D11_FTP_USERNAME }}
+          password: ${{ secrets.D11_FTP_PASSWORD }}
+          protocol: ftp
+          port: 21
+          server-dir: ${{ secrets.D11_FTP_SERVER_DIR }}
+          local-dir: ./php-site/
+          dangerous-clean-slate: false
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/vendor/**
+            **/config/config.php
+            **/storage/**
+            **/uploads/**
+            **/*.log
