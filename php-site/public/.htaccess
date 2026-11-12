@@ -1,36 +1,27 @@
-# D11 shared-hosting rewrite and security rules
-Options -Indexes -MultiViews
+# D11 portable shared-hosting rewrite rules
+# Avoid Options directives: some shared hosts reject them and return HTTP 500.
 DirectoryIndex index.php
 
 <IfModule mod_rewrite.c>
 RewriteEngine On
 
-# Keep the app portable in a root or subdirectory document root.
-# Do not force HTTPS here: some shared hosts terminate SSL at a proxy.
-
-# Serve the standalone XML sitemap and dynamic robots policy.
+# Standalone sitemap and dynamic robots.txt.
 RewriteRule ^sitemap\\.xml$ sitemap.php [L,NC]
 RewriteRule ^robots\\.txt$ robots.php [L,NC]
 
-# Never expose private application folders if the host points the
-# document root one level too high by mistake.
+# Block private folders if the host accidentally exposes the project root.
 RewriteRule ^(?:app|config|database|storage|vendor)(?:/|$) - [F,L,NC]
 
-# Deny dotfiles, except ACME challenge paths.
+# Block dotfiles except ACME validation.
 RewriteCond %{REQUEST_URI} !^/\\.well-known/
 RewriteRule (^|/)\\.(?!well-known/) - [F,L]
 
-# Deny direct access to internal/configuration file types.
-<FilesMatch "(?i)(^\\.env|\\.(?:ini|log|sql|bak|dist|ya?ml|lock)$)">
-  Require all denied
-</FilesMatch>
-
-# Existing files/directories (assets and installer) are served normally.
+# Existing files/directories (assets and installer) bypass the router.
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]
 
-# All clean SEO paths go through the front controller.
+# Route clean SEO URLs through the front controller.
 RewriteRule ^ index.php [QSA,L]
 </IfModule>
 
@@ -47,4 +38,11 @@ ExpiresByType image/png "access plus 30 days"
 ExpiresByType image/jpeg "access plus 30 days"
 ExpiresByType text/css "access plus 7 days"
 ExpiresByType application/javascript "access plus 7 days"
+</IfModule>
+
+# Protect sensitive file extensions if they are ever placed in the public root.
+<IfModule mod_authz_core.c>
+  <FilesMatch "(?i)(^\\.env|\\.(ini|log|sql|bak|dist|lock)$)">
+    Require all denied
+  </FilesMatch>
 </IfModule>
