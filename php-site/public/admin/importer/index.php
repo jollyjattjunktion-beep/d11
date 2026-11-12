@@ -51,7 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             unset($records);
 
             if (($_POST['action'] ?? '') === 'import') {
-                $totals = (new \D11\Services\\CricketImportService($pdo))->importDataset($dataset);
+                $totals = (new \D11\Services\CricketImportService($pdo))->importDataset($dataset);
                 $seen = $created = $updated = 0;
                 foreach ($totals as $counts) {
                     $seen += (int)$counts['seen'];
