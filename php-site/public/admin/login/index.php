@@ -3,7 +3,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 3) . '/app/bootstrap.php';
 require dirname(__DIR__, 3) . '/app/admin_auth.php';
 d11_start_admin_session();
-if (!empty($_SESSION['d11_admin_id'])) { header('Location: /admin/dashboard/'); exit; }
+if (!empty($_SESSION['d11_admin_id'])) { header('Location: ' . d11_url('admin/dashboard/')); exit; }
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!d11_admin_check_csrf()) {
