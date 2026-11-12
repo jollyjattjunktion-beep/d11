@@ -1,7 +1,13 @@
 <?php
 declare(strict_types=1);
 
-define('D11_ROOT', dirname(__DIR__, 2));
+$d11Candidates = [dirname(__DIR__, 2), dirname(__DIR__), dirname(__DIR__, 3)];
+$d11Root = null;
+foreach ($d11Candidates as $candidate) {
+    if (is_file($candidate . '/database/schema.sql')) { $d11Root = $candidate; break; }
+}
+if ($d11Root === null) { http_response_code(500); exit('D11 package is incomplete: database/schema.sql was not found.'); }
+define('D11_ROOT', $d11Root);
 $configDir = D11_ROOT . '/config';
 $storageDir = D11_ROOT . '/storage';
 $configFile = $configDir . '/config.php';
