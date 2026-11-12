@@ -1,27 +1,26 @@
 # D11 portable shared-hosting rewrite rules
-# Avoid Options directives: some shared hosts reject them and return HTTP 500.
+# Deliberately omit Options directives: some shared hosts reject them with HTTP 500.
 DirectoryIndex index.php
 
 <IfModule mod_rewrite.c>
 RewriteEngine On
 
-# Standalone sitemap and dynamic robots.txt.
-RewriteRule ^sitemap\\.xml$ sitemap.php [L,NC]
-RewriteRule ^robots\\.txt$ robots.php [L,NC]
+RewriteRule ^sitemap\.xml$ sitemap.php [L,NC]
+RewriteRule ^robots\.txt$ robots.php [L,NC]
 
-# Block private folders if the host accidentally exposes the project root.
-RewriteRule ^(?:app|config|database|storage|vendor)(?:/|$) - [F,L,NC]
+# Block private application directories if document root is misconfigured.
+RewriteRule ^(app|config|database|storage|vendor)(/|$) - [F,L,NC]
 
-# Block dotfiles except ACME validation.
-RewriteCond %{REQUEST_URI} !^/\\.well-known/
-RewriteRule (^|/)\\.(?!well-known/) - [F,L]
+# Deny dotfiles, except ACME validation.
+RewriteCond %{REQUEST_URI} !^/\.well-known/
+RewriteRule (^|/)\.(?!well-known/) - [F,L]
 
-# Existing files/directories (assets and installer) bypass the router.
+# Existing assets and installer directory are served normally.
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]
 
-# Route clean SEO URLs through the front controller.
+# Clean SEO routes.
 RewriteRule ^ index.php [QSA,L]
 </IfModule>
 
@@ -40,9 +39,8 @@ ExpiresByType text/css "access plus 7 days"
 ExpiresByType application/javascript "access plus 7 days"
 </IfModule>
 
-# Protect sensitive file extensions if they are ever placed in the public root.
 <IfModule mod_authz_core.c>
-  <FilesMatch "(?i)(^\\.env|\\.(ini|log|sql|bak|dist|lock)$)">
+  <FilesMatch "(?i)(^\.env|\.(ini|log|sql|bak|dist|lock)$)">
     Require all denied
   </FilesMatch>
 </IfModule>
