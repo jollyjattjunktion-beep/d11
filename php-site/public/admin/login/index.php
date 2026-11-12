@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
-require dirname(__DIR__, 3) . '/app/bootstrap.php';
-require dirname(__DIR__, 3) . '/app/admin_auth.php';
+require dirname(__DIR__, 2) . '/app/bootstrap.php';
+require dirname(__DIR__, 2) . '/app/admin_auth.php';
 d11_start_admin_session();
 if (!empty($_SESSION['d11_admin_id'])) { header('Location: /admin/dashboard/'); exit; }
 $error = '';
