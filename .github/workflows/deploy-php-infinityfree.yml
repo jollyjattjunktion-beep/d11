@@ -6,7 +6,7 @@ on:
       - php/cricket-importer
     paths:
       - "php-site/app/**"
-      - "php-site/public/**"
+      - "php-site/public/admin/**"
       - ".github/workflows/deploy-php-infinityfree.yml"
   workflow_dispatch:
 
@@ -44,7 +44,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes lftp
 
-      - name: Deploy public web files and application code
+      - name: Deploy admin pages and application code
         env:
           FTP_HOST: ${{ secrets.FTP_HOST }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
@@ -55,6 +55,7 @@ jobs:
           set -euo pipefail
           REMOTE_ROOT="${FTP_SERVER_DIR%/}/"
           REMOTE_APP="${REMOTE_ROOT}app/"
+          REMOTE_ADMIN="${REMOTE_ROOT}admin/"
 
           # Upload public/ contents into the existing web document root.
           # No --delete option is used: unrelated live files are never removed.
@@ -71,5 +72,5 @@ jobs:
 
       - name: Deployment summary
         run: |
-          echo "PHP application files uploaded to the configured hosting directory."
-          echo "The workflow does not upload database/, migrations/, config/, storage/, or the Python application."
+          echo "PHP app and admin files uploaded to the configured hosting directory."
+          echo "The workflow does not upload public homepage files, .htaccess, config/, storage/, database/, migrations/, or the Python application."
