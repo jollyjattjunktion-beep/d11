@@ -25,7 +25,7 @@ function d11_admin_check_csrf(): bool {
 function d11_require_admin(): array {
     d11_start_admin_session();
     if (empty($_SESSION['d11_admin_id'])) {
-        header('Location: /admin/login/');
+        header('Location: ' . d11_url('admin/login/'));
         exit;
     }
     return ['id'=>(int)$_SESSION['d11_admin_id'], 'name'=>(string)($_SESSION['d11_admin_name'] ?? 'Administrator'),
