@@ -1,0 +1,7 @@
+/config/config.php
+/storage/installed.lock
+/storage/*.log
+/storage/cache/*
+!/storage/.gitkeep
+/public/uploads/*
+!/public/uploads/.gitkeep
