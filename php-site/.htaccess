@@ -1,0 +1,11 @@
+# Protect private PHP application folders when the package is uploaded below a web root.
+# Best practice remains: configure the document root to php-site/public/.
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule ^(app|config|database|storage)(/|$) - [F,L,NC]
+</IfModule>
+<IfModule mod_authz_core.c>
+<FilesMatch "(?i)(^\.env|\.(ini|log|sql|bak|dist|lock)$)">
+Require all denied
+</FilesMatch>
+</IfModule>
