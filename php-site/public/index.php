@@ -140,7 +140,13 @@ function d11_match_link(array $row): string {
 <?php elseif ($kind==='error' || $kind==='notfound'): ?><div class="panel"><p><?=d11_e($intro)?></p></div>
 <?php else: ?><section class="list">
 <?php foreach($rows as $r): ?>
-<article class="item"><div><strong><?php if(!empty($r['slug'])): ?><a href="<?=d11_e(d11_match_link($r))?>"><?=d11_e($r['match_title']??$r['name']??'')?></a><?php else: ?><?=d11_e($r['name']??'') ?><?php endif; ?></strong><span class="muted"><?=d11_e(($r['team_a_name']??'').' '.($r['team_b_name']??''))?> <?=d11_e($r['format']??'')?></span></div><span class="tag"><?=d11_e($r['status']??'')?></span></article>
+<?php
+  $rowName = (string)($r['match_title'] ?? $r['name'] ?? '');
+  if ($kind === 'series') $rowHref = d11_url('series/' . rawurlencode((string)$r['slug']) . '/');
+  elseif (!empty($r['slug'])) $rowHref = d11_match_link($r);
+  else $rowHref = '';
+?>
+<article class="item"><div><strong><?php if($rowHref !== ''): ?><a href="<?=d11_e($rowHref)?>"><?=d11_e($rowName)?></a><?php else: ?><?=d11_e($rowName)?><?php endif; ?></strong><span class="muted"><?=d11_e(($r['team_a_name']??'').' '.($r['team_b_name']??''))?> <?=d11_e($r['format']??'')?></span></div><span class="tag"><?=d11_e($r['status']??'')?></span></article>
 <?php endforeach; ?>
 <?php if(!$rows): ?><div class="panel empty">No records are available yet. Import cricket series and fixtures to populate this page.</div><?php endif; ?>
 </section><?php endif; ?>
