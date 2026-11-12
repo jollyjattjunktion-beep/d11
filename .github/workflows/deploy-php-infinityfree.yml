@@ -64,11 +64,8 @@ jobs:
             set net:max-retries 2;
             set net:timeout 25;
             open -u \"$FTP_USERNAME\",\"$FTP_PASSWORD\" \"$FTP_HOST\";
-            mirror --reverse --verbose --overwrite --no-perms --parallel=2 \
-              --exclude-glob .htaccess --exclude-glob 'uploads/**' \
-              ./php-site/public/ \"$REMOTE_ROOT\";
-            mirror --reverse --verbose --overwrite --no-perms --parallel=2 \
-              ./php-site/app/ \"$REMOTE_APP\";
+            mirror --reverse --verbose --overwrite --no-perms --parallel=2 --exclude-glob .htaccess --exclude-glob 'uploads/**' ./php-site/public/ \"$REMOTE_ROOT\";
+            mirror --reverse --verbose --overwrite --no-perms --parallel=2 ./php-site/app/ \"$REMOTE_APP\";
             bye
           "
 
