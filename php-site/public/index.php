@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
-require dirname(__DIR__) . '/app/bootstrap.php';
+$d11Root = is_file(dirname(__DIR__) . '/app/bootstrap.php') ? dirname(__DIR__) : __DIR__;
+require $d11Root . '/app/bootstrap.php';
 
 $path = (string)(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/');
 $basePath = d11_base_path();
