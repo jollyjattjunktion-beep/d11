@@ -1,0 +1,67 @@
+name: D11 PHP shared-hosting package
+
+on:
+  push:
+    branches:
+      - php/infinityfree-safe-foundation
+    paths:
+      - "php-site/**"
+      - ".github/workflows/d11-php-package.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: pdo, pdo_mysql, mbstring
+          coverage: none
+
+      - name: PHP syntax check
+        shell: bash
+        run: |
+          set -euo pipefail
+          find php-site -type f -name '*.php' -print0 | while IFS= read -r -d '' file; do
+            php -l "$file"
+          done
+
+      - name: Validate installer and schema package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s php-site/public/install/index.php
+          test -s php-site/database/schema.sql
+          test -s php-site/public/.htaccess
+          test -d php-site/storage
+          test -d php-site/config
+          grep -q "sql307.infinityfree.com" php-site/public/install/index.php
+          grep -q "if0_43415210_d11" php-site/public/install/index.php
+          grep -q "if0_43415210" php-site/public/install/index.php
+          grep -q "CREATE TABLE IF NOT EXISTS admin_users" php-site/database/schema.sql
+          grep -q "CREATE TABLE IF NOT EXISTS matches" php-site/database/schema.sql
+          grep -q "installed.lock" php-site/public/install/index.php
+
+      - name: Build upload ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd php-site
+          zip -r ../d11-php-infinityfree.zip app config database public storage README.md .gitignore .htaccess \
+            -x "config/config.php" "storage/installed.lock" "storage/*.log" "public/uploads/*"
+
+      - name: Upload installable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: d11-php-infinityfree
+          path: d11-php-infinityfree.zip
+          if-no-files-found: error
+          retention-days: 14
