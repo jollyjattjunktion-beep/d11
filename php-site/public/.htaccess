@@ -1,12 +1,50 @@
-Options -Indexes
+# D11 shared-hosting rewrite and security rules
+Options -Indexes -MultiViews
 DirectoryIndex index.php
+
 <IfModule mod_rewrite.c>
 RewriteEngine On
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
+
+# Keep the app portable in a root or subdirectory document root.
+# Do not force HTTPS here: some shared hosts terminate SSL at a proxy.
+
+# Serve the standalone XML sitemap and dynamic robots policy.
+RewriteRule ^sitemap\\.xml$ sitemap.php [L,NC]
+RewriteRule ^robots\\.txt$ robots.php [L,NC]
+
+# Never expose private application folders if the host points the
+# document root one level too high by mistake.
+RewriteRule ^(?:app|config|database|storage|vendor)(?:/|$) - [F,L,NC]
+
+# Deny dotfiles, except ACME challenge paths.
+RewriteCond %{REQUEST_URI} !^/\\.well-known/
+RewriteRule (^|/)\\.(?!well-known/) - [F,L]
+
+# Deny direct access to internal/configuration file types.
+<FilesMatch "(?i)(^\\.env|\\.(?:ini|log|sql|bak|dist|ya?ml|lock)$)">
+  Require all denied
+</FilesMatch>
+
+# Existing files/directories (assets and installer) are served normally.
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# All clean SEO paths go through the front controller.
 RewriteRule ^ index.php [QSA,L]
 </IfModule>
 
-<FilesMatch "^\.(env|ini|log|sql)$">
-  Require all denied
-</FilesMatch>
+<IfModule mod_headers.c>
+Header always set X-Content-Type-Options "nosniff"
+Header always set Referrer-Policy "strict-origin-when-cross-origin"
+Header always set X-Frame-Options "SAMEORIGIN"
+</IfModule>
+
+<IfModule mod_expires.c>
+ExpiresActive On
+ExpiresByType image/webp "access plus 30 days"
+ExpiresByType image/png "access plus 30 days"
+ExpiresByType image/jpeg "access plus 30 days"
+ExpiresByType text/css "access plus 7 days"
+ExpiresByType application/javascript "access plus 7 days"
+</IfModule>
