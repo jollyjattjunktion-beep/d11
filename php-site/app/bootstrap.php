@@ -18,7 +18,6 @@ function d11_db(): PDO
     static $pdo = null;
     global $config;
     if ($pdo instanceof PDO) return $pdo;
-
     $db = $config['db'];
     $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=%s',
         $db['host'], (int)($db['port'] ?? 3306), $db['database'], $db['charset'] ?? 'utf8mb4');
@@ -37,8 +36,9 @@ function d11_e(?string $value): string
 
 function d11_slug(string $value): string
 {
-    $value = trim(mb_strtolower($value, 'UTF-8'));
-    $value = preg_replace('/[^\\pL\\pN]+/u', '-', $value) ?? '';
+    $lower = function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
+    $value = trim($lower);
+    $value = preg_replace('/[^\pL\pN]+/u', '-', $value) ?? '';
     return trim($value, '-');
 }
 
