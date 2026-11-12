@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['d11_admin_name'] = $admin['name'];
             $_SESSION['d11_admin_email'] = $admin['email'];
             $_SESSION['d11_admin_role'] = $admin['role'];
-            header('Location: /admin/dashboard/'); exit;
+            header('Location: ' . d11_url('admin/dashboard/')); exit;
         }
         $error = 'Email or password is incorrect.';
     }
