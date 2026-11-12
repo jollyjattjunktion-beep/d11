@@ -6,6 +6,7 @@ $lockFile = D11_ROOT . '/storage/installed.lock';
 $configFile = D11_ROOT . '/config/config.php';
 $error = '';
 $success = false;
+$defaultBaseUrl = 'https://d11.freehosting.dev';
 
 if (is_file($lockFile)) {
     http_response_code(403);
@@ -25,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $adminName = trim((string)($_POST['admin_name'] ?? ''));
     $adminEmail = trim((string)($_POST['admin_email'] ?? ''));
     $adminPassword = (string)($_POST['admin_password'] ?? '');
-    $baseUrl = rtrim(trim((string)($_POST['base_url'] ?? '')), '/');
+    $baseUrl = rtrim(trim((string)($_POST['base_url'] ?? $defaultBaseUrl)), '/');
 
     if (!filter_var($adminEmail, FILTER_VALIDATE_EMAIL)) {
         $error = 'Enter a valid administrator email address.';
@@ -35,6 +36,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Complete all required fields.';
     } elseif (!preg_match('#^https://#i', $baseUrl)) {
         $error = 'Use the HTTPS website URL.';
+    } elseif ($port < 1 || $port > 65535) {
+        $error = 'Enter a valid MySQL port.';
+    } elseif (!is_dir(dirname($configFile)) || !is_writable(dirname($configFile)) || !is_dir(dirname($lockFile)) || !is_writable(dirname($lockFile))) {
+        $error = 'The config/ and storage/ folders must exist and be writable before installation.';
     } else {
         try {
             $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $host, $port, $database);
@@ -46,6 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $schemaPath = D11_ROOT . '/database/schema.sql';
             if (!is_file($schemaPath)) throw new RuntimeException('Database schema file is missing.');
             $schema = file_get_contents($schemaPath);
+            if ($schema === false) throw new RuntimeException('Could not read database/schema.sql.');
             $schema = preg_replace('/^\s*--.*$/m', '', $schema);
             foreach (array_filter(array_map('trim', explode(';', (string)$schema))) as $statement) {
                 $pdo->exec($statement);
@@ -69,10 +75,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ],
             ];
 
-            $configDir = D11_ROOT . '/config';
-            $storageDir = D11_ROOT . '/storage';
-            if (!is_dir($configDir)) mkdir($configDir, 0750, true);
-            if (!is_dir($storageDir)) mkdir($storageDir, 0750, true);
             $configPhp = "<?php\ndeclare(strict_types=1);\nreturn " . var_export($config, true) . ";\n";
             if (file_put_contents($configFile, $configPhp, LOCK_EX) === false) {
                 throw new RuntimeException('Could not write config/config.php. Check folder permissions.');
@@ -83,6 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $success = true;
         } catch (Throwable $e) {
             $error = 'Installation failed: ' . $e->getMessage();
+            error_log('D11 installer: ' . $e->getMessage());
         }
     }
 }
@@ -92,7 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>D11 Cricket — Installation</title>
 <style>
-:root{color-scheme:dark;--bg:#081522;--panel:#102337;--line:#29435a;--muted:#9eb2c4;--accent:#a6d64f}
+:root{color-scheme:dark;--panel:#102337;--line:#29435a;--muted:#9eb2c4;--accent:#a6d64f}
 *{box-sizing:border-box}body{margin:0;background:linear-gradient(135deg,#081522,#102a3e);font:15px/1.5 system-ui;color:#eef5fb;min-height:100vh;padding:28px 14px}
 main{max-width:760px;margin:auto}.brand{font-size:30px;font-weight:800;letter-spacing:1px}.brand span{color:var(--accent)}.sub{color:var(--muted);margin:4px 0 22px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:22px;margin:14px 0;box-shadow:0 18px 45px #0003}
@@ -105,7 +108,7 @@ input{width:100%;padding:12px;border:1px solid var(--line);border-radius:9px;bac
 <body><main>
 <div class="brand"><span>D11</span> CRICKET</div><div class="sub">New installation · PHP + MySQL</div>
 <?php if ($success): ?>
-<div class="panel"><div class="ok"><h2>Installation completed</h2><p>Your D11 MySQL tables and administrator account have been created. The installer is now locked.</p><a href="../" style="color:#d6f5a1">Open D11 website</a></div></div>
+<div class="panel"><div class="ok"><h2>Installation completed</h2><p>D11 MySQL tables and administrator account have been created. The installer is now locked.</p><a href="../" style="color:#d6f5a1">Open D11 website</a></div></div>
 <?php else: ?>
 <?php if ($error !== ''): ?><div class="panel error"><?=install_h($error)?></div><?php endif; ?>
 <form method="post" class="panel" autocomplete="off">
@@ -117,9 +120,9 @@ input{width:100%;padding:12px;border:1px solid var(--line);border-radius:9px;bac
 <div><label>Database username</label><input name="db_user" value="<?=install_h($_POST['db_user'] ?? '')?>" required></div>
 </div>
 <label>Database password</label><input name="db_password" type="password" required>
-<p class="note">Create a new, empty MySQL database in GoogieHost first. Do not use the production PostgreSQL database.</p>
+<p class="note">Use a new, empty MySQL database created in your hosting panel. Never use production database credentials.</p>
 <h2 style="margin-top:24px">2. Website settings</h2>
-<label>Website HTTPS URL</label><input name="base_url" type="url" placeholder="https://your-domain.com" value="<?=install_h($_POST['base_url'] ?? '')?>" required>
+<label>Website HTTPS URL</label><input name="base_url" type="url" placeholder="https://your-domain.com" value="<?=install_h($_POST['base_url'] ?? $defaultBaseUrl)?>" required>
 <h2 style="margin-top:24px">3. Administrator account</h2>
 <label>Administrator name</label><input name="admin_name" value="<?=install_h($_POST['admin_name'] ?? '')?>" required>
 <label>Administrator email</label><input name="admin_email" type="email" value="<?=install_h($_POST['admin_email'] ?? '')?>" required>
@@ -127,5 +130,5 @@ input{width:100%;padding:12px;border:1px solid var(--line);border-radius:9px;bac
 <button class="btn" type="submit">Install D11 Cricket</button>
 </form>
 <?php endif; ?>
-<p class="note">D11 PHP installer · Existing Python application and production database are not modified.</p>
+<p class="note">D11 PHP installer · Python D11 and production PostgreSQL are not modified.</p>
 </main></body></html>
