@@ -1,18 +1,37 @@
 # D11 PHP Cricket Platform
 
-Separate lightweight PHP + MySQL application. The Python D11 application and production PostgreSQL database are not part of this package.
+A separate PHP + MySQL cricket website package. It does not connect to or modify the existing Python D11 application or its PostgreSQL production database.
 
-## Hosting / installation
-- PHP 8.1+ with PDO and pdo_mysql
+## InfinityFree installation (recommended package layout)
+
+1. In InfinityFree, create a **new, empty MySQL database** and database user in the control panel. Shared hosting normally does not let an installer create database users.
+2. Download the GitHub Actions artifact named `d11-php-infinityfree` and extract the artifact wrapper ZIP once. Inside it is `d11-php-infinityfree.zip`; extract that ZIP on your computer.
+3. Upload **the contents** of that inner ZIP directly into `htdocs` using the hosting File Manager or FTP. Do not upload only the `public` folder. The package is flattened for shared hosting: `index.php`, `install/`, `admin/`, `app/`, `config/`, `database/` and `storage/` will sit inside `htdocs`.
+4. Confirm the package `.htaccess` is present in `htdocs`. It protects private directories and routes clean URLs to the PHP front controller. If the host has disabled Apache rewrite support, ask the host to enable `mod_rewrite` and `AllowOverride`.
+5. Open `https://YOUR-SUBDOMAIN/install/`.
+6. Enter the MySQL values exactly as shown in the InfinityFree panel. The database name and database username are separate fields. For the account used while developing this installer, the expected examples are:
+   - Host: `sql307.infinityfree.com`
+   - Port: `3306`
+   - Database name: `if0_43415210_d11`
+   - Database username: `if0_43415210`
+   - Password: the database password from the hosting panel
+7. Enter the website HTTPS URL and create the administrator account. Use a unique password of at least 12 characters.
+8. After installation, the installer writes `config/config.php` and `storage/installed.lock`. The lock prevents a second installation. Keep these files private and never commit them to GitHub.
+9. Sign in at `https://YOUR-SUBDOMAIN/admin/login/`.
+
+## Alternative layout
+
+If your host supports a custom document root, point it to the package's `public/` directory and keep `app/`, `config/`, `database/` and `storage/` one level above it. The installer and public entry points detect either supported layout.
+
+## Requirements
+
+- PHP 8.1+ with PDO and `pdo_mysql`
 - MySQL 5.7+ / MariaDB 10.4+
-- Apache with mod_rewrite and AllowOverride enabled
-- HTTPS recommended
+- HTTPS
+- Apache `mod_rewrite` for clean SEO URLs
 
-Create an empty MySQL database and user in the hosting control panel; shared hosts generally do not allow PHP to create databases or database users automatically. Upload the application, point the domain document root to `php-site/public/` where possible, and visit `/install/`. The installer creates tables, the first administrator, configuration and a lock file. It refuses to run again after successful installation.
+## Included routes
 
-If the hosting provider does not allow a custom document root, keep `app/`, `config/`, `database/` and `storage/` above `public_html/`; put only the contents of `public/` inside `public_html/`. Update the bootstrap include path in the public entry points to the actual private application root. Never put database credentials or the schema directory inside the public web root.
-
-## SEO routes
 - `/`
 - `/live-cricket-score/`
 - `/series/`
@@ -21,12 +40,15 @@ If the hosting provider does not allow a custom document root, keep `app/`, `con
 - `/match/{match-slug}/`
 - `/team/{team-slug}/`
 - `/player/{player-slug}/`
-- `/sitemap.xml` (standalone dynamic XML endpoint)
-- `/robots.txt` (dynamic robots policy)
+- `/sitemap.xml`
+- `/robots.txt`
+- `/admin/login/`
+- `/admin/dashboard/`
 
-The sitemap lists the homepage, live-score page, series, points-table pages and match pages. It is generated independently by `public/sitemap.php` and does not require the front controller.
+## Important limitations
 
-## Important
-- The existing installed MySQL database must not be reinstalled or dropped. This branch changes application files only; it does not run SQL against any database.
-- Keep production Python/PostgreSQL untouched.
-- Data adapters are a later step and must use sources whose terms permit collection and republication.
+This is an installable PHP foundation, not yet the full Cricbuzz-feature replacement. The public pages, initial admin dashboard, normalized import service and core database schema are included. Full provider-specific series discovery, live ball-by-ball feeds, scorecard tabs, player statistics, news publishing and advertising integrations are future development work.
+
+InfinityFree free hosting does not provide persistent workers or normal scheduled cron execution. Use manual admin imports for the demo; genuinely automatic live scores require a permitted external data service or a host with scheduled background execution.
+
+Only use cricket data sources whose terms permit collection and republication. The existing Python/PostgreSQL production system remains separate and untouched.
