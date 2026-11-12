@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-require dirname(__DIR__, 3) . '/app/bootstrap.php';
-require dirname(__DIR__, 3) . '/app/admin_auth.php';
-require dirname(__DIR__, 3) . '/app/Services/CricketImportService.php';
+require dirname(__DIR__, 2) . '/app/bootstrap.php';
+require dirname(__DIR__, 2) . '/app/admin_auth.php';
+require dirname(__DIR__, 2) . '/app/Services/CricketImportService.php';
 
 $admin = d11_require_admin();
 $pdo = d11_db();
