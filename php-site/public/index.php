@@ -36,7 +36,7 @@ try {
         $contentTitle = 'Cricket Series & Tournaments';
         $title = 'Cricket Series, Cups & Tournament Fixtures | D11';
         $description = 'Browse cricket series, cups, leagues, tournament schedules and match fixtures.';
-        $rows = $pdo->query('SELECT id,name,slug,format,season,status,start_date,end_date FROM series ORDER BY start_date DESC LIMIT 100')->fetchAll();
+        $rows = $pdo->query('SELECT id,name,slug,format,status,start_date,end_date FROM series ORDER BY start_date DESC LIMIT 100')->fetchAll();
     } elseif ($route === 'series' && count($parts) >= 2) {
         $slug = $parts[1];
         $stmt = $pdo->prepare('SELECT * FROM series WHERE slug = ? LIMIT 1');
