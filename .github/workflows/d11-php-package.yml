@@ -62,7 +62,7 @@ jobs:
           cp php-site/public/.htaccess package/.htaccess
           cd package
           zip -r ../d11-php-infinityfree.zip . \
-            -x "config/config.php" "storage/installed.lock" "storage/*.log" "uploads/*"
+            -x "config/config.php" "storage/installed.lock" "storage/*.log"
 
       - name: Upload installable package
         uses: actions/upload-artifact@v4
