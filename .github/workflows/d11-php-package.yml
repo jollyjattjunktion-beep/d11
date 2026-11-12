@@ -49,14 +49,20 @@ jobs:
           grep -q "CREATE TABLE IF NOT EXISTS admin_users" php-site/database/schema.sql
           grep -q "CREATE TABLE IF NOT EXISTS matches" php-site/database/schema.sql
           grep -q "installed.lock" php-site/public/install/index.php
+          grep -q "d11Root" php-site/public/install/index.php
 
-      - name: Build upload ZIP
+      - name: Build InfinityFree upload ZIP
         shell: bash
         run: |
           set -euo pipefail
-          cd php-site
-          zip -r ../d11-php-infinityfree.zip app config database public storage README.md .gitignore .htaccess \
-            -x "config/config.php" "storage/installed.lock" "storage/*.log" "public/uploads/*"
+          rm -rf package
+          mkdir -p package
+          cp -R php-site/app php-site/config php-site/database php-site/storage package/
+          cp -R php-site/public/. package/
+          cp php-site/public/.htaccess package/.htaccess
+          cd package
+          zip -r ../d11-php-infinityfree.zip . \
+            -x "config/config.php" "storage/installed.lock" "storage/*.log" "uploads/*"
 
       - name: Upload installable package
         uses: actions/upload-artifact@v4
