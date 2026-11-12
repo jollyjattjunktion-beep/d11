@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace D11\\Services;
+namespace D11\Services;
 
 use PDO;
 use RuntimeException;
