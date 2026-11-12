@@ -1,31 +1,32 @@
-# D11 PHP Cricket Platform (installation-first)
+# D11 PHP Cricket Platform
 
-This is a separate lightweight PHP + MySQL application. It does not replace or modify the existing Python D11 application.
+Separate lightweight PHP + MySQL application. The Python D11 application and production PostgreSQL database are not part of this package.
 
-## Phase 1 scope
-- Shared-hosting-friendly PHP 8.1+ and PDO MySQL.
-- Browser installer that creates the MySQL schema and first administrator.
-- Cricket data foundation: competitions, series, teams, players, venues, matches, squads, innings, scorecards, commentary, points tables, source registry, import logs and SEO metadata.
-- Import-safe external IDs and manual-data protection fields.
-- No fantasy engine in this phase.
+## Hosting / installation
+- PHP 8.1+ with PDO and pdo_mysql
+- MySQL 5.7+ / MariaDB 10.4+
+- Apache with mod_rewrite and AllowOverride enabled
+- HTTPS recommended
 
-## Deployment on GoogieHost
-1. Create a MySQL database and database user in the hosting control panel.
-2. Upload the contents of `php-site/` to a folder outside the public web root where possible.
-3. Set the domain/subdomain document root to `php-site/public/`. If the host does not permit a custom document root, upload only the contents of `public/` into `public_html/` and keep `app/`, `config/`, `database/` and `storage/` outside `public_html/`; adjust the bootstrap path accordingly.
-4. Open `/install/`, enter the database credentials and create the administrator.
-5. After successful installation, the installer writes a lock file and refuses to run again.
-6. Remove write permission from configuration and storage directories when installation is complete.
+Create an empty MySQL database and user in the hosting control panel; shared hosts generally do not allow PHP to create databases or database users automatically. Upload the application, point the domain document root to `php-site/public/` where possible, and visit `/install/`. The installer creates tables, the first administrator, configuration and a lock file. It refuses to run again after successful installation.
 
-## Requirements
-- PHP 8.1 or later
-- PDO and pdo_mysql
-- MySQL 5.7+ or MariaDB 10.4+
-- HTTPS
-- PHP sessions
+If the hosting provider does not allow a custom document root, keep `app/`, `config/`, `database/` and `storage/` above `public_html/`; put only the contents of `public/` inside `public_html/`. Update the bootstrap include path in the public entry points to the actual private application root. Never put database credentials or the schema directory inside the public web root.
 
-## Safety
-- Do not point this app at the production PostgreSQL database.
-- Use a new, empty MySQL database for the demo.
-- Never commit real database credentials.
-- The importer must use licensed/authorised cricket data sources. Do not republish third-party proprietary commentary, images or protected content without permission.
+## SEO routes
+- `/`
+- `/live-cricket-score/`
+- `/series/`
+- `/series/{series-slug}/`
+- `/series/{series-slug}/points-table/`
+- `/match/{match-slug}/`
+- `/team/{team-slug}/`
+- `/player/{player-slug}/`
+- `/sitemap.xml` (standalone dynamic XML endpoint)
+- `/robots.txt` (dynamic robots policy)
+
+The sitemap lists the homepage, live-score page, series, points-table pages and match pages. It is generated independently by `public/sitemap.php` and does not require the front controller.
+
+## Important
+- The existing installed MySQL database must not be reinstalled or dropped. This branch changes application files only; it does not run SQL against any database.
+- Keep production Python/PostgreSQL untouched.
+- Data adapters are a later step and must use sources whose terms permit collection and republication.
