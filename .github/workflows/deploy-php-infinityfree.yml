@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy PHP application files
+    name: Deploy PHP app and admin only
     runs-on: ubuntu-latest
     steps:
       - name: Check out selected branch
@@ -44,7 +44,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes lftp
 
-      - name: Deploy admin pages and application code
+      - name: Deploy PHP application and admin files
         env:
           FTP_HOST: ${{ secrets.FTP_HOST }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
@@ -57,20 +57,19 @@ jobs:
           REMOTE_APP="${REMOTE_ROOT}app/"
           REMOTE_ADMIN="${REMOTE_ROOT}admin/"
 
-          # Upload public/ contents into the existing web document root.
-          # No --delete option is used: unrelated live files are never removed.
-          # Keep the hosting's existing .htaccess and user uploads untouched.
+          # Upload only app/ and admin/ code. No --delete option is used.
+          # Existing .htaccess, homepage, uploads, config and storage are not touched.
           lftp -e "
             set ftp:passive-mode true;
             set net:max-retries 2;
             set net:timeout 25;
             open -u \"$FTP_USERNAME\",\"$FTP_PASSWORD\" \"$FTP_HOST\";
-            mirror --reverse --verbose --overwrite --no-perms --parallel=2 --exclude-glob .htaccess --exclude-glob 'uploads/**' ./php-site/public/ \"$REMOTE_ROOT\";
             mirror --reverse --verbose --overwrite --no-perms --parallel=2 ./php-site/app/ \"$REMOTE_APP\";
+            mirror --reverse --verbose --overwrite --no-perms --parallel=2 ./php-site/public/admin/ \"$REMOTE_ADMIN\";
             bye
           "
 
       - name: Deployment summary
         run: |
-          echo "PHP app and admin files uploaded to the configured hosting directory."
-          echo "The workflow does not upload public homepage files, .htaccess, config/, storage/, database/, migrations/, or the Python application."
+          echo "PHP app and admin files uploaded."
+          echo "No SQL, installer, config, storage, homepage, uploads, .htaccess, or Python project files were deployed."
