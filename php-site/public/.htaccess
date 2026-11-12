@@ -1,12 +1,46 @@
-Options -Indexes
+# D11 portable shared-hosting rewrite rules
+# Deliberately omit Options directives: some shared hosts reject them with HTTP 500.
 DirectoryIndex index.php
+
 <IfModule mod_rewrite.c>
 RewriteEngine On
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
+
+RewriteRule ^sitemap\.xml$ sitemap.php [L,NC]
+RewriteRule ^robots\.txt$ robots.php [L,NC]
+
+# Block private application directories if document root is misconfigured.
+RewriteRule ^(app|config|database|storage|vendor)(/|$) - [F,L,NC]
+
+# Deny dotfiles, except ACME validation.
+RewriteCond %{REQUEST_URI} !^/\.well-known/
+RewriteRule (^|/)\.(?!well-known/) - [F,L]
+
+# Existing assets and installer directory are served normally.
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Clean SEO routes.
 RewriteRule ^ index.php [QSA,L]
 </IfModule>
 
-<FilesMatch "^\.(env|ini|log|sql)$">
-  Require all denied
-</FilesMatch>
+<IfModule mod_headers.c>
+Header always set X-Content-Type-Options "nosniff"
+Header always set Referrer-Policy "strict-origin-when-cross-origin"
+Header always set X-Frame-Options "SAMEORIGIN"
+</IfModule>
+
+<IfModule mod_expires.c>
+ExpiresActive On
+ExpiresByType image/webp "access plus 30 days"
+ExpiresByType image/png "access plus 30 days"
+ExpiresByType image/jpeg "access plus 30 days"
+ExpiresByType text/css "access plus 7 days"
+ExpiresByType application/javascript "access plus 7 days"
+</IfModule>
+
+<IfModule mod_authz_core.c>
+  <FilesMatch "(?i)(^\.env|\.(ini|log|sql|bak|dist|lock)$)">
+    Require all denied
+  </FilesMatch>
+</IfModule>
