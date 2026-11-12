@@ -1,32 +1,24 @@
-# D11 PHP Cricket Platform
+# D11 PHP Cricket Platform — Importer foundation
 
-Separate lightweight PHP + MySQL application. The Python D11 application and production PostgreSQL database are not part of this package.
+This is a separate PHP + MySQL application. It does not modify the Python D11 app or production PostgreSQL database.
 
-## Hosting / installation
-- PHP 8.1+ with PDO and pdo_mysql
-- MySQL 5.7+ / MariaDB 10.4+
-- Apache with mod_rewrite and AllowOverride enabled
-- HTTPS recommended
+## Admin importer
+After admin login, open `/admin/importer/`. It accepts provider-normalised JSON, validates a preview, then imports the supplied batch transactionally and records results in `import_logs`.
 
-Create an empty MySQL database and user in the hosting control panel; shared hosts generally do not allow PHP to create databases or database users automatically. Upload the application, point the domain document root to `php-site/public/` where possible, and visit `/install/`. The installer creates tables, the first administrator, configuration and a lock file. It refuses to run again after successful installation.
+Sections: competitions, teams, venues, players, series, matches. The Source key is applied as `external_source`; each object must contain a unique `external_id`. Foreign-key values such as `competition_id`, `team_a_id`, `team_b_id`, `series_id` and `venue_id` must be local D11 MySQL integer IDs. Parent objects should be imported before dependent objects. Up to 500 records per section and 1 MB per request.
 
-If the hosting provider does not allow a custom document root, keep `app/`, `config/`, `database/` and `storage/` above `public_html/`; put only the contents of `public/` inside `public_html/`. Update the bootstrap include path in the public entry points to the actual private application root. Never put database credentials or the schema directory inside the public web root.
+Example:
+```json
+{
+  "competitions":[{"external_id":"cup-2026","name":"Example Cup","slug":"example-cup","format":"T20","season":"2026","gender":"men","status":"upcoming"}],
+  "teams":[],
+  "venues":[],
+  "players":[],
+  "series":[],
+  "matches":[]
+}
+```
 
-## SEO routes
-- `/`
-- `/live-cricket-score/`
-- `/series/`
-- `/series/{series-slug}/`
-- `/series/{series-slug}/points-table/`
-- `/match/{match-slug}/`
-- `/team/{team-slug}/`
-- `/player/{player-slug}/`
-- `/sitemap.xml` (standalone dynamic XML endpoint)
-- `/robots.txt` (dynamic robots policy)
+Matching source + external IDs update existing rows. Manually verified venues are preserved. The initial importer UI is a data-ingestion facility; it is not an automatic Cricbuzz or CREX scraper. Automatic feeds require a permitted API or licensed source adapter and should be added separately.
 
-The sitemap lists the homepage, live-score page, series, points-table pages and match pages. It is generated independently by `public/sitemap.php` and does not require the front controller.
-
-## Important
-- The existing installed MySQL database must not be reinstalled or dropped. This branch changes application files only; it does not run SQL against any database.
-- Keep production Python/PostgreSQL untouched.
-- Data adapters are a later step and must use sources whose terms permit collection and republication.
+No SQL migration is executed by this feature. No existing installed database is reset. Back up MySQL before deploying any future schema additions.
