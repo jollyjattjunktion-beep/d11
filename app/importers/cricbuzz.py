@@ -167,6 +167,9 @@ def parse_cricbuzz_venue(html: str, source_url: str) -> dict:
         stats = _parse_format_stats(_format_block(text, fmt))
         if stats:
             formats[fmt] = stats
+    # T10-specific venue figures are not always published by Cricbuzz. Do not
+    # invent a T10 sample; use T20 history only as an explicitly labelled proxy
+    # in the analysis layer.
     if not formats:
         raise ValueError("Cricbuzz venue page loaded, but no TEST/ODI/T20 stats blocks were found.")
 
