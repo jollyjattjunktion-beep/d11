@@ -6,6 +6,11 @@ from app.importers.cricbuzz import (
     parse_cricbuzz_series_index,
     validate_cricbuzz_series_index_url,
     validate_cricbuzz_venue_url,
+    venue_url_identity,
+    parse_cricbuzz_match_detail_venue,
+    parse_cricbuzz_match_schedule,
+    cricbuzz_team_slug_aliases,
+    cricbuzz_slug_side_matches,
 )
 from app.venue_analysis import analyse_venue, compare_squad_strength
 
@@ -156,3 +161,45 @@ def test_accept_cricbuzz_series_index_urls(url):
 def test_reject_non_index_cricbuzz_urls(url):
     with pytest.raises(ValueError):
         validate_cricbuzz_series_index_url(url)
+
+
+SEVEN_DISTRICTS_URL = "https://www.cricbuzz.com/cricket-series/13420/icc-womens-emerging-nations-trophy-2026/venues/1438500/seven-districts-ground"
+SLW_ZIMW_LIVE_URL = "https://www.cricbuzz.com/live-cricket-scores/177541/slw-vs-zimw-22nd-match-super-six-a1-v-b3-icc-womens-emerging-nations-trophy-2026"
+
+
+def test_canonical_seven_districts_venue_identity():
+    identity = venue_url_identity(SEVEN_DISTRICTS_URL)
+    assert identity["series_id"] == "13420"
+    assert identity["venue_id"] == "1438500"
+    assert identity["venue_slug"] == "seven-districts-ground"
+
+
+def test_parse_cricbuzz_live_match_venue_anchor():
+    html = """
+    <html><body>
+      <div>Venue: <a href="/cricket-series/13420/icc-womens-emerging-nations-trophy-2026/venues/1438500/seven-districts-ground">Seven Districts Ground, Ajman</a></div>
+    </body></html>
+    """
+    parsed = parse_cricbuzz_match_detail_venue(html, SLW_ZIMW_LIVE_URL)
+    assert parsed["venue_name"] == "Seven Districts Ground"
+    assert parsed["city_country"] == "Ajman"
+    assert parsed["venue_url"] == SEVEN_DISTRICTS_URL
+
+
+def test_parse_schedule_live_score_link_for_slw_vs_zimw():
+    html = f"""
+    <html><body>
+      <a href="/live-cricket-scores/177541/slw-vs-zimw-22nd-match-super-six-a1-v-b3-icc-womens-emerging-nations-trophy-2026">Sri Lanka Women vs Zimbabwe Women</a>
+    </body></html>
+    """
+    records = parse_cricbuzz_match_schedule(html)
+    assert len(records) == 1
+    assert records[0]["match_id"] == "177541"
+    assert records[0]["slug"].startswith("slw-vs-zimw")
+
+
+def test_team_names_map_to_cricbuzz_womens_team_slugs():
+    sri_lanka = cricbuzz_team_slug_aliases("Sri Lanka Women")
+    zimbabwe = cricbuzz_team_slug_aliases("Zimbabwe Women")
+    assert cricbuzz_slug_side_matches("slw", sri_lanka)
+    assert cricbuzz_slug_side_matches("zimw", zimbabwe)
