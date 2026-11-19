@@ -3088,14 +3088,47 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
             "fantasy_fetch_status": ai_result.get("fantasy_fetch_status"),
         }
 
-    # 3) Cricbuzz canonical venue record is linked by its URL identity; verify parsed ID.
+    # 3) Cricbuzz venue: use explicit URL when supplied; otherwise resolve this fixture's match page from the public schedule.
     if payload.import_cricbuzz_venue:
         try:
-            identity = venue_url_identity(payload.cricbuzz_venue_url)
-            venue_html = fetch_cricbuzz_venue_page(payload.cricbuzz_venue_url)
-            report = parse_cricbuzz_venue(venue_html, payload.cricbuzz_venue_url)
+            match_facts_source_url = None
+            venue_url = payload.cricbuzz_venue_url
+            if venue_url:
+                identity = venue_url_identity(venue_url)
+            else:
+                schedule_html = fetch_cricbuzz_match_schedule()
+                scheduled = parse_cricbuzz_match_schedule(schedule_html)
+                left_aliases = _cricbuzz_team_slug_aliases(match.team_a)
+                right_aliases = _cricbuzz_team_slug_aliases(match.team_b)
+                matched = []
+                for fixture in scheduled:
+                    sides = fixture["slug"].split("-vs-")
+                    if len(sides) != 2:
+                        continue
+                    direct = _slug_side_matches(sides[0], left_aliases) and _slug_side_matches(sides[1], right_aliases)
+                    reverse = _slug_side_matches(sides[0], right_aliases) and _slug_side_matches(sides[1], left_aliases)
+                    if direct or reverse:
+                        matched.append(fixture)
+                if len(matched) != 1:
+                    raise HTTPException(422, detail={
+                        "message": "Cricbuzz schedule did not resolve one unique match page for this Team Generation fixture.",
+                        "candidates": len(matched),
+                        "team_a": match.team_a,
+                        "team_b": match.team_b,
+                        "action": "Check the team aliases or supply the exact Cricbuzz venue URL.",
+                    })
+                match_facts_source_url = matched[0]["url"]
+                detail_html = fetch_cricbuzz_match_facts_page(match_facts_source_url)
+                resolved = parse_cricbuzz_match_detail_venue(detail_html, match_facts_source_url)
+                venue_url = resolved["venue_url"]
+                identity = venue_url_identity(venue_url)
+
+            venue_html = fetch_cricbuzz_venue_page(venue_url)
+            report = parse_cricbuzz_venue(venue_html, venue_url)
+        except HTTPException:
+            raise
         except ValueError as exc:
-            raise HTTPException(422, "Cricbuzz venue URL rejected: " + str(exc)[:300])
+            raise HTTPException(422, "Cricbuzz venue resolution rejected: " + str(exc)[:300])
         except httpx.HTTPStatusError as exc:
             raise HTTPException(502, detail={
                 "message": "Cricbuzz venue page could not be fetched.",
@@ -3117,12 +3150,13 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
         intel_row = db.get(MatchIntelligence, match.id)
         data = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
         data["cricbuzz_venue_report"] = report
-        data["venue_report_source_url"] = payload.cricbuzz_venue_url
+        data["venue_report_source_url"] = venue_url
         data["venue_provider"] = "CRICBUZZ"
         data["venue_id"] = venue_row.provider_key
         data["cricbuzz_series_id"] = identity["series_id"]
         data["cricbuzz_venue_id"] = identity["venue_id"]
         data["auto_venue_analysis"] = venue_analysis
+        data["cricbuzz_match_detail_source_url"] = match_facts_source_url
         data.update(analysis_context_fields(venue_analysis))
         if intel_row is None:
             db.add(MatchIntelligence(match_id=match.id, data=data))
@@ -3138,7 +3172,8 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
             "pitch_available": venue_analysis.get("available"),
             "pitch_recommendation": venue_analysis.get("pitch_recommendation"),
             "confidence": venue_analysis.get("confidence"),
-            "source_url": payload.cricbuzz_venue_url,
+            "source_url": venue_url,
+            "match_detail_source_url": match_facts_source_url,
         }
 
     # 4) Summarize the single unified D11 record after source imports.
