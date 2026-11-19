@@ -201,10 +201,10 @@
     <div class="panelhead"><h2 id="panelTitle">Step 1 — Fetch match and import players</h2><span class="pill" id="stepBadge">STEP 01 / 05</span></div>
     <div class="panelbody">
       <section class="step-view active" id="view1">
-        <p class="muted" style="margin-top:0">Paste the match page URL from Team Generation. We will fetch the fixture, both squads, player photos, roles, credits and selection/C/VC percentages.</p>
-        <div class="urlbox"><input class="field" id="matchUrl" type="url" placeholder="https://teamgeneration.in/match/113941"><button class="btn" id="fetchMatch">Fetch & Import Match</button></div>
-        <div class="row" style="margin-top:12px"><button class="btn secondary" id="loadFixtures">Browse upcoming matches</button><span class="helper">You can paste a match URL or enter its match ID.</span></div>
-        <div id="fixtures" class="fixtures"></div>
+        <p class="muted" style="margin-top:0">Primary data source: AI11. Import the player pool, roles, batting/bowling and series statistics, selection/C/VC trends and match context first. TeamGeneration is used separately for Playing XI only.</p>
+        <div class="urlbox"><input class="field" id="ai11PrimaryUrl" type="url" placeholder="https://www.ai11.in/cricket/series/.../match/..."><button class="btn" id="importAI11Primary">Import AI11 match data</button></div>
+        <div class="helper">AI11 creates or updates the D11 match. Existing manual credits and confirmed lineup decisions are preserved when linking to an open match.</div>
+        <div id="ai11PrimaryNotice" class="notice" style="display:none"></div>
         <div id="importNotice" class="notice" style="display:none"></div>
         <div id="matchSummary" style="display:none">
           <div class="match-grid" id="matchStats"></div>
@@ -221,8 +221,16 @@
         </div>
       </section>
       <section class="step-view" id="view2">
-        <div class="row" style="justify-content:space-between;margin-bottom:12px"><div><b>Playing XI — both teams</b><div class="helper">Only use confirmed source playing flags as the official XI. Before announcement, selections remain provisional.</div></div><button class="btn secondary" id="refreshSource">Refresh source / toss update</button></div>
-        <div id="lineupNotice" class="notice warn">Load a match first.</div>
+        <div class="panel" style="box-shadow:none;margin-bottom:14px">
+          <div class="panelhead"><div><h2>TeamGeneration — Playing XI source</h2><div class="helper">Separate lineup import only. It matches source players into the AI11 roster and never replaces AI11 profiles or credits.</div></div><span class="pill">LINEUP ONLY</span></div>
+          <div class="panelbody">
+            <div class="urlbox"><input class="field" id="teamGenerationLineupUrl" type="url" placeholder="https://teamgeneration.in/match/m11c_120555"><button class="btn" id="importTeamGenerationLineup">Import / refresh Playing XI</button></div>
+            <div class="helper">An official XI requires 11 mapped playing players on each side. Partial/unannounced flags remain provisional; players are not removed from the squad.</div>
+            <div id="lineupImportNotice" class="notice" style="display:none"></div>
+          </div>
+        </div>
+        <div class="row" style="justify-content:space-between;margin-bottom:12px"><div><b>Review Playing XI — both teams</b><div class="helper">Confirm the source selections or save them as provisional. Manual confirmation is preserved if TeamGeneration has not announced a complete XI.</div></div><button class="btn secondary" id="refreshSource">Refresh source / toss update</button></div>
+        <div id="lineupNotice" class="notice warn">Load an AI11 match first.</div>
         <div class="inline-options" id="lineupFilters" style="margin:12px 0"></div>
         <div class="row" style="margin-bottom:14px"><button class="btn outline" id="autoSelect">Auto-select provider Playing XI</button><span class="pill" id="selectedCount">0 selected</span></div>
         <div class="team-columns" id="lineupTeams"></div>
@@ -232,7 +240,7 @@
         <div class="panel" style="box-shadow:none;margin-bottom:16px">
           <div class="panelhead"><div><h2>Automatic venue analysis</h2><div class="helper">Cricbuzz data is evaluated using this match format: ODI, T20 or Test.</div></div><span class="pill">DATA-DRIVEN</span></div>
           <div class="panelbody">
-            <div class="urlbox"><input class="field" id="venueUrlStep3" type="url" placeholder="https://www.cricbuzz.com/cricket-series/.../venues/42/hnry-stadium"><button class="btn" id="importCricbuzzVenueStep3">Fetch & analyse venue</button></div>
+            <div class="urlbox"><input class="field" id="venueUrlStep3" type="url" placeholder="https://www.cricbuzz.com/cricket-series/13420/icc-womens-emerging-nations-trophy-2026/venues/1438500/seven-districts-ground"><button class="btn" id="importCricbuzzVenueStep3">Fetch & analyse venue</button></div>
             <div class="helper">Paste the Cricbuzz venue profile URL. The system saves ODI/T20/Test figures separately and uses only the correct format for this match.</div>
             <div id="venueAnalysisNotice" class="notice warn">Checking the saved stadium catalogue for this venue…</div>
             <div id="autoVenueAnalysis" style="display:none"></div>
@@ -245,7 +253,7 @@
         <div class="panel" style="box-shadow:none;margin-bottom:16px">
           <div class="panelhead"><div><h2>Cricbuzz stadium data</h2><div class="helper">Update this ground's profile or import additional stadiums from another series.</div></div><span class="pill">SQL VENUE DATABASE</span></div>
           <div class="panelbody">
-            <div class="urlbox"><input class="field" id="venueUrl" type="url" placeholder="https://www.cricbuzz.com/cricket-series/.../venues/42/hnry-stadium"><button class="btn" id="importCricbuzzVenue">Update stadium data</button></div>
+            <div class="urlbox"><input class="field" id="venueUrl" type="url" placeholder="https://www.cricbuzz.com/cricket-series/13420/icc-womens-emerging-nations-trophy-2026/venues/1438500/seven-districts-ground"><button class="btn" id="importCricbuzzVenue">Update stadium data</button></div>
             <div class="helper">Use the Cricbuzz venue page. The system refreshes all available format records and recalculates the automatic analysis.</div>
             <div id="venueNotice" class="notice">No Cricbuzz venue report loaded yet. Paste a venue URL in Step 3 or here.</div>
             <div id="crexReportPanel" style="display:none;margin-top:14px"></div>
@@ -311,7 +319,7 @@
       </section>
     </div>
   </section>
-  <details style="margin-top:16px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px"><summary style="cursor:pointer;font-weight:800">Other provider — AI11 import</summary><p class="helper">With a D11 match already open, AI11 profiles will be matched by player name and attached to that same match. Existing Team Generation credits, roles and confirmed Playing XI status are preserved. Without an open match, the importer creates a separate AI11 match.</p><div class="urlbox"><input class="field" id="ai11Url" type="url" placeholder="https://www.ai11.in/..."><button class="btn secondary" id="ai11Import">Import & link AI11</button></div><pre id="ai11Out" style="white-space:pre-wrap;background:#17212b;color:#e8fff4;padding:12px;border-radius:8px;display:none"></pre></details>
+
 <div class="footer">PREET FANTASY AI • Source-backed cricket data • No guaranteed fantasy points or outcomes</div>
 </main>
 <div class="suggest-modal" id="suggestModal">
@@ -472,7 +480,7 @@ $('importVenueForMatch').onclick=async()=>{
 $('openAdminMatch').onclick=()=>openMatchWorkspace($('editMatchId').value);
 $('syncPublicFeed').onclick=async()=>{const b=$('syncPublicFeed');b.disabled=true;b.textContent='Syncing…';try{const d=await api('/api/v1/admin/public-matches/sync',{method:'POST'});b.textContent='Synced '+d.visible_matches+' matches';setTimeout(()=>b.textContent='Sync Fixtures',2500);}catch(e){alert(e.message);b.textContent='Sync Fixtures';}finally{b.disabled=false;}};
 function idFromUrl(v){const s=v.trim();if(/^\d{4,}$/.test(s))return s;const m=s.match(/\/match\/([A-Za-z0-9_-]+)/i)||s.match(/\/matches\/([A-Za-z0-9_-]+)/i);if(!m)throw new Error('Paste a Team Generation match URL such as https://teamgeneration.in/match/113941');return m[1];}
-function setStep(n){if(!state.matchId&&n!==1)return;if(n===4){state.roleFilter='ALL';if(state.players.length)renderFixed();}state.step=n;document.querySelectorAll('.step').forEach(e=>{const x=Number(e.dataset.step);e.classList.toggle('active',x===n);e.classList.toggle('done',x<n)});document.querySelectorAll('.step-view').forEach(e=>e.classList.toggle('active',e.id==='view'+n));$('stepBadge').textContent='STEP 0'+n+' / 05';const titles=['Fetch match and import players','Confirm Playing XI for both teams','Automatic venue and team analysis','Choose 4–5 high-selection players','Generate and review fantasy teams'];$('panelTitle').textContent='Step '+n+' — '+titles[n-1];}
+function setStep(n){if(!state.matchId&&n!==1)return;if(n===4){state.roleFilter='ALL';if(state.players.length)renderFixed();}state.step=n;document.querySelectorAll('.step').forEach(e=>{const x=Number(e.dataset.step);e.classList.toggle('active',x===n);e.classList.toggle('done',x<n)});document.querySelectorAll('.step-view').forEach(e=>e.classList.toggle('active',e.id==='view'+n));$('stepBadge').textContent='STEP 0'+n+' / 05';const titles=['Import primary AI11 match data','Import / confirm TeamGeneration Playing XI','Automatic venue and team analysis','Choose 4–5 high-selection players','Generate and review fantasy teams'];$('panelTitle').textContent='Step '+n+' — '+titles[n-1];}
 function notice(id,msg,kind=''){const el=$(id);el.className='notice '+kind;el.textContent=msg;el.style.display='block';}
 function playerProfile(p){return p.profile||{};}
 async function loadWizard(){
@@ -487,18 +495,31 @@ async function loadWizard(){
  const withCredits=state.players.filter(p=>p.credits!=null).length;
  $('creditReady').textContent=withCredits+' / '+state.players.length+' player credits verified. '+(withCredits===state.players.length?'Ready for team generation.':'Some credits are missing; correct them before generating teams.');
  $('creditReady').style.display='block';$('creditReady').className='notice '+(withCredits===state.players.length?'good':'warn');
+ $('ai11PrimaryUrl').value=state.intelligence.ai11_source_url||'';
+ $('teamGenerationLineupUrl').value=state.intelligence.teamgeneration_lineup_source_url||'';
  $('venueUrl').value=state.intelligence.venue_report_source_url||'';
  $('venueUrlStep3').value=state.intelligence.venue_report_source_url||'';
  renderCreditCorrections();renderImportRoster();
  renderLineup();renderFixed();await loadVenueSuggestions();
 }
-async function importMatch(){
- try{const id=idFromUrl($('matchUrl').value);state.matchId=id;$('fetchMatch').disabled=true;$('fetchMatch').textContent='Fetching…';notice('importNotice','Fetching match and player data…');const result=await api('/api/v1/admin/import/teamgeneration/'+encodeURIComponent(id),{method:'POST',body:'{}'});await loadWizard();notice('importNotice',result.players_imported+' players imported for '+(result.match?.name||id)+'. Check player credits and continue to Playing XI.','good');setStep(1);}
- catch(e){notice('importNotice',e.message,'error');}finally{$('fetchMatch').disabled=false;$('fetchMatch').textContent='Fetch & Import Match';}
+async function importPrimaryAI11(){
+ const url=$('ai11PrimaryUrl').value.trim();
+ if(!url){notice('ai11PrimaryNotice','Paste the primary AI11 match analysis URL first.','warn');return;}
+ const button=$('importAI11Primary');button.disabled=true;button.textContent='Importing AI11…';
+ try{
+  const payload={analysis_url:url};
+  if(state.matchId)payload.target_match_id=state.matchId;
+  const d=await api('/api/v1/admin/import/ai11',{method:'POST',body:JSON.stringify(payload)});
+  state.matchId=d.match_id;
+  await loadWizard();
+  $('ai11PrimaryUrl').value=url;
+  notice('ai11PrimaryNotice','AI11 data imported. '+(d.players_imported??d.players_matched??0)+' player records processed for '+(d.match?.name||d.match_id)+'. Next, import the TeamGeneration Playing XI source.','good');
+  setStep(1);
+ }catch(e){notice('ai11PrimaryNotice',e.message,'error');}
+ finally{button.disabled=false;button.textContent='Import AI11 match data';}
 }
-$('fetchMatch').onclick=importMatch;
-$('toXI').onclick=()=>{if(state.matchId)setStep(2);else alert('Fetch and import a match first.');};
-$('loadFixtures').onclick=async()=>{try{$('fixtures').innerHTML='<div class="helper">Loading upcoming fixtures…</div>';const d=await api('/api/v1/admin/teamgeneration/fixtures');$('fixtures').innerHTML='';(d.matches||[]).slice(0,30).forEach(m=>{const card=document.createElement('div');card.className='fixture';const left=document.createElement('div');const title=document.createElement('strong');title.textContent=(m.left?.code||m.left?.name||'Team A')+' vs '+(m.right?.code||m.right?.name||'Team B');const meta=document.createElement('small');meta.textContent=(m.series||'Cricket')+' • '+(m.lineupStatus||'line-up unknown')+' • ID '+m.id;left.append(title,meta);const btn=document.createElement('button');btn.className='btn outline';btn.textContent='Import';btn.onclick=()=>{$('matchUrl').value='https://teamgeneration.in/match/'+m.id;importMatch()};card.append(left,btn);$('fixtures').append(card);});}catch(e){$('fixtures').textContent=e.message;}};
+$('importAI11Primary').onclick=importPrimaryAI11;
+$('toXI').onclick=()=>{if(state.matchId)setStep(2);else alert('Import the primary AI11 match data first.');};
 function grouped(){return [state.match?.team_a,state.match?.team_b].map(t=>({team:t,players:state.players.filter(p=>p.team===t)}));}
 function playerRow(p,mode){
  const checked=mode==='lineup'?state.lineupSelected.has(p.player_id):state.fixed.has(p.player_id);
@@ -515,6 +536,25 @@ function playerRow(p,mode){
 function renderImportRoster(){const root=$('importPlayerRows'),tabs=$('importRoleFilters');$('importRoster').style.display=state.players.length?'block':'none';$('importPlayerCount').textContent=state.players.length+' players';tabs.innerHTML='';['ALL','WK','BAT','AR','BOWL'].forEach(role=>{const b=document.createElement('button');b.className='import-tab'+(state.importRoleFilter===role?' active':'');b.textContent=role==='ALL'?'All players':role;b.onclick=()=>{state.importRoleFilter=role;renderImportRoster()};tabs.append(b);});root.innerHTML='';const list=state.players.filter(p=>state.importRoleFilter==='ALL'||p.role===state.importRoleFilter);if(!list.length){root.innerHTML='<div class="import-empty">No players in this role.</div>';return;}list.forEach(p=>{const row=document.createElement('div');row.className='import-player';const img=document.createElement('img');img.className='avatar';img.src=p.image||'';const details=document.createElement('div');const name=document.createElement('b');name.textContent=p.player_name;const meta=document.createElement('div');meta.className='pmeta';meta.textContent=p.team+' • '+p.role;details.append(name,meta);const sel=document.createElement('div');sel.className='import-value';sel.textContent=p.selection_pct==null?'—':p.selection_pct.toFixed(1)+'%';const pts=document.createElement('div');pts.className='import-value';pts.textContent=p.points==null?'—':p.points;const cr=document.createElement('div');cr.className='import-value';cr.textContent=p.credits==null?'Missing':p.credits;const st=document.createElement('span');st.className='status '+(p.status||'');st.textContent=(p.status||'unknown').replaceAll('_',' ');row.append(img,details,sel,pts,cr,st);root.append(row);});}
 function renderCreditCorrections(){const root=$('creditCorrections');root.innerHTML='';const missing=state.players.filter(p=>p.credits==null);if(!missing.length){root.innerHTML='<div class="notice good">All player credits are present.</div>';return;}const title=document.createElement('div');title.className='section-label';title.textContent='Missing player credits — manual verification';root.append(title);missing.forEach(p=>{const row=document.createElement('div');row.className='fixture';const name=document.createElement('strong');name.textContent=p.player_name+' • '+p.team+' • '+p.role;const credit=document.createElement('input');credit.className='field';credit.type='number';credit.min='0.1';credit.max='20';credit.step='0.5';credit.placeholder='Credits';credit.style.maxWidth='110px';const source=document.createElement('input');source.className='field';source.placeholder='Optional source URL';source.style.maxWidth='260px';const btn=document.createElement('button');btn.className='btn outline';btn.textContent='Save';btn.onclick=async()=>{try{btn.disabled=true;await api('/api/v1/admin/matches/'+encodeURIComponent(state.matchId)+'/credits',{method:'POST',body:JSON.stringify({player_id:p.player_id,credits:Number(credit.value),source_url:source.value.trim()||null})});await loadWizard();}catch(e){alert(e.message)}finally{btn.disabled=false;}};row.append(name,credit,source,btn);root.append(row);});}
 function renderRoleFilters(target,mode){const root=$(target);root.innerHTML='';['ALL','WK','BAT','AR','BOWL'].forEach(role=>{const b=document.createElement('button');b.className='option'+(state.roleFilter===role?' selected':'');b.textContent=role==='ALL'?'All roles':role;b.onclick=()=>{state.roleFilter=role;mode==='lineup'?renderLineup():renderFixed();};root.append(b);});}
+async function importTeamGenerationLineup(){
+ const url=$('teamGenerationLineupUrl').value.trim();
+ if(!url){notice('lineupImportNotice','Paste the TeamGeneration match URL first.','warn');return;}
+ const button=$('importTeamGenerationLineup');button.disabled=true;button.textContent='Refreshing XI…';
+ try{
+  const d=await api('/api/v1/admin/matches/'+encodeURIComponent(state.matchId)+'/teamgeneration-lineup/import',{method:'POST',body:JSON.stringify({url})});
+  await loadWizard();
+  $('teamGenerationLineupUrl').value=url;
+  const missing=(d.players_unmatched||[]).map(p=>p.name).filter(Boolean);
+  let message=d.mapped_lineup_confirmed
+   ? 'Official Playing XI imported: '+Object.values(d.selected_by_team||{}).join(' / ')+' mapped players by team.'
+   : (d.manual_confirmation_preserved?'TeamGeneration is not fully mapped/announced. Existing manually confirmed XI was preserved.':'TeamGeneration lineup remains provisional. No squad players were marked unavailable.');
+  message+=' Matched '+d.players_matched+' of '+d.players_received+' source players.';
+  if(missing.length)message+=' Unmatched: '+missing.slice(0,12).join(', ')+(missing.length>12?' …':'');
+  notice('lineupImportNotice',message,d.mapped_lineup_confirmed||d.manual_confirmation_preserved?'good':'warn');
+ }catch(e){notice('lineupImportNotice',e.message,'error');}
+ finally{button.disabled=false;button.textContent='Import / refresh Playing XI';}
+}
+$('importTeamGenerationLineup').onclick=importTeamGenerationLineup;
 function renderLineup(){renderRoleFilters('lineupFilters','lineup');const root=$('lineupTeams');root.innerHTML='';for(const g of grouped()){const box=document.createElement('div');box.className='team-box';const title=document.createElement('div');title.className='team-title';title.textContent=g.team+' • '+g.players.filter(p=>state.lineupSelected.has(p.player_id)).length+' selected';const list=document.createElement('div');list.className='player-list';g.players.filter(p=>state.roleFilter==='ALL'||p.role===state.roleFilter).forEach(p=>list.append(playerRow(p,'lineup')));box.append(title,list);root.append(box);} $('selectedCount').textContent=state.lineupSelected.size+' selected';notice('lineupNotice',state.lineupConfirmed?'Provider line-up is confirmed. Review the selected XI and save any corrections.':'Line-up is not yet confirmed by the source. Selected players remain provisional until confirmed.','warn');}
 $('autoSelect').onclick=()=>{state.lineupSelected=new Set(state.players.filter(p=>p.status==='playing').map(p=>p.player_id));renderLineup();};
 async function saveLineup(confirmed,advance=false){try{const r=await api('/api/v1/admin/matches/'+encodeURIComponent(state.matchId)+'/lineup',{method:'POST',body:JSON.stringify({selected_player_ids:[...state.lineupSelected],confirmed})});state.lineupConfirmed=confirmed;await loadWizard();notice('lineupNotice',confirmed?'Official XI saved for both teams.':'Provisional selection saved. Not-selected players have not been marked unavailable.','good');if(confirmed||advance)setStep(3);}catch(e){notice('lineupNotice',e.message,'error');}}
@@ -1036,22 +1076,6 @@ $('generateTeams').onclick=async()=>{
 };
 $('printTeams').onclick=()=>window.print();
 $('restart').onclick=()=>{location.reload()};
-$('ai11Import').onclick=async()=>{
- const out=$('ai11Out');out.style.display='block';
- try{
-  const url=$('ai11Url').value.trim();if(!url)throw new Error('Paste an AI11 URL first.');
-  const targetMatchId=state.matchId||null;const currentStep=state.step||1;
-  $('ai11Import').disabled=true;$('ai11Import').textContent='Importing & linking…';
-  const d=await api('/api/v1/admin/import/ai11',{method:'POST',body:JSON.stringify({analysis_url:url,target_match_id:targetMatchId})});
-  if(d.linked_to_existing_match){
-   state.matchId=targetMatchId;await loadWizard();setStep(currentStep);
-   out.textContent='AI11 linked to '+(d.match?.name||d.match_id)+'. Matched '+d.players_matched+' of '+d.players_in_ai11+' players. Unmatched: '+(d.players_unmatched||[]).join(', ')+'\nExisting D11 credits and confirmed lineup were preserved.\nCompleted-match PTS imported: '+(d.match_performance_records_imported||0)+' (updated '+(d.match_performance_records_updated||0)+', verified records preserved '+(d.existing_verified_match_records_preserved||0)+').\n'+JSON.stringify({match_completed:d.match_completed,match_context_fields_saved:d.match_context_fields_saved,credits_ready_for_team_builder:d.credits_ready_for_team_builder,credits_missing_players:d.credits_missing_players},null,2);
-  }else{
-   state.matchId=d.match_id;await loadWizard();setStep(1);out.textContent='Standalone AI11 match imported. '+JSON.stringify(d,null,2);
-  }
- }catch(e){out.textContent=e.message;}
- finally{$('ai11Import').disabled=false;$('ai11Import').textContent='Import & link AI11';}
-};
 </script>
 </body>
 </html>
