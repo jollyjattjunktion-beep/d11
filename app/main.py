@@ -1950,10 +1950,52 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
     payload = _teamgeneration_request("https://v2.tgsoftware-api.online/matches/" + match_id)
     match_data = payload.get("match") if isinstance(payload, dict) else None
     detail = payload.get("detail") if isinstance(payload, dict) else None
-    if not isinstance(match_data, dict) or not isinstance(detail, dict) or not isinstance(detail.get("players"), list):
-        raise HTTPException(422, "Team Generation response does not contain match details and a players list.")
-    if str(match_data.get("id")) != match_id:
-        raise HTTPException(422, "Team Generation returned a different match ID.")
+    if not isinstance(match_data, dict) or str(match_data.get("id")) != match_id:
+        raise HTTPException(422, "Team Generation response does not contain the requested match.")
+    if not isinstance(detail, dict):
+        detail = {}
+
+    # TeamGeneration has returned more than one payload layout over time.
+    # Normalize the player collection before validation/storage; keep source
+    # identifiers as strings and do not mistake an absent list for an empty squad.
+    def _tg_player_list(value):
+        if isinstance(value, list):
+            return [row for row in value if isinstance(row, dict)]
+        if isinstance(value, dict):
+            rows = []
+            for category, grouped in value.items():
+                if isinstance(grouped, list):
+                    for row in grouped:
+                        if isinstance(row, dict):
+                            entry = dict(row)
+                            entry.setdefault("_lineup_category", str(category))
+                            rows.append(entry)
+                elif isinstance(grouped, dict):
+                    for nested_category, nested_rows in grouped.items():
+                        if isinstance(nested_rows, list):
+                            for row in nested_rows:
+                                if isinstance(row, dict):
+                                    entry = dict(row)
+                                    entry.setdefault("_lineup_category", str(nested_category))
+                                    rows.append(entry)
+            return rows
+        return []
+
+    raw_players = (
+        detail.get("players") or detail.get("playerList")
+        or payload.get("players") or payload.get("playerList")
+        or detail.get("squad") or payload.get("squad")
+    )
+    source_players = _tg_player_list(raw_players)
+    if not source_players:
+        raise HTTPException(422, detail={
+            "message": "Team Generation match was found, but no player rows were present in the supported response fields.",
+            "match_id": match_id,
+            "detail_keys": sorted(str(k) for k in detail.keys()),
+            "payload_keys": sorted(str(k) for k in payload.keys()) if isinstance(payload, dict) else [],
+            "action": "Inspect the TeamGeneration response shape and update the adapter; no empty squad will be saved."
+        })
+    detail["players"] = source_players
     left = match_data.get("left") or {}
     right = match_data.get("right") or {}
     left_name = str(left.get("code") or left.get("name") or "TEAM_A")
@@ -1992,8 +2034,8 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
         if not isinstance(candidate, dict):
             continue
         try:
-            is_playing = int(candidate.get("playing") or 0) == 1
-            team_code = int(candidate.get("team"))
+            is_playing = int(candidate.get("playing", candidate.get("isPlaying", 0)) or 0) == 1
+            team_code = int(candidate.get("team", candidate.get("teamId", candidate.get("teamIndex"))))
         except (TypeError, ValueError):
             continue
         if is_playing and team_code in provider_playing_counts:
@@ -2015,26 +2057,30 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
     profile_source = "TEAM_GENERATION"
 
     for item in detail["players"]:
-        if not isinstance(item, dict) or item.get("playerId") is None or not item.get("name"):
+        if not isinstance(item, dict):
             continue
-        source_player_id = str(item["playerId"])
+        raw_player_id = item.get("playerId", item.get("id", item.get("pid")))
+        raw_name = item.get("name", item.get("playerName", item.get("fullName")))
+        if raw_player_id is None or not raw_name:
+            continue
+        source_player_id = str(raw_player_id)
         player_id = "TG-" + source_player_id
-        name = str(item["name"]).strip()
-        role_value = item.get("role")
+        name = str(raw_name).strip()
+        role_value = item.get("role", item.get("roleId", item.get("playerRole")))
         try:
             role_code = int(role_value)
         except (TypeError, ValueError):
             role_code = -1
         role = role_map.get(role_code, "BAT")
 
-        team_value = item.get("team")
+        team_value = item.get("team", item.get("teamId", item.get("teamIndex")))
         try:
             team_code = int(team_value)
         except (TypeError, ValueError):
             team_code = -1
         team = left_name if team_code == 0 else right_name if team_code == 1 else "UNKNOWN"
 
-        raw_credit = item.get("credits")
+        raw_credit = item.get("credits", item.get("credit"))
         try:
             credit = float(raw_credit) if raw_credit is not None else None
         except (TypeError, ValueError):
@@ -2042,7 +2088,7 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
         if credit is not None and not (0 < credit <= 20):
             credit = None
 
-        raw_ownership = item.get("ownership")
+        raw_ownership = item.get("ownership", item.get("selectionPercentage", item.get("selectionPct")))
         try:
             selection_pct = float(raw_ownership) if raw_ownership is not None else None
         except (TypeError, ValueError):
@@ -2051,14 +2097,16 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
             selection_pct = None
 
         try:
-            playing_flag = int(item.get("playing") or 0)
+            playing_flag = int(item.get("playing", item.get("isPlaying", 0)) or 0)
         except (TypeError, ValueError):
             playing_flag = 0
+        lineup_category = str(item.get("_lineup_category") or item.get("category") or "").casefold()
+        category_confirms_xi = any(marker in lineup_category for marker in ("playing xi", "playing_xi", "starting xi", "playing11"))
         if preserve_admin_lineup:
             player_status = "playing" if player_id in admin_selected_ids else "not_playing"
             if player_status == "playing":
                 imported_playing_ids.append(player_id)
-        elif playing_flag == 1 and lineup_confirmed:
+        elif (playing_flag == 1 or category_confirms_xi) and (lineup_confirmed or category_confirms_xi):
             player_status = "playing"
             imported_playing_ids.append(player_id)
         elif not lineup_confirmed:
@@ -2095,13 +2143,14 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
 
         profile_data = {
             "source_player_id": source_player_id,
-            "image": item.get("image"),
+            "image": item.get("image", item.get("imageUrl", item.get("photo"))),
             "role_code": role_code,
             "team_code": team_code,
             "player_type": item.get("playerType"),
-            "batting_order": item.get("battingOrder"),
-            "lineup_order": item.get("lineupOrder"),
-            "playing": item.get("playing"),
+            "batting_order": item.get("battingOrder", item.get("battingPosition")),
+            "lineup_order": item.get("lineupOrder", item.get("order")),
+            "playing": item.get("playing", item.get("isPlaying")),
+            "lineup_category": item.get("_lineup_category", item.get("category")),
             "last_play": item.get("lastPlay"),
             "in_dream_team": item.get("inDreamTeam"),
             "ownership": item.get("ownership"),
