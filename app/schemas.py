@@ -161,6 +161,10 @@ class PlayingXIUpdate(BaseModel):
     confirmed: bool = True
 
 
+class TeamGenerationLineupImportRequest(BaseModel):
+    url: str = Field(min_length=20, max_length=1200)
+
+
 class VenueUrlImportRequest(BaseModel):
     url: str = Field(min_length=12, max_length=1000)
 
