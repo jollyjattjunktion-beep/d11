@@ -459,6 +459,13 @@ def _load_public_match_detail(match_id: str, db: Session) -> dict:
             "image": profile.get("image"),
             "captain_pct": profile.get("captain_pct", profile.get("ai11_captain_pct")),
             "vice_captain_pct": profile.get("vice_captain_pct", profile.get("ai11_vice_captain_pct")),
+            "batting_position": profile.get("batting_order", profile.get("lineup_order")),
+            "provider_role_code": profile.get("role_code"),
+            "provider_team_code": profile.get("team_code"),
+            "provider_playing": profile.get("playing"),
+            "lineup_category": profile.get("lineup_category"),
+            "points": profile.get("points"),
+            "in_dream_team": profile.get("in_dream_team"),
         })
 
     squad_by_player = {item.player_id: item for item in squad_rows}
