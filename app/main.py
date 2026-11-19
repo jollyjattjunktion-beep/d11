@@ -14,6 +14,7 @@ import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from app.database import Base, engine, get_db, SessionLocal
+from app.db_migrations import apply_safe_schema_migrations
 from app.models import Match, Competition, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue
 from app.models_player_collector import CollectorJob, PlayerIdentity, PlayerSourceIdentity, PlayerProfileSnapshot, PlayerMatchRecord, utcnow
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
@@ -40,6 +41,7 @@ from app.public_page import render_home, render_sitemap
 from app.match_page import render_match_detail
 
 Base.metadata.create_all(bind=engine)
+apply_safe_schema_migrations(engine)
 app = FastAPI(
     title="Preet Fantasy AI",
     description="Format-specific cricket match intelligence, transparent player estimates and constrained fantasy team generation. Predictions are estimates, not guarantees.",
