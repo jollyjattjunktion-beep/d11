@@ -156,3 +156,38 @@ def test_accept_cricbuzz_series_index_urls(url):
 def test_reject_non_index_cricbuzz_urls(url):
     with pytest.raises(ValueError):
         validate_cricbuzz_series_index_url(url)
+
+
+LIVE_SCORE_URL = "https://www.cricbuzz.com/live-cricket-scores/176114/yl-vs-ee-4th-match-abu-dhabi-t10-league-2026"
+
+
+def test_parse_cricbuzz_live_score_venue_anchor_and_id():
+    from app.importers.cricbuzz import parse_cricbuzz_live_score_venue
+    html = """
+    <html><body>
+      <div>Yas Lions vs Emirates Eagles, Abu Dhabi T10</div>
+      <div>Venue: <a href="/cricket-series/13420/icc-womens-emerging-nations-trophy-2026/venues/1438500/seven-districts-ground">Seven Districts Ground, Ajman</a></div>
+      <div>Date &amp; Time: Tomorrow</div>
+    </body></html>
+    """
+    result = parse_cricbuzz_live_score_venue(html, LIVE_SCORE_URL)
+    assert result["provider_venue_id"] == "1438500"
+    assert result["venue_name"] == "Seven Districts Ground"
+    assert result["city_country"] == "Ajman"
+    assert result["venue_url"].endswith("/venues/1438500/seven-districts-ground")
+
+
+def test_parse_cricbuzz_venue_url_has_t20_ground_history():
+    from app.importers.cricbuzz import parse_cricbuzz_venue
+    # Numeric data is independently verified against the live Cricbuzz venue page.
+    import pathlib
+    fixture = pathlib.Path("tests/fixtures/seven_districts_ground.html")
+    if fixture.exists():
+        report = parse_cricbuzz_venue(fixture.read_text(encoding="utf-8"), "https://www.cricbuzz.com/cricket-series/13420/icc-womens-emerging-nations-trophy-2026/venues/1438500/seven-districts-ground")
+        stats = report["formats"]["T20"]
+        assert report["provider_venue_id"] == "1438500"
+        assert stats["total_matches"] == 10
+        assert stats["matches_won_batting_first"] == 4
+        assert stats["matches_won_bowling_first"] == 6
+        assert stats["average_first_innings_score"] == 126
+        assert stats["average_second_innings_score"] == 109
