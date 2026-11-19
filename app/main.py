@@ -3035,7 +3035,7 @@ FEATURED_CRICBUZZ_VENUES = [
 def integrate_match_sources(payload: MatchSourceIntegrationRequest,
                             _admin: bool = Depends(require_admin),
                             db: Session = Depends(get_db)):
-    """Import AI11 analysis, Team Generation XI and Cricbuzz venue onto one existing D11 match."""
+    """Idempotently enrich one Team Generation fixture with AI11 profiles and Cricbuzz pitch data."""
     result = {
         "imported": True,
         "sources": {},
@@ -3046,35 +3046,34 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
         },
     }
 
-    # Team Generation first: it establishes the canonical D11 match and player IDs.
-    if payload.import_teamgeneration:
-        tg_payload = _teamgeneration_request(
-            "https://v2.tgsoftware-api.online/matches/" + payload.teamgeneration_match_id
-        )
-        match_data = tg_payload.get("match") if isinstance(tg_payload, dict) else None
-        if not isinstance(match_data, dict):
-            raise HTTPException(502, "Team Generation did not return a match object.")
-        imported = import_teamgeneration_match(payload.teamgeneration_match_id, True, db)
-        result["match_id"] = payload.teamgeneration_match_id
-        result["sources"]["teamgeneration"] = {
-            "imported": bool(imported.get("imported")),
-            "players_imported": imported.get("players_imported"),
-            "lineup_confirmed": imported.get("lineup_confirmed"),
-            "credits_ready_for_team_builder": imported.get("credits_ready_for_team_builder"),
-        }
-    else:
-        raise HTTPException(422, "Team Generation import is required to establish the canonical D11 match and XI.")
+    # 1) Team Generation is the canonical fixture/squad namespace.
+    tg_match_id = payload.teamgeneration_match_id
+    existing = db.get(Match, tg_match_id)
+    tg_payload = _teamgeneration_request("https://v2.tgsoftware-api.online/matches/" + tg_match_id)
+    if not isinstance(tg_payload, dict) or not isinstance(tg_payload.get("match"), dict):
+        raise HTTPException(502, "Team Generation did not return a valid match object.")
+    tg_match_data = tg_payload["match"]
+    imported = import_teamgeneration_match(tg_match_id, True, db)
+    result["match_id"] = tg_match_id
+    intel_row = db.get(MatchIntelligence, tg_match_id)
+    intel_data = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+    result["sources"]["teamgeneration"] = {
+        "imported": bool(imported.get("imported")),
+        "players_imported": imported.get("players_imported"),
+        "lineup_confirmed": bool(intel_data.get("lineup_confirmed")),
+        "selected_player_count": len(intel_data.get("lineup_selected_player_ids") or []),
+        "credits_ready_for_team_builder": imported.get("credits_ready_for_team_builder"),
+    }
+    match = db.get(Match, tg_match_id)
+    if match is None:
+        raise HTTPException(500, "Team Generation import did not persist a D11 match.")
 
-    match = db.get(Match, payload.teamgeneration_match_id)
-    if not match:
-        raise HTTPException(500, "Team Generation import did not persist the D11 match.")
-
-    # AI11 attaches to the existing TG fixture; do not create a second AI11-only match.
+    # 2) AI11 attaches to the exact TG roster; player rows are name-matched by existing safe linker.
     if payload.import_ai11:
         ai_result = import_ai11(
             AI11ImportRequest(
                 analysis_url=payload.ai11_analysis_url,
-                target_match_id=payload.teamgeneration_match_id,
+                target_match_id=tg_match_id,
             ),
             True,
             db,
@@ -3088,7 +3087,7 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
             "fantasy_fetch_status": ai_result.get("fantasy_fetch_status"),
         }
 
-    # Cricbuzz venue is linked by explicit canonical URL + provider venue ID.
+    # 3) Cricbuzz canonical venue record is linked by its URL identity; verify parsed ID.
     if payload.import_cricbuzz_venue:
         try:
             identity = venue_url_identity(payload.cricbuzz_venue_url)
@@ -3116,13 +3115,12 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
         venue_analysis = analyse_venue(report, match.format)
         intel_row = db.get(MatchIntelligence, match.id)
         data = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
-        # Preserve TG XI, AI11 source contexts and manual settings.
         data["cricbuzz_venue_report"] = report
         data["venue_report_source_url"] = payload.cricbuzz_venue_url
         data["venue_provider"] = "CRICBUZZ"
         data["venue_id"] = venue_row.provider_key
-        data["venue_series_id"] = identity["series_id"]
-        data["venue_cricbuzz_id"] = identity["venue_id"]
+        data["cricbuzz_series_id"] = identity["series_id"]
+        data["cricbuzz_venue_id"] = identity["venue_id"]
         data["auto_venue_analysis"] = venue_analysis
         data.update(analysis_context_fields(venue_analysis))
         if intel_row is None:
@@ -3142,7 +3140,7 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
             "source_url": payload.cricbuzz_venue_url,
         }
 
-    # Return one match-level summary and confirm that each dataset is now attached.
+    # 4) Summarize the single unified D11 record after source imports.
     db.refresh(match)
     intel_row = db.get(MatchIntelligence, match.id)
     intel = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
@@ -3161,7 +3159,7 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
         "players_in_squad": len(squad_rows),
     }
     result["pitch_analysis"] = intel.get("auto_venue_analysis")
-    result["note"] = "All imported sources are attached to the same D11 match. Team Generation remains the Playing XI authority; AI11 supplies analysis/player profiles; Cricbuzz supplies venue/pitch records."
+    result["note"] = "All three source datasets are attached to the same D11 match. Team Generation remains the Playing XI authority; AI11 supplies player profiles and analysis; Cricbuzz supplies venue/pitch history."
     return result
 
 
