@@ -493,8 +493,24 @@ async function loadWizard(){
  renderLineup();renderFixed();await loadVenueSuggestions();
 }
 async function importMatch(){
- try{const id=idFromUrl($('matchUrl').value);state.matchId=id;$('fetchMatch').disabled=true;$('fetchMatch').textContent='Fetching…';notice('importNotice','Fetching match and player data…');const result=await api('/api/v1/admin/import/teamgeneration/'+encodeURIComponent(id),{method:'POST',body:'{}'});await loadWizard();notice('importNotice',result.players_imported+' players imported for '+(result.match?.name||id)+'. Check player credits and continue to Playing XI.','good');setStep(1);}
- catch(e){notice('importNotice',e.message,'error');}finally{$('fetchMatch').disabled=false;$('fetchMatch').textContent='Fetch & Import Match';}
+ try{
+  const id=idFromUrl($('matchUrl').value);state.matchId=id;
+  $('fetchMatch').disabled=true;$('fetchMatch').textContent='Fetching…';
+  notice('importNotice','Fetching match and normalizing player data…');
+  const result=await api('/api/v1/admin/import/teamgeneration/'+encodeURIComponent(id),{method:'POST',body:'{}'});
+  await loadWizard();
+  const count=Number(result.players_imported||0);
+  const responseCount=Number(result.player_count_in_response||0);
+  if(!count||!state.players.length){
+   notice('importNotice','Match imported, but no players were saved. Provider player rows received: '+responseCount+'. Check API diagnostics before team generation.','error');
+   setStep(1);return;
+  }
+  const credits=Number(result.credits_verified_count||0);
+  const missing=Number(result.credits_missing_count||0);
+  notice('importNotice',count+' players imported for '+(result.match?.name||id)+'. '+credits+' credits verified; '+missing+' missing. Line-up: '+(result.teamgeneration_lineup_status||'unknown')+'.','good');
+  setStep(1);
+ }catch(e){notice('importNotice',e.message,'error');}
+ finally{$('fetchMatch').disabled=false;$('fetchMatch').textContent='Fetch & Import Match';}
 }
 $('fetchMatch').onclick=importMatch;
 $('toXI').onclick=()=>{if(state.matchId)setStep(2);else alert('Fetch and import a match first.');};
