@@ -203,7 +203,7 @@ class VenueEnrichRequest(BaseModel):
 class MatchSourceIntegrationRequest(BaseModel):
     ai11_analysis_url: str = Field(default="https://www.ai11.in/cricket/series/icc-women-s-emerging-nations-trophy-2026-27/match/sri-lanka-women-vs-zimbabwe-women-2nd-match-super-six-2026", min_length=30, max_length=1500)
     teamgeneration_match_id: str = Field(default="m11c_120555", min_length=3, max_length=100)
-    cricbuzz_venue_url: str = Field(default="https://www.cricbuzz.com/cricket-series/13420/icc-womens-emerging-nations-trophy-2026/venues/1438500/seven-districts-ground", min_length=30, max_length=1500)
+    cricbuzz_venue_url: str | None = Field(default="https://www.cricbuzz.com/cricket-series/13420/icc-womens-emerging-nations-trophy-2026/venues/1438500/seven-districts-ground", min_length=30, max_length=1500)
     import_ai11: bool = True
     import_teamgeneration: bool = True
     import_cricbuzz_venue: bool = True
