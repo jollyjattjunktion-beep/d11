@@ -137,6 +137,12 @@ class TeamRequest(BaseModel):
     score_team: str | None = Field(default=None, max_length=100)
     scenario_score: int | None = Field(default=None, ge=1, le=600)
 
+class MatchSourceBundleIn(BaseModel):
+    ai11_url: str = Field(min_length=30, max_length=1200)
+    teamgeneration_url: str = Field(min_length=25, max_length=1000)
+    cricbuzz_venue_url: str = Field(min_length=30, max_length=1200)
+
+
 class AI11ImportRequest(BaseModel):
     analysis_url: str
     fantasy_url: str | None = None
