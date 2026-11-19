@@ -1015,6 +1015,11 @@ def generate_teams(match_id: str, payload: TeamRequest, db: Session = Depends(ge
         "team_a": match.team_a,
         "team_b": match.team_b,
         "format": match.format,
+        "teamgeneration_profiles": {
+            profile.player_id: (profile.data or {})
+            for profile in profiles
+            if profile.source == "TEAM_GENERATION"
+        },
     })
     combined, ai11_analysis = build_ai11_match_analysis(
         combined,
@@ -2153,9 +2158,9 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
             "lineup_category": item.get("_lineup_category", item.get("category")),
             "last_play": item.get("lastPlay"),
             "in_dream_team": item.get("inDreamTeam"),
-            "ownership": item.get("ownership"),
-            "captain_pct": item.get("captainPct"),
-            "vice_captain_pct": item.get("viceCaptainPct"),
+            "ownership": item.get("ownership", item.get("selectionPercentage", item.get("selectionPct"))),
+            "captain_pct": item.get("captainPct", item.get("captainPercentage")),
+            "vice_captain_pct": item.get("viceCaptainPct", item.get("viceCaptainPercentage")),
             "points": item.get("points", item.get("fantasyPoints")),
             "fantasy_ids": item.get("fantasyIds") or {},
         }
