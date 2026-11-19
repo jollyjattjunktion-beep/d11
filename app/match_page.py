@@ -60,12 +60,17 @@ def _player_row(player: dict) -> str:
         trends.append(f"VC {float(vice):.1f}%")
     status = str(player.get("status") or "not_announced")
     status_text = "Playing XI" if status == "playing" else "Not in XI" if status == "not_playing" else "XI not announced"
+    batting_position = player.get("batting_position")
+    batting_text = f"Bat #{int(batting_position)}" if batting_position is not None else None
+    provider_points = player.get("points")
     credits = player.get("credits")
     credits_text = f"{float(credits):g} cr" if credits is not None else "—"
     return (
         f'<div class="player">{photo}<div><div class="pname">{html.escape(name)}</div>'
         f'<div class="pmeta">{role} • {html.escape(selection_text)}'
-        f'{" • " + html.escape(" • ".join(trends)) if trends else ""}</div>'
+        f'{" • " + html.escape(batting_text) if batting_text else ""}'
+        f'{" • " + html.escape(" • ".join(trends)) if trends else ""}'
+        f'{" • " + html.escape(str(provider_points)) + " source pts" if provider_points is not None else ""}</div>'
         f'<div class="pstatus">{html.escape(status_text)}</div></div>'
         f'<div class="credit">{html.escape(credits_text)}<small>Credits</small></div></div>'
     )
