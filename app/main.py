@@ -17,12 +17,15 @@ from app.database import Base, engine, get_db, SessionLocal
 from app.models import Match, Competition, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue
 from app.models_player_collector import CollectorJob, PlayerIdentity, PlayerSourceIdentity, PlayerProfileSnapshot, PlayerMatchRecord, utcnow
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
-                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, CricbuzzSeriesDiscoverRequest, CricbuzzSeriesPreviewRequest, CricbuzzFixtureSeriesImportRequest, VenueEnrichRequest)
+                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, TeamGenerationLineupImportRequest, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, CricbuzzSeriesDiscoverRequest, CricbuzzSeriesPreviewRequest, CricbuzzFixtureSeriesImportRequest, VenueEnrichRequest)
 from app.predictor import predict_match
 from app.ai11_analysis import build_ai11_match_analysis
 from app.optimizer import build_teams, build_team_diagnostic
 from app.config import MODEL_VERSION, ADMIN_TOKEN, TG_API_TOKEN
 from app.importers.ai11 import (fetch_page, parse_analysis, parse_fantasy, AI11RateLimitError)
+from app.importers.teamgeneration_lineup import (
+    validate_teamgeneration_match_url, parse_teamgeneration_lineup,
+)
 from app.importers.crex import fetch_crex_page, parse_crex_venue_report
 from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_series_page,
     fetch_cricbuzz_series_index, parse_cricbuzz_venue, parse_cricbuzz_series_venues,
@@ -1534,6 +1537,8 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
                 existing_intelligence[key] = value
         existing_intelligence["ai11_source_context"] = source_intelligence
         existing_intelligence["ai11_source_urls"] = [analysis_url] + ([fantasy_url] if fantasy_url else [])
+        existing_intelligence["ai11_source_url"] = analysis_url
+        existing_intelligence["ai11_imported_at"] = datetime.now(timezone.utc).isoformat()
         existing_intelligence["ai11_profiles_linked"] = matched_count
         existing_intelligence["ai11_profiles_unmatched"] = unmatched
         existing_intelligence["ai11_match_completed"] = bool(source_intelligence.get("match_completed"))
@@ -1661,6 +1666,8 @@ def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin
     intel_data = {
         **parsed.get("intelligence", {}),
         "source_urls": [analysis_url] + ([fantasy_url] if fantasy_url else []),
+        "ai11_source_url": analysis_url,
+        "ai11_imported_at": datetime.now(timezone.utc).isoformat(),
         "source": "AI11",
         "imported_player_count": saved,
     }
@@ -2281,6 +2288,231 @@ def get_match_wizard_data(match_id: str, _admin: bool = Depends(require_admin),
         "selected_player_ids": selected_ids,
         "credits_verified_count": sum(1 for p in players if p["credits"] is not None),
         "credits_missing_count": sum(1 for p in players if p["credits"] is None),
+    }
+
+
+@app.post("/api/v1/admin/matches/{match_id}/teamgeneration-lineup/import")
+def import_teamgeneration_lineup(match_id: str, payload: TeamGenerationLineupImportRequest,
+                                  _admin: bool = Depends(require_admin),
+                                  db: Session = Depends(get_db)):
+    """Refresh only Playing XI evidence from TeamGeneration; do not replace the AI11 squad."""
+    match = db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "D11 match not found. Import the primary AI11 match data first.")
+
+    try:
+        source_match_id = validate_teamgeneration_match_url(payload.url)
+        source_payload = _teamgeneration_request(
+            "https://v2.tgsoftware-api.online/matches/" + source_match_id
+        )
+        parsed = parse_teamgeneration_lineup(source_payload, source_match_id)
+    except ValueError as exc:
+        raise HTTPException(422, "TeamGeneration lineup import rejected: " + str(exc)[:350])
+
+    def normalized(value):
+        ascii_value = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii").casefold()
+        return re.sub(r"[^a-z0-9]+", "", ascii_value)
+
+    def team_aliases(value):
+        raw = str(value or "")
+        words = re.findall(r"[a-z0-9]+", unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii").casefold())
+        gender = "women" if any(word in {"women", "womens", "woman", "w"} for word in words) else (
+            "men" if any(word in {"men", "mens", "m"} for word in words) else ""
+        )
+        ignored = {"women", "womens", "woman", "men", "mens", "cricket", "team", "the", "w", "m"}
+        tokens = [word for word in words if word not in ignored and not re.fullmatch(r"u?\d+", word)]
+        if not tokens:
+            return {normalized(value)} if normalized(value) else set()
+        initials = "".join(word[0] for word in tokens)
+        aliases = {normalized(value), initials, "".join(tokens)}
+        aliases.update(word for word in tokens if len(word) >= 3)
+        if gender == "women":
+            aliases.update({initials + "w", tokens[0][:2] + "w", tokens[0][:3] + "w"})
+        elif gender == "men":
+            aliases.update({initials + "m", tokens[0][:2] + "m", tokens[0][:3] + "m"})
+        return {item for item in aliases if item}
+
+    target_teams = [match.team_a, match.team_b]
+    source_team_info = {
+        "0": parsed["match"]["left"],
+        "1": parsed["match"]["right"],
+    }
+    team_map = {}
+    for source_code, source_info in source_team_info.items():
+        source_aliases = team_aliases(source_info.get("code")) | team_aliases(source_info.get("name"))
+        candidates = [
+            team for team in target_teams
+            if source_aliases & team_aliases(team)
+        ]
+        if len(candidates) == 1:
+            team_map[source_code] = candidates[0]
+
+    squads = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match_id)).all()
+    squad_rows = []
+    for squad in squads:
+        player = db.get(Player, squad.player_id)
+        if player:
+            squad_rows.append((squad, player))
+    used_player_ids = set()
+    matched = []
+    unmatched = []
+
+    def name_match(source_name, expected_team):
+        source_key = normalized(source_name)
+        pool = [
+            (squad, player) for squad, player in squad_rows
+            if player.id not in used_player_ids and (expected_team is None or squad.team == expected_team)
+        ]
+        exact = [(squad, player) for squad, player in pool if normalized(player.name) == source_key]
+        if len(exact) == 1:
+            return exact[0]
+        source_words = re.findall(r"[a-z0-9]+", unicodedata.normalize("NFKD", str(source_name or "")).encode("ascii", "ignore").decode("ascii").casefold())
+        if not source_words:
+            return None
+        source_last = source_words[-1]
+        source_first = source_words[0]
+        if len(source_last) < 3:
+            return None
+        close = []
+        for squad, player in pool:
+            words = re.findall(r"[a-z0-9]+", unicodedata.normalize("NFKD", player.name).encode("ascii", "ignore").decode("ascii").casefold())
+            if len(words) >= 2 and words[-1] == source_last and words[0][0] == source_first[0]:
+                close.append((squad, player))
+        return close[0] if len(close) == 1 else None
+
+    for source_player in parsed["players"]:
+        source_team = source_player.get("team_code")
+        expected_team = team_map.get(source_team)
+        pair = name_match(source_player["name"], expected_team)
+        if pair is None and expected_team is not None:
+            # If a provider team label is a known abbreviation variant, permit a
+            # unique cross-team match only as a fallback, never an ambiguous one.
+            pair = name_match(source_player["name"], None)
+            if pair and pair[0].team != expected_team:
+                pair = None
+        if pair is None:
+            unmatched.append({
+                "name": source_player["name"],
+                "team": source_team_info.get(source_team, {}).get("name") or source_team,
+                "playing": bool(source_player.get("playing")),
+            })
+            continue
+        squad, player = pair
+        used_player_ids.add(player.id)
+        matched.append((source_player, squad, player))
+
+    selected_by_team = {match.team_a: [], match.team_b: []}
+    for source_player, squad, _player in matched:
+        if source_player.get("playing") == 1 and squad.team in selected_by_team:
+            selected_by_team[squad.team].append(squad.player_id)
+
+    mapped_xi_complete = (
+        parsed.get("lineup_confirmed")
+        and len(selected_by_team[match.team_a]) == 11
+        and len(selected_by_team[match.team_b]) == 11
+    )
+    intelligence_row = db.get(MatchIntelligence, match_id)
+    data = dict(intelligence_row.data or {}) if intelligence_row and isinstance(intelligence_row.data, dict) else {}
+    manual_confirmation_preserved = (
+        data.get("lineup_admin_source") == "admin_confirmed"
+        and not mapped_xi_complete
+    )
+
+    profile_source = "TEAM_GENERATION_LINEUP"
+    for source_player, squad, _player in matched:
+        if not manual_confirmation_preserved:
+            if mapped_xi_complete:
+                squad.status = "playing" if source_player.get("playing") == 1 else "not_playing"
+            elif source_player.get("playing") == 1 and squad.status not in {"playing", "not_playing"}:
+                # Incomplete source evidence adds a probable pick, but never removes
+                # anyone from the eligible pool.
+                squad.status = "probable"
+        profile_data = {
+            "source_match_id": parsed["match_id"],
+            "source_player_id": source_player["source_player_id"],
+            "source_name": source_player["name"],
+            "source_team_code": source_player["team_code"],
+            "playing": source_player["playing"],
+            "role_code": source_player.get("role_code"),
+            "lineup_order": source_player.get("lineup_order"),
+            "last_play": source_player.get("last_play"),
+            "image": source_player.get("image"),
+            "ownership": source_player.get("ownership"),
+            "lineup_status": parsed["lineup_status"],
+            "updated_at": parsed.get("updated_at"),
+        }
+        profile = db.get(PlayerSourceProfile, (match_id, squad.player_id, profile_source))
+        if profile is None:
+            db.add(PlayerSourceProfile(
+                match_id=match_id, player_id=squad.player_id,
+                source=profile_source, data=profile_data,
+            ))
+        else:
+            profile.data = profile_data
+
+    if manual_confirmation_preserved:
+        selected_ids = list(data.get("lineup_selected_player_ids") or [])
+        lineup_confirmed = True
+        lineup_source = "admin_confirmed"
+    elif mapped_xi_complete:
+        selected_ids = sorted(selected_by_team[match.team_a] + selected_by_team[match.team_b])
+        lineup_confirmed = True
+        lineup_source = "teamgeneration_confirmed"
+        data["lineup_admin_source"] = lineup_source
+    else:
+        selected_ids = sorted(
+            player_id
+            for team_players in selected_by_team.values()
+            for player_id in team_players
+        )
+        lineup_confirmed = False
+        lineup_source = "teamgeneration_provisional"
+        if data.get("lineup_admin_source") != "admin_confirmed":
+            data["lineup_admin_source"] = lineup_source
+
+    imported_at = datetime.now(timezone.utc).isoformat()
+    data.update({
+        "teamgeneration_lineup_source_url": payload.url,
+        "teamgeneration_lineup_match_id": parsed["match_id"],
+        "teamgeneration_lineup_status": parsed["lineup_status"],
+        "teamgeneration_lineup_imported_at": imported_at,
+        "teamgeneration_lineup_updated_at": parsed.get("updated_at"),
+        "teamgeneration_lineup_players_received": len(parsed["players"]),
+        "teamgeneration_lineup_players_matched": len(matched),
+        "teamgeneration_lineup_players_unmatched": unmatched,
+        "teamgeneration_lineup_provider_xi_complete": bool(parsed.get("provider_xi_complete")),
+        "teamgeneration_lineup_mapped_xi_complete": bool(mapped_xi_complete),
+        "teamgeneration_lineup_confirmed": bool(mapped_xi_complete),
+        "lineup_confirmed": lineup_confirmed,
+        "lineup_selected_player_ids": selected_ids,
+    })
+    if intelligence_row is None:
+        db.add(MatchIntelligence(match_id=match_id, data=data))
+    else:
+        intelligence_row.data = data
+    db.commit()
+
+    return {
+        "imported": True,
+        "match_id": match_id,
+        "source_match_id": parsed["match_id"],
+        "lineup_confirmed": lineup_confirmed,
+        "provider_lineup_confirmed": bool(parsed.get("lineup_confirmed")),
+        "mapped_lineup_confirmed": bool(mapped_xi_complete),
+        "manual_confirmation_preserved": manual_confirmation_preserved,
+        "lineup_status": parsed["lineup_status"],
+        "players_received": len(parsed["players"]),
+        "players_matched": len(matched),
+        "players_unmatched": unmatched,
+        "selected_by_team": {
+            match.team_a: len(selected_by_team[match.team_a]),
+            match.team_b: len(selected_by_team[match.team_b]),
+        },
+        "note": (
+            "Official Playing XI imported from TeamGeneration."
+            if mapped_xi_complete else
+            "TeamGeneration lineup is provisional or could not be fully matched. No omitted player was marked unavailable."
+        ),
     }
 
 
