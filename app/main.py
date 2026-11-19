@@ -1285,12 +1285,16 @@ def import_multi_source_match(payload: MultiSourceMatchImportRequest,
     except httpx.HTTPError as exc:
         raise HTTPException(502, "Cricbuzz venue page fetch failed: " + type(exc).__name__)
 
-    if venue_report.get("provider_venue_id") != "1438500":
+    cricbuzz_path = urlparse(payload.cricbuzz_venue_url).path
+    cricbuzz_binding = re.search(r"/cricket-series/(\\d+)/[^/]+/venues/(\\d+)/([^/]+)/?$", cricbuzz_path)
+    if not cricbuzz_binding or cricbuzz_binding.group(1) != "13420":
+        raise HTTPException(422, "Cricbuzz venue URL must belong to ICC Women's Emerging Nations Trophy 2026 (series 13420).")
+    if venue_report.get("provider_venue_id") != "1438500" or cricbuzz_binding.group(2) != "1438500":
         raise HTTPException(422, detail={
             "message": "Cricbuzz venue URL is not Seven Districts Ground (venue 1438500).",
             "received_venue_id": venue_report.get("provider_venue_id"),
         })
-    if not payload.cricbuzz_venue_url.endswith("/venues/1438500/seven-districts-ground"):
+    if cricbuzz_binding.group(3) != "seven-districts-ground":
         raise HTTPException(422, "Cricbuzz venue URL does not match the requested Seven Districts Ground venue.")
 
     venue_row = _save_cricbuzz_venue(db, venue_report)
