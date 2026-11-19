@@ -278,7 +278,10 @@ def _safe_candidate_venue_link(href: str, source_url: str) -> str | None:
     if not href:
         return None
     full = str(httpx.URL(source_url).join(href))
-    parsed = _validate_cricbuzz_host(full)
+    try:
+        parsed = _validate_cricbuzz_host(full)
+    except ValueError:
+        return None
     if not re.fullmatch(r"/cricket-series/\d+/[^/]+/venues/\d+/[^/]+/?", parsed.path):
         return None
     return full
@@ -362,3 +365,32 @@ def validate_cricbuzz_match_detail_url(value: str) -> str:
 
 def fetch_cricbuzz_match_detail_page(value: str) -> str:
     return _fetch_html(value, validate_cricbuzz_match_detail_url)
+
+
+def cricbuzz_team_slug_aliases(value: str | None) -> set[str]:
+    """Build conservative match-slug aliases from full cricket team names/codes."""
+    words = re.findall(r"[a-z0-9]+", str(value or "").casefold())
+    if not words:
+        return set()
+    gender = None
+    if words[-1] in {"women", "womens", "woman"}:
+        gender = "w"
+        words = words[:-1]
+    elif words[-1] in {"men", "mens"}:
+        gender = "m"
+        words = words[:-1]
+    words = [word for word in words if word not in {"team", "cricket"}]
+    if not words:
+        return set()
+    initials = "".join(word[0] for word in words)
+    aliases = {"".join(words), initials}
+    aliases.add(words[0][:2] + "".join(word[0] for word in words[1:]))
+    aliases.update(words[0][:n] for n in (2, 3) if len(words[0]) >= n)
+    if gender:
+        aliases.update({initials + gender, words[0][:2] + gender, words[0][:3] + gender})
+    return {alias for alias in aliases if len(alias) >= 2}
+
+
+def cricbuzz_slug_side_matches(side: str, aliases: set[str]) -> bool:
+    normalized = re.sub(r"[^a-z0-9]", "", str(side or "").casefold())
+    return any(normalized == alias or normalized.startswith(alias) for alias in aliases)
