@@ -252,3 +252,23 @@ def parse_cricbuzz_series_index(html: str, source_url: str) -> list[dict]:
     if not results:
         raise ValueError("No Cricbuzz series links were found. Check that the page is the all-series schedule or an archive page.")
     return list(results.values())
+
+
+def validate_cricbuzz_venue_page_url(value: str) -> str:
+    parsed = _validate_cricbuzz_host(value)
+    if not re.fullmatch(r"/cricket-series/\d+/[^/]+/venues/\d+/[^/]+/?", parsed.path):
+        raise ValueError("Expected a Cricbuzz /cricket-series/{series_id}/{slug}/venues/{venue_id}/{venue_slug} URL.")
+    return value
+
+
+def venue_url_identity(value: str) -> dict:
+    validate_cricbuzz_venue_page_url(value)
+    parsed = urlparse(value)
+    match = re.fullmatch(r"/cricket-series/(\d+)/([^/]+)/venues/(\d+)/([^/]+)/?", parsed.path)
+    return {
+        "series_id": match.group(1),
+        "series_slug": match.group(2),
+        "venue_id": match.group(3),
+        "venue_slug": match.group(4),
+        "canonical_url": value,
+    }
