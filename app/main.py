@@ -2220,6 +2220,8 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
         "match_id": match_id,
         "match": match_values,
         "players_imported": saved,
+        "player_count_in_response": len(detail["players"]),
+        "teamgeneration_lineup_status": lineup_status,
         "credits_verified_count": len(rows) - len(missing),
         "credits_missing_count": len(missing),
         "credits_missing_players": missing,
