@@ -201,9 +201,24 @@
     <div class="panelhead"><h2 id="panelTitle">Step 1 — Fetch match and import players</h2><span class="pill" id="stepBadge">STEP 01 / 05</span></div>
     <div class="panelbody">
       <section class="step-view active" id="view1">
-        <p class="muted" style="margin-top:0">Paste the match page URL from Team Generation. We will fetch the fixture, both squads, player photos, roles, credits and selection/C/VC percentages.</p>
-        <div class="urlbox"><input class="field" id="matchUrl" type="url" placeholder="https://teamgeneration.in/match/113941"><button class="btn" id="fetchMatch">Fetch & Import Match</button></div>
-        <div class="row" style="margin-top:12px"><button class="btn secondary" id="loadFixtures">Browse upcoming matches</button><span class="helper">You can paste a match URL or enter its match ID.</span></div>
+        <p class="muted" style="margin-top:0">Import one match using three dedicated sources. AI11 supplies player analysis, TeamGeneration supplies the official fixture/squad/Playing XI, and Cricbuzz supplies stadium and pitch intelligence.</p>
+        <div class="panel" style="box-shadow:none;border:1px solid var(--line);margin-bottom:14px">
+          <div class="panelhead"><div><h2>Three-source match importer</h2><div class="helper">All sources are linked to one TeamGeneration match ID.</div></div><span class="pill">RECOMMENDED</span></div>
+          <div class="panelbody">
+            <label class="helper">AI11 — player analysis / match data</label>
+            <input class="field" id="bundleAi11Url" type="url" value="https://www.ai11.in/cricket/series/icc-women-s-emerging-nations-trophy-2026-27/match/sri-lanka-women-vs-zimbabwe-women-2nd-match-super-six-2026" style="margin:6px 0 12px">
+            <label class="helper">TeamGeneration — Playing XI / squad source</label>
+            <input class="field" id="bundleTgUrl" type="url" value="https://teamgeneration.in/match/m11c_120555" style="margin:6px 0 12px">
+            <label class="helper">Cricbuzz — stadium / pitch / venue source</label>
+            <input class="field" id="bundleCricbuzzUrl" type="url" value="https://www.cricbuzz.com/cricket-series/13420/icc-womens-emerging-nations-trophy-2026/venues/1438500/seven-districts-ground" style="margin:6px 0 12px">
+            <button class="btn green" id="importSourceBundle" type="button">Import all 3 sources & link match</button>
+            <pre id="sourceBundleOut" style="white-space:pre-wrap;background:#17212b;color:#e8fff4;padding:12px;border-radius:8px;display:none;margin-top:12px"></pre>
+          </div>
+        </div>
+        <details style="margin-bottom:14px"><summary style="cursor:pointer;font-weight:700">Manual TeamGeneration-only import</summary>
+          <div class="urlbox"><input class="field" id="matchUrl" type="url" value="https://teamgeneration.in/match/m11c_120555" placeholder="https://teamgeneration.in/match/113941"><button class="btn" id="fetchMatch">Fetch & Import Match</button></div>
+        </details>
+        <div class="row" style="margin-top:12px"><button class="btn secondary" id="loadFixtures">Browse upcoming matches</button><span class="helper">Use the combined importer for this three-source workflow.</span></div>
         <div id="fixtures" class="fixtures"></div>
         <div id="importNotice" class="notice" style="display:none"></div>
         <div id="matchSummary" style="display:none">
@@ -496,6 +511,35 @@ async function importMatch(){
  try{const id=idFromUrl($('matchUrl').value);state.matchId=id;$('fetchMatch').disabled=true;$('fetchMatch').textContent='Fetching…';notice('importNotice','Fetching match and player data…');const result=await api('/api/v1/admin/import/teamgeneration/'+encodeURIComponent(id),{method:'POST',body:'{}'});await loadWizard();notice('importNotice',result.players_imported+' players imported for '+(result.match?.name||id)+'. Check player credits and continue to Playing XI.','good');setStep(1);}
  catch(e){notice('importNotice',e.message,'error');}finally{$('fetchMatch').disabled=false;$('fetchMatch').textContent='Fetch & Import Match';}
 }
+$('importSourceBundle').onclick=async()=>{
+ const out=$('sourceBundleOut');out.style.display='block';out.textContent='';
+ const button=$('importSourceBundle');
+ try{
+  const body={
+   ai11_url:$('bundleAi11Url').value.trim(),
+   teamgeneration_url:$('bundleTgUrl').value.trim(),
+   cricbuzz_venue_url:$('bundleCricbuzzUrl').value.trim()
+  };
+  if(!body.ai11_url||!body.teamgeneration_url||!body.cricbuzz_venue_url)throw new Error('All three source URLs are required.');
+  button.disabled=true;button.textContent='Importing three sources…';
+  out.textContent='1/3 TeamGeneration: importing fixture, squad, credits and official Playing XI…';
+  const d=await api('/api/v1/admin/import/source-bundle',{method:'POST',body:JSON.stringify(body)});
+  state.matchId=d.match_id;
+  await loadWizard();
+  setStep(1);
+  const a=d.ai11||{},t=d.teamgeneration||{},v=d.cricbuzz||{};
+  out.textContent='Three-source import completed.\\nMatch ID: '+d.match_id+
+   '\\nTeamGeneration squad players: '+(t.players_imported??'—')+
+   '\\nAI11 player profiles matched: '+(a.players_matched??'—')+'/'+(a.players_in_ai11??'—')+
+   '\\nAI11 unmatched players: '+(a.players_unmatched||[]).join(', ')+
+   '\\nCricbuzz venue: '+(v.venue||'—')+
+   '\\nPitch: '+(v.venue_analysis?.pitch_recommendation||'Format stats unavailable')+
+   '\\nVenue sample: '+(v.venue_analysis?.total_matches??'—')+
+   '\\nOfficial Playing XI confirmed: '+(t.lineup_confirmed??'check Playing XI step')+
+   '\\n\\nReview the imported XI and source warnings before generating teams.';
+ }catch(e){out.textContent='Import failed: '+e.message;}
+ finally{button.disabled=false;button.textContent='Import all 3 sources & link match';}
+};
 $('fetchMatch').onclick=importMatch;
 $('toXI').onclick=()=>{if(state.matchId)setStep(2);else alert('Fetch and import a match first.');};
 $('loadFixtures').onclick=async()=>{try{$('fixtures').innerHTML='<div class="helper">Loading upcoming fixtures…</div>';const d=await api('/api/v1/admin/teamgeneration/fixtures');$('fixtures').innerHTML='';(d.matches||[]).slice(0,30).forEach(m=>{const card=document.createElement('div');card.className='fixture';const left=document.createElement('div');const title=document.createElement('strong');title.textContent=(m.left?.code||m.left?.name||'Team A')+' vs '+(m.right?.code||m.right?.name||'Team B');const meta=document.createElement('small');meta.textContent=(m.series||'Cricket')+' • '+(m.lineupStatus||'line-up unknown')+' • ID '+m.id;left.append(title,meta);const btn=document.createElement('button');btn.className='btn outline';btn.textContent='Import';btn.onclick=()=>{$('matchUrl').value='https://teamgeneration.in/match/'+m.id;importMatch()};card.append(left,btn);$('fixtures').append(card);});}catch(e){$('fixtures').textContent=e.message;}};
