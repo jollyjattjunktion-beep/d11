@@ -1960,6 +1960,8 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
     right_name = str(right.get("code") or right.get("name") or "TEAM_B")
     series = str(match_data.get("series") or "Cricket")
     match_format = "ODI" if "ODI" in series.upper() else ("TEST" if "TEST" in series.upper() else "T20")
+    raw_format_text = " ".join([series, str(match_data.get("format") or ""), str(match_data.get("matchType") or "")]).upper()
+    match_format = "T10" if "T10" in raw_format_text else "ODI" if "ODI" in raw_format_text else "TEST" if "TEST" in raw_format_text else "T20"
     match_values = {
         "name": left_name + " vs " + right_name + " - " + series,
         "format": match_format,
