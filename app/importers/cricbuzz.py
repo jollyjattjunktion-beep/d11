@@ -272,3 +272,82 @@ def venue_url_identity(value: str) -> dict:
         "venue_slug": match.group(4),
         "canonical_url": value,
     }
+
+
+def _safe_candidate_venue_link(href: str, source_url: str) -> str | None:
+    if not href:
+        return None
+    full = str(httpx.URL(source_url).join(href))
+    parsed = _validate_cricbuzz_host(full)
+    if not re.fullmatch(r"/cricket-series/\d+/[^/]+/venues/\d+/[^/]+/?", parsed.path):
+        return None
+    return full
+
+
+def parse_cricbuzz_match_detail_venue(html: str, source_url: str) -> dict:
+    """Extract a match's exact venue anchor and linked Cricbuzz stadium URL."""
+    parsed_source = _validate_cricbuzz_host(source_url)
+    if not re.search(r"/(?:live-cricket-scores|cricket-match-facts)/\d+/", parsed_source.path):
+        raise ValueError("Expected a Cricbuzz match detail URL.")
+    soup = BeautifulSoup(html, "html.parser")
+    candidates = []
+    for anchor in soup.find_all("a", href=True):
+        venue_url = _safe_candidate_venue_link(anchor.get("href", ""), source_url)
+        if not venue_url:
+            continue
+        label = re.sub(r"\s+", " ", anchor.get_text(" ", strip=True)).strip()
+        if label:
+            candidates.append((label, venue_url))
+    # Prefer a link in a Venue-labelled block; never pick the first arbitrary venue link.
+    selected = None
+    for anchor in soup.find_all("a", href=True):
+        venue_url = _safe_candidate_venue_link(anchor.get("href", ""), source_url)
+        if not venue_url:
+            continue
+        parent_text = re.sub(r"\s+", " ", anchor.parent.get_text(" ", strip=True)).casefold()
+        if "venue" in parent_text:
+            selected = (anchor.get_text(" ", strip=True), venue_url)
+            break
+    if selected is None:
+        venue_links = {url for _, url in candidates}
+        if len(venue_links) == 1 and candidates:
+            selected = candidates[0]
+    if selected is None:
+        raise ValueError("Could not identify a unique Cricbuzz venue link on this match page.")
+    label, venue_url = selected
+    parts = [part.strip() for part in re.split(r",", label, maxsplit=1)]
+    return {
+        "venue_name": parts[0][:200],
+        "city_country": parts[1][:200] if len(parts) > 1 else None,
+        "venue_url": venue_url,
+        "source_url": source_url,
+    }
+
+
+def validate_cricbuzz_match_schedule_url(value: str) -> str:
+    parsed = _validate_cricbuzz_host(value)
+    if parsed.path.rstrip("/") != "/cricket-schedule/upcoming-series/all":
+        raise ValueError("Expected Cricbuzz's all upcoming-series schedule URL.")
+    return value
+
+
+def fetch_cricbuzz_match_schedule(value: str = "https://www.cricbuzz.com/cricket-schedule/upcoming-series/all") -> str:
+    return _fetch_html(value, validate_cricbuzz_match_schedule_url)
+
+
+def parse_cricbuzz_match_schedule(html: str, source_url: str = "https://www.cricbuzz.com/cricket-schedule/upcoming-series/all") -> list[dict]:
+    """Find live-score pages from schedule cards; Cricbuzz schedule does not consistently use match-facts links."""
+    validate_cricbuzz_match_schedule_url(source_url)
+    soup = BeautifulSoup(html, "html.parser")
+    records = {}
+    for anchor in soup.find_all("a", href=True):
+        href = anchor.get("href", "")
+        parsed_href = urlparse(href)
+        match = re.search(r"/live-cricket-scores/(\d+)/([^/?#]+)/?", parsed_href.path)
+        if not match:
+            continue
+        full = str(httpx.URL(source_url).join(href))
+        _validate_cricbuzz_host(full)
+        match_id, slug = match.group(1), match.group(2).lower()
+        records[match_id] = {"match_id": match_id, "slug": slug, "url": full}
+    return list(records.values())
