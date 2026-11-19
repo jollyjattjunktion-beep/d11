@@ -26,7 +26,8 @@ from app.importers.ai11 import (fetch_page, parse_analysis, parse_fantasy, AI11R
 from app.importers.crex import fetch_crex_page, parse_crex_venue_report
 from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_series_page,
     fetch_cricbuzz_series_index, parse_cricbuzz_venue, parse_cricbuzz_series_venues,
-    parse_cricbuzz_series_index, venue_url_identity)
+    parse_cricbuzz_series_index, venue_url_identity, fetch_cricbuzz_match_schedule,
+    parse_cricbuzz_match_schedule, parse_cricbuzz_match_detail_venue)
 from app.importers.cricbuzz_series import (
     fetch_series_index, fetch_series_matches, parse_series_index, parse_series_matches,
     enrich_fixture_source_links, upsert_cricbuzz_series,
