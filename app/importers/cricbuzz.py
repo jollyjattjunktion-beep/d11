@@ -351,3 +351,14 @@ def parse_cricbuzz_match_schedule(html: str, source_url: str = "https://www.cric
         match_id, slug = match.group(1), match.group(2).lower()
         records[match_id] = {"match_id": match_id, "slug": slug, "url": full}
     return list(records.values())
+
+
+def validate_cricbuzz_match_detail_url(value: str) -> str:
+    parsed = _validate_cricbuzz_host(value)
+    if not re.fullmatch(r"/(?:live-cricket-scores|cricket-match-facts)/\d+/[^/]+/?", parsed.path):
+        raise ValueError("Expected a Cricbuzz live-score or match-facts detail URL.")
+    return value
+
+
+def fetch_cricbuzz_match_detail_page(value: str) -> str:
+    return _fetch_html(value, validate_cricbuzz_match_detail_url)
