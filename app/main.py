@@ -2052,7 +2052,7 @@ def import_teamgeneration_match(match_id: str, _admin: bool = Depends(require_ad
     left_name = str(left.get("code") or left.get("name") or "TEAM_A")
     right_name = str(right.get("code") or right.get("name") or "TEAM_B")
     series = str(match_data.get("series") or "Cricket")
-    match_format = "ODI" if "ODI" in series.upper() else ("TEST" if "TEST" in series.upper() else "T20")
+    match_format = "T10" if "T10" in series.upper() else "ODI" if "ODI" in series.upper() else ("TEST" if "TEST" in series.upper() else "T20")
     match_values = {
         "name": left_name + " vs " + right_name + " - " + series,
         "format": match_format,
