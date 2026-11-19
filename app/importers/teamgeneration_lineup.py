@@ -57,7 +57,10 @@ def parse_teamgeneration_lineup(payload: dict, expected_match_id: str | None = N
     }
     lineup_status = str(detail.get("lineupStatus") or match.get("lineupStatus") or "unknown").strip()
     status_key = re.sub(r"[^a-z]+", "_", lineup_status.casefold()).strip("_")
-    unannounced = any(token in status_key for token in ("not_announced", "unannounced", "pending", "not_confirmed"))
+    status_compact = status_key.replace("_", "")
+    unannounced = any(token in status_key for token in ("not_announced", "unannounced", "pending", "not_confirmed")) or (
+        "notannounced" in status_compact or "notconfirmed" in status_compact
+    )
 
     role_map = {0: "WK", 1: "BAT", 2: "AR", 3: "BOWL"}
     players = []
