@@ -203,3 +203,31 @@ def test_team_names_map_to_cricbuzz_womens_team_slugs():
     zimbabwe = cricbuzz_team_slug_aliases("Zimbabwe Women")
     assert cricbuzz_slug_side_matches("slw", sri_lanka)
     assert cricbuzz_slug_side_matches("zimw", zimbabwe)
+
+
+def test_parse_seven_districts_ground_t20_pitch_history():
+    html = """
+    <html><head><title>Seven Districts Ground, Ajman details - Cricbuzz</title></head>
+    <body>
+      <h1>ICC Women's Emerging Nations Trophy, 2026</h1>
+      <h2>Seven Districts Ground</h2>
+      <h3>FACTS</h3>
+      <p>Location Ajman, United Arab Emirates Time Zone UTC +04:00</p>
+      <h3>STATS - T20</h3>
+      <p>Total Matches 10 Matches won batting first 4 Matches won bowling first 6
+         Average 1st innings Score 126 Average 2nd innings Score 109
+         Highest total recorded 171/5 (20 Ovs) By IREW vs UAEW
+         Lowest total recorded 71/10 (19.3 Ovs) By IREW vs SCOW
+         Highest score chased 137/5 (19.3 Ovs) By NEDW vs THAIW
+         Lowest score defended 132/6 (20 Ovs) By BANW vs THAIW</p>
+    </body></html>
+    """
+    report = parse_cricbuzz_venue(html, SEVEN_DISTRICTS_URL)
+    assert report["provider_venue_id"] == "1438500"
+    assert report["name"] == "Seven Districts Ground"
+    assert report["city_country"] == "Ajman, United Arab Emirates"
+    assert report["formats"]["T20"]["total_matches"] == 10
+    assert report["formats"]["T20"]["matches_won_batting_first"] == 4
+    assert report["formats"]["T20"]["matches_won_bowling_first"] == 6
+    assert report["formats"]["T20"]["average_first_innings_score"] == 126
+    assert report["formats"]["T20"]["average_second_innings_score"] == 109
