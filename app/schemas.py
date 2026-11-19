@@ -198,3 +198,10 @@ class CricbuzzFixtureSeriesImportRequest(BaseModel):
 
 class VenueEnrichRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=20)
+
+
+class MultiSourceMatchImportRequest(BaseModel):
+    ai11_analysis_url: str = Field(min_length=30, max_length=1500)
+    teamgeneration_match_id: str = Field(min_length=3, max_length=80)
+    cricbuzz_venue_url: str = Field(min_length=30, max_length=1500)
+    teamgeneration_url: str | None = Field(default=None, max_length=1500)
