@@ -269,27 +269,28 @@ def parse_cricbuzz_live_score_venue(html: str, source_url: str) -> dict:
     """Extract the match venue and linked venue ID from a Cricbuzz live-score detail page."""
     validate_cricbuzz_live_score_url(source_url)
     soup = BeautifulSoup(html, "html.parser")
-    text = re.sub(r"\\s+", " ", soup.get_text(" ", strip=True))
+    text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
     venue_name = None
     city = None
     venue_url = None
     venue_id = None
+    series_id = None
     for anchor in soup.find_all("a", href=True):
         href = anchor.get("href", "")
-        match = re.search(r"/cricket-series/\d+/[^/]+/venues/(\d+)/[^/]+/?$", urlparse(href).path)
-        label = re.sub(r"\\s+", " ", anchor.get_text(" ", strip=True)).strip()
+        match = re.search(r"/cricket-series/(\d+)/[^/]+/venues/(\d+)/[^/]+/?$", urlparse(href).path)
+        label = re.sub(r"\s+", " ", anchor.get_text(" ", strip=True)).strip()
         if match and label:
             full_url = str(httpx.URL(source_url).join(href))
-            parsed = _validate_cricbuzz_host(full_url)
+            _validate_cricbuzz_host(full_url)
+            series_id, venue_id = match.group(1), match.group(2)
             venue_url = full_url
-            venue_id = match.group(1)
             if "," in label:
                 venue_name, city = [part.strip() for part in label.split(",", 1)]
             else:
                 venue_name = label
             break
     if not venue_name:
-        match = re.search(r"\\bVenue:\\s*(.+?)(?=\\s+(?:Date\\s*&\\s*Time|Umpires|Toss|Start Time|$))", text, re.I)
+        match = re.search(r"\bVenue:\s*(.+?)(?=\s+(?:Date\s*&\s*Time|Umpires|Toss|Start Time|$))", text, re.I)
         raw = match.group(1).strip(" •|") if match else None
         if raw:
             venue_name, _, city = raw.partition(",")
@@ -300,6 +301,7 @@ def parse_cricbuzz_live_score_venue(html: str, source_url: str) -> dict:
     return {
         "provider_match_id": fixture.group(1) if fixture else None,
         "slug": fixture.group(2) if fixture else None,
+        "series_id": series_id,
         "venue_name": venue_name[:200],
         "city_country": city[:200] if city else None,
         "provider_venue_id": venue_id,
