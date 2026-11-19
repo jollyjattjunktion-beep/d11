@@ -229,7 +229,7 @@
             <div id="lineupImportNotice" class="notice" style="display:none"></div>
           </div>
         </div>
-        <div class="row" style="justify-content:space-between;margin-bottom:12px"><div><b>Review Playing XI — both teams</b><div class="helper">Confirm the source selections or save them as provisional. Manual confirmation is preserved if TeamGeneration has not announced a complete XI.</div></div><button class="btn secondary" id="refreshSource">Refresh source / toss update</button></div>
+        <div class="row" style="justify-content:space-between;margin-bottom:12px"><div><b>Review Playing XI — both teams</b><div class="helper">Confirm the source selections or save them as provisional. Manual confirmation is preserved if TeamGeneration has not announced a complete XI.</div></div><button class="btn secondary" id="refreshSource">Refresh TeamGeneration lineup</button></div>
         <div id="lineupNotice" class="notice warn">Load an AI11 match first.</div>
         <div class="inline-options" id="lineupFilters" style="margin:12px 0"></div>
         <div class="row" style="margin-bottom:14px"><button class="btn outline" id="autoSelect">Auto-select provider Playing XI</button><span class="pill" id="selectedCount">0 selected</span></div>
@@ -453,7 +453,6 @@ async function saveAdminMatch(){
 async function openMatchWorkspace(id){
  try{
   state.matchId=id;await loadWizard();setStep(1);
-  $('matchUrl').value='https://teamgeneration.in/match/'+id;
   $('matchSummary').scrollIntoView({behavior:'smooth',block:'start'});
  }catch(e){adminLibraryNotice('adminMatchNotice',e.message,'error');}
 }
@@ -559,7 +558,7 @@ function renderLineup(){renderRoleFilters('lineupFilters','lineup');const root=$
 $('autoSelect').onclick=()=>{state.lineupSelected=new Set(state.players.filter(p=>p.status==='playing').map(p=>p.player_id));renderLineup();};
 async function saveLineup(confirmed,advance=false){try{const r=await api('/api/v1/admin/matches/'+encodeURIComponent(state.matchId)+'/lineup',{method:'POST',body:JSON.stringify({selected_player_ids:[...state.lineupSelected],confirmed})});state.lineupConfirmed=confirmed;await loadWizard();notice('lineupNotice',confirmed?'Official XI saved for both teams.':'Provisional selection saved. Not-selected players have not been marked unavailable.','good');if(confirmed||advance)setStep(3);}catch(e){notice('lineupNotice',e.message,'error');}}
 $('saveProvisionalXI').onclick=()=>saveLineup(false,true);$('confirmXI').onclick=()=>{if(!confirm('Confirm these selections as the official Playing XI for both teams? Each team must have exactly 11 selected players.'))return;saveLineup(true);};
-$('refreshSource').onclick=async()=>{try{const r=await api('/api/v1/admin/import/teamgeneration/'+encodeURIComponent(state.matchId),{method:'POST',body:'{}'});await loadWizard();notice('lineupNotice','Source refreshed. '+r.players_imported+' player records checked. Re-select the Playing XI if the toss or team announcement changed.','good');}catch(e){notice('lineupNotice',e.message,'error');}};
+$('refreshSource').onclick=importTeamGenerationLineup;
 document.querySelectorAll('[data-back]').forEach(b=>b.onclick=()=>setStep(Math.max(1,state.step-1)));
 document.querySelectorAll('.step').forEach(b=>b.onclick=()=>{const n=Number(b.dataset.step);if(n<=state.step||n===1)setStep(n);});
 function renderAutoVenueAnalysis(){
