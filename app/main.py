@@ -1297,6 +1297,9 @@ def import_multi_source_match(payload: MultiSourceMatchImportRequest,
     if cricbuzz_binding.group(3) != "seven-districts-ground":
         raise HTTPException(422, "Cricbuzz venue URL does not match the requested Seven Districts Ground venue.")
 
+    # AI11 uses the display alias "Seven Districts Sports Club"; retain it so
+    # either provider label resolves to this same canonical ground.
+    venue_report["aliases"] = sorted(set((venue_report.get("aliases") or []) + ["Seven Districts Sports Club"]))
     venue_row = _save_cricbuzz_venue(db, venue_report)
     match.venue = venue_report["name"] + (
         ", " + (venue_report.get("city_country") or "").split(",")[0]
@@ -1323,6 +1326,7 @@ def import_multi_source_match(payload: MultiSourceMatchImportRequest,
         "ai11_analysis_url": payload.ai11_analysis_url,
         "teamgeneration_match_id": match_id,
         "cricbuzz_venue_url": payload.cricbuzz_venue_url,
+        "teamgeneration_url": payload.teamgeneration_url or ("https://teamgeneration.in/match/" + match_id),
         "cricbuzz_provider_venue_id": venue_row.provider_venue_id,
         "cricbuzz_series_id": "13420",
         "completed_at": datetime.now(timezone.utc).isoformat(),
@@ -1345,7 +1349,7 @@ def import_multi_source_match(payload: MultiSourceMatchImportRequest,
                      "source_url": payload.ai11_analysis_url},
             "teamgeneration": {"status": "imported", "players_imported": tg_result.get("players_imported"),
                                "lineup_confirmed": (db.get(MatchIntelligence, match_id).data or {}).get("lineup_confirmed"),
-                               "source_url": "https://teamgeneration.in/match/" + match_id},
+                               "source_url": payload.teamgeneration_url or ("https://teamgeneration.in/match/" + match_id)},
             "cricbuzz": {"status": "imported", "venue": venue_row.name,
                          "venue_id": venue_row.provider_venue_id,
                          "formats_available": sorted((venue_report.get("formats") or {}).keys()),
