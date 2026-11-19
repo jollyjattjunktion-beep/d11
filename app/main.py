@@ -1249,6 +1249,13 @@ def import_multi_source_match(payload: MultiSourceMatchImportRequest,
                               db: Session = Depends(get_db)):
     """Attach AI11 analysis, TeamGeneration XI and Cricbuzz venue/pitch to the same TG fixture."""
     match_id = payload.teamgeneration_match_id
+    if payload.teamgeneration_url:
+        parsed_tg = urlparse(payload.teamgeneration_url)
+        if parsed_tg.scheme != "https" or parsed_tg.hostname not in {"teamgeneration.in", "www.teamgeneration.in"}:
+            raise HTTPException(422, "TeamGeneration URL must use the official teamgeneration.in host.")
+        source_id = parsed_tg.path.rstrip("/").split("/")[-1]
+        if source_id != match_id:
+            raise HTTPException(422, "TeamGeneration URL match ID does not match teamgeneration_match_id.")
     if not re.fullmatch(r"[A-Za-z0-9_-]{3,80}", match_id):
         raise HTTPException(422, "Invalid TeamGeneration match ID.")
 
