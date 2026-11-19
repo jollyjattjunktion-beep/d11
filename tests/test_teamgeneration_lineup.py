@@ -72,3 +72,8 @@ def test_partial_or_unannounced_lineup_remains_provisional():
 def test_parse_rejects_response_for_a_different_match():
     with pytest.raises(ValueError, match="different match ID"):
         parse_teamgeneration_lineup(make_payload(), "different_match")
+
+def test_camel_case_not_announced_status_is_not_official():
+    parsed = parse_teamgeneration_lineup(make_payload(status="notAnnounced"))
+    assert parsed["provider_xi_complete"] is True
+    assert parsed["lineup_confirmed"] is False
