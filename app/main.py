@@ -3039,7 +3039,10 @@ FEATURED_CRICBUZZ_VENUES = [
 def integrate_match_sources(payload: MatchSourceIntegrationRequest,
                             _admin: bool = Depends(require_admin),
                             db: Session = Depends(get_db)):
-    """Idempotently enrich one Team Generation fixture with AI11 profiles and Cricbuzz pitch data."""
+    """Attach AI11 analysis, TG lineup and Cricbuzz pitch data to one canonical D11 match."""
+    if not payload.import_teamgeneration:
+        raise HTTPException(422, "Team Generation is required as the canonical fixture and Playing XI source.")
+
     result = {
         "imported": True,
         "sources": {},
@@ -3050,36 +3053,49 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
         },
     }
 
-    # 1) Team Generation is the canonical fixture/squad namespace.
+    # 1) Import the canonical fixture and its squad/Playing XI from Team Generation.
     tg_match_id = payload.teamgeneration_match_id
-    existing = db.get(Match, tg_match_id)
-    tg_payload = _teamgeneration_request("https://v2.tgsoftware-api.online/matches/" + tg_match_id)
-    if not isinstance(tg_payload, dict) or not isinstance(tg_payload.get("match"), dict):
-        raise HTTPException(502, "Team Generation did not return a valid match object.")
-    tg_match_data = tg_payload["match"]
-    imported = import_teamgeneration_match(tg_match_id, True, db)
-    result["match_id"] = tg_match_id
-    intel_row = db.get(MatchIntelligence, tg_match_id)
-    intel_data = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
-    result["sources"]["teamgeneration"] = {
-        "imported": bool(imported.get("imported")),
-        "players_imported": imported.get("players_imported"),
-        "lineup_confirmed": bool(intel_data.get("lineup_confirmed")),
-        "selected_player_count": len(intel_data.get("lineup_selected_player_ids") or []),
-        "credits_ready_for_team_builder": imported.get("credits_ready_for_team_builder"),
-    }
+    tg_result = import_teamgeneration_match(tg_match_id, True, db)
     match = db.get(Match, tg_match_id)
     if match is None:
         raise HTTPException(500, "Team Generation import did not persist a D11 match.")
+    tg_intel_row = db.get(MatchIntelligence, tg_match_id)
+    tg_intel = dict(tg_intel_row.data or {}) if tg_intel_row and isinstance(tg_intel_row.data, dict) else {}
+    result["match_id"] = tg_match_id
+    result["sources"]["teamgeneration"] = {
+        "imported": bool(tg_result.get("imported")),
+        "players_imported": tg_result.get("players_imported"),
+        "lineup_confirmed": bool(tg_intel.get("lineup_confirmed")),
+        "selected_player_count": len(tg_intel.get("lineup_selected_player_ids") or []),
+        "credits_ready_for_team_builder": tg_result.get("credits_ready_for_team_builder"),
+    }
 
-    # 2) AI11 attaches to the exact TG roster; player rows are name-matched by existing safe linker.
+    # 2) Attach AI11 historical/current-series profiles to the TG roster by safe name mapping.
     if payload.import_ai11:
         ai_result = import_ai11(
             AI11ImportRequest(
-                analysis    if payload.import_cricbuzz_venue:
+                analysis_url=payload.ai11_analysis_url,
+                target_match_id=tg_match_id,
+            ),
+            True,
+            db,
+        )
+        result["sources"]["ai11"] = {
+            "imported": bool(ai_result.get("imported")),
+            "players_in_ai11": ai_result.get("players_in_ai11"),
+            "players_matched": ai_result.get("players_matched"),
+            "players_unmatched": ai_result.get("players_unmatched"),
+            "profiles_saved": ai_result.get("profiles_saved"),
+            "fantasy_fetch_status": ai_result.get("fantasy_fetch_status"),
+        }
+
+    # 3) Use the explicit Cricbuzz venue URL when given. If omitted, discover
+    #    the fixture in Cricbuzz's schedule, follow its live-score page, then
+    #    read the canonical venue link on that match page.
+    if payload.import_cricbuzz_venue:
         try:
-            match_facts_source_url = None
-            venue_url = payload.cricbuzz_venue_url or ""
+            match_detail_source_url = None
+            venue_url = payload.cricbuzz_venue_url
             if venue_url:
                 identity = venue_url_identity(venue_url)
             else:
@@ -3087,27 +3103,33 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
                 scheduled = parse_cricbuzz_match_schedule(schedule_html)
                 left_aliases = cricbuzz_team_slug_aliases(match.team_a)
                 right_aliases = cricbuzz_team_slug_aliases(match.team_b)
-                matched = []
+                candidates = []
                 for fixture in scheduled:
                     sides = fixture["slug"].split("-vs-")
                     if len(sides) != 2:
                         continue
-                    direct = cricbuzz_slug_side_matches(sides[0], left_aliases) and cricbuzz_slug_side_matches(sides[1], right_aliases)
-                    reverse = cricbuzz_slug_side_matches(sides[0], right_aliases) and cricbuzz_slug_side_matches(sides[1], left_aliases)
+                    direct = (
+                        cricbuzz_slug_side_matches(sides[0], left_aliases)
+                        and cricbuzz_slug_side_matches(sides[1], right_aliases)
+                    )
+                    reverse = (
+                        cricbuzz_slug_side_matches(sides[0], right_aliases)
+                        and cricbuzz_slug_side_matches(sides[1], left_aliases)
+                    )
                     if direct or reverse:
-                        matched.append(fixture)
-                if len(matched) != 1:
+                        candidates.append(fixture)
+                if len(candidates) != 1:
                     raise HTTPException(422, detail={
-                        "message": "Cricbuzz schedule did not resolve one unique match page for this Team Generation fixture.",
-                        "candidates": len(matched),
+                        "message": "Cricbuzz did not resolve exactly one matching fixture.",
+                        "candidate_count": len(candidates),
                         "team_a": match.team_a,
                         "team_b": match.team_b,
-                        "action": "Check the team aliases or supply the exact Cricbuzz venue URL.",
+                        "action": "Supply the exact Cricbuzz venue URL or review the fixture team-code aliases.",
                     })
-                match_facts_source_url = matched[0]["url"]
-                detail_html = fetch_cricbuzz_match_detail_page(match_facts_source_url)
-                resolved = parse_cricbuzz_match_detail_venue(detail_html, match_facts_source_url)
-                venue_url = resolved["venue_url"]
+                match_detail_source_url = candidates[0]["url"]
+                detail_html = fetch_cricbuzz_match_detail_page(match_detail_source_url)
+                resolved_venue = parse_cricbuzz_match_detail_venue(detail_html, match_detail_source_url)
+                venue_url = resolved_venue["venue_url"]
                 identity = venue_url_identity(venue_url)
 
             venue_html = fetch_cricbuzz_venue_page(venue_url)
@@ -3126,7 +3148,7 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
 
         if str(report.get("provider_venue_id")) != identity["venue_id"]:
             raise HTTPException(422, detail={
-                "message": "Cricbuzz parser venue ID did not match the supplied canonical URL.",
+                "message": "Cricbuzz venue ID parsed from the page did not match the canonical URL.",
                 "url_venue_id": identity["venue_id"],
                 "parsed_venue_id": report.get("provider_venue_id"),
             })
@@ -3142,8 +3164,8 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
         data["venue_id"] = venue_row.provider_key
         data["cricbuzz_series_id"] = identity["series_id"]
         data["cricbuzz_venue_id"] = identity["venue_id"]
+        data["cricbuzz_match_detail_source_url"] = match_detail_source_url
         data["auto_venue_analysis"] = venue_analysis
-        data["cricbuzz_match_detail_source_url"] = match_facts_source_url
         data.update(analysis_context_fields(venue_analysis))
         if intel_row is None:
             db.add(MatchIntelligence(match_id=match.id, data=data))
@@ -3160,33 +3182,15 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
             "pitch_recommendation": venue_analysis.get("pitch_recommendation"),
             "confidence": venue_analysis.get("confidence"),
             "source_url": venue_url,
-            "match_detail_source_url": match_facts_source_url,
+            "match_detail_source_url": match_detail_source_url,
         }
 
-     db.add(MatchIntelligence(match_id=match.id, data=data))
-        else:
-            intel_row.data = data
-        db.commit()
-        result["sources"]["cricbuzz"] = {
-            "imported": True,
-            "venue": venue_row.name,
-            "venue_id": venue_row.provider_venue_id,
-            "series_id": identity["series_id"],
-            "format": venue_analysis.get("format"),
-            "pitch_available": venue_analysis.get("available"),
-            "pitch_recommendation": venue_analysis.get("pitch_recommendation"),
-            "confidence": venue_analysis.get("confidence"),
-            "source_url": venue_url,
-            "match_detail_source_url": match_facts_source_url,
-        }
-
-    # 4) Summarize the single unified D11 record after source imports.
     db.refresh(match)
     intel_row = db.get(MatchIntelligence, match.id)
     intel = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
     squad_rows = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match.id)).all()
-    result["match_id"] = match.id
     result["match"] = {
+        "id": match.id,
         "name": match.name,
         "format": match.format,
         "venue": match.venue,
@@ -3195,11 +3199,14 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
     }
     result["playing_xi"] = {
         "lineup_confirmed": bool(intel.get("lineup_confirmed")),
-        "selected_count": len(intel.get("lineup_selected_player_ids") or []),
-        "players_in_squad": len(squad_rows),
+        "selected_player_count": len(intel.get("lineup_selected_player_ids") or []),
+        "squad_count": len(squad_rows),
     }
     result["pitch_analysis"] = intel.get("auto_venue_analysis")
-    result["note"] = "All three source datasets are attached to the same D11 match. Team Generation remains the Playing XI authority; AI11 supplies player profiles and analysis; Cricbuzz supplies venue/pitch history."
+    result["note"] = (
+        "One D11 match now contains the three source datasets: AI11 player analysis, "
+        "Team Generation squad/Playing XI, and Cricbuzz venue/pitch history."
+    )
     return result
 
 
