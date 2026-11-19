@@ -1268,7 +1268,8 @@ def import_multi_source_match(payload: MultiSourceMatchImportRequest,
         db=db,
     )
 
-    # Cricbuzz owns the stadium ID and venue format statistics.
+    # Cricbuzz owns the stadium ID and venue format statistics. Read the venue
+    # URL directly, without depending on the page's match-info route.
     try:
         venue_html = fetch_cricbuzz_venue_page(payload.cricbuzz_venue_url)
         venue_report = parse_cricbuzz_venue(venue_html, payload.cricbuzz_venue_url)
@@ -1276,6 +1277,14 @@ def import_multi_source_match(payload: MultiSourceMatchImportRequest,
         raise HTTPException(422, "Cricbuzz venue URL rejected: " + str(exc)[:300])
     except httpx.HTTPError as exc:
         raise HTTPException(502, "Cricbuzz venue page fetch failed: " + type(exc).__name__)
+
+    if venue_report.get("provider_venue_id") != "1438500":
+        raise HTTPException(422, detail={
+            "message": "Cricbuzz venue URL is not Seven Districts Ground (venue 1438500).",
+            "received_venue_id": venue_report.get("provider_venue_id"),
+        })
+    if not payload.cricbuzz_venue_url.endswith("/venues/1438500/seven-districts-ground"):
+        raise HTTPException(422, "Cricbuzz venue URL does not match the requested Seven Districts Ground venue.")
 
     venue_row = _save_cricbuzz_venue(db, venue_report)
     match.venue = venue_report["name"] + (
@@ -1303,6 +1312,8 @@ def import_multi_source_match(payload: MultiSourceMatchImportRequest,
         "ai11_analysis_url": payload.ai11_analysis_url,
         "teamgeneration_match_id": match_id,
         "cricbuzz_venue_url": payload.cricbuzz_venue_url,
+        "cricbuzz_provider_venue_id": venue_row.provider_venue_id,
+        "cricbuzz_series_id": "13420",
         "completed_at": datetime.now(timezone.utc).isoformat(),
     }
     if intel_row:
