@@ -1286,7 +1286,7 @@ def import_multi_source_match(payload: MultiSourceMatchImportRequest,
         raise HTTPException(502, "Cricbuzz venue page fetch failed: " + type(exc).__name__)
 
     cricbuzz_path = urlparse(payload.cricbuzz_venue_url).path
-    cricbuzz_binding = re.search(r"/cricket-series/(\\d+)/[^/]+/venues/(\\d+)/([^/]+)/?$", cricbuzz_path)
+    cricbuzz_binding = re.search(r"/cricket-series/(\d+)/[^/]+/venues/(\d+)/([^/]+)/?$", cricbuzz_path)
     if not cricbuzz_binding or cricbuzz_binding.group(1) != "13420":
         raise HTTPException(422, "Cricbuzz venue URL must belong to ICC Women's Emerging Nations Trophy 2026 (series 13420).")
     if venue_report.get("provider_venue_id") != "1438500" or cricbuzz_binding.group(2) != "1438500":
