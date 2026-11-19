@@ -252,3 +252,57 @@ def parse_cricbuzz_series_index(html: str, source_url: str) -> list[dict]:
     if not results:
         raise ValueError("No Cricbuzz series links were found. Check that the page is the all-series schedule or an archive page.")
     return list(results.values())
+
+
+def validate_cricbuzz_live_score_url(value: str) -> str:
+    parsed = _validate_cricbuzz_host(value)
+    if not re.fullmatch(r"/live-cricket-scores/\d+/[^/]+/?", parsed.path):
+        raise ValueError("Expected a Cricbuzz /live-cricket-scores/{id}/{slug} match URL.")
+    return value
+
+
+def fetch_cricbuzz_live_score_page(value: str) -> str:
+    return _fetch_html(value, validate_cricbuzz_live_score_url)
+
+
+def parse_cricbuzz_live_score_venue(html: str, source_url: str) -> dict:
+    """Extract the match venue and linked venue ID from a Cricbuzz live-score detail page."""
+    validate_cricbuzz_live_score_url(source_url)
+    soup = BeautifulSoup(html, "html.parser")
+    text = re.sub(r"\\s+", " ", soup.get_text(" ", strip=True))
+    venue_name = None
+    city = None
+    venue_url = None
+    venue_id = None
+    for anchor in soup.find_all("a", href=True):
+        href = anchor.get("href", "")
+        match = re.search(r"/cricket-series/\d+/[^/]+/venues/(\d+)/[^/]+/?$", urlparse(href).path)
+        label = re.sub(r"\\s+", " ", anchor.get_text(" ", strip=True)).strip()
+        if match and label:
+            full_url = str(httpx.URL(source_url).join(href))
+            parsed = _validate_cricbuzz_host(full_url)
+            venue_url = full_url
+            venue_id = match.group(1)
+            if "," in label:
+                venue_name, city = [part.strip() for part in label.split(",", 1)]
+            else:
+                venue_name = label
+            break
+    if not venue_name:
+        match = re.search(r"\\bVenue:\\s*(.+?)(?=\\s+(?:Date\\s*&\\s*Time|Umpires|Toss|Start Time|$))", text, re.I)
+        raw = match.group(1).strip(" •|") if match else None
+        if raw:
+            venue_name, _, city = raw.partition(",")
+            venue_name, city = venue_name.strip(), city.strip() or None
+    if not venue_name:
+        raise ValueError("Cricbuzz live-score page did not expose a venue.")
+    fixture = re.search(r"/live-cricket-scores/(\d+)/([^/]+)/?$", urlparse(source_url).path)
+    return {
+        "provider_match_id": fixture.group(1) if fixture else None,
+        "slug": fixture.group(2) if fixture else None,
+        "venue_name": venue_name[:200],
+        "city_country": city[:200] if city else None,
+        "provider_venue_id": venue_id,
+        "venue_url": venue_url,
+        "source_url": source_url,
+    }
