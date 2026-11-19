@@ -27,7 +27,8 @@ from app.importers.crex import fetch_crex_page, parse_crex_venue_report
 from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_series_page,
     fetch_cricbuzz_series_index, parse_cricbuzz_venue, parse_cricbuzz_series_venues,
     parse_cricbuzz_series_index, venue_url_identity, fetch_cricbuzz_match_schedule,
-    parse_cricbuzz_match_schedule, parse_cricbuzz_match_detail_venue)
+    parse_cricbuzz_match_schedule, parse_cricbuzz_match_detail_venue,
+    fetch_cricbuzz_match_detail_page)
 from app.importers.cricbuzz_series import (
     fetch_series_index, fetch_series_matches, parse_series_index, parse_series_matches,
     enrich_fixture_source_links, upsert_cricbuzz_series,
@@ -3042,6 +3043,14 @@ def _cricbuzz_team_slug_aliases(value: str | None) -> set[str]:
     aliases = {"".join(words), "".join(word[0] for word in words)}
     if words:
         aliases.add(words[0][:2] + "".join(word[0] for word in words[1:]))
+        aliases.add("".join(word[0] for word in words) + "w")
+        aliases.add("".join(word[0] for word in words) + "m")
+        aliases.add(words[0][:2])
+        aliases.add(words[0][:3])
+        aliases.add(words[0][:2] + "w")
+        aliases.add(words[0][:3] + "w")
+        aliases.add(words[0][:2] + "m")
+        aliases.add(words[0][:3] + "m")
     return {alias for alias in aliases if len(alias) >= 2}
 
 
@@ -3119,7 +3128,7 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
                         "action": "Check the team aliases or supply the exact Cricbuzz venue URL.",
                     })
                 match_facts_source_url = matched[0]["url"]
-                detail_html = fetch_cricbuzz_match_facts_page(match_facts_source_url)
+                detail_html = fetch_cricbuzz_match_detail_page(match_facts_source_url)
                 resolved = parse_cricbuzz_match_detail_venue(detail_html, match_facts_source_url)
                 venue_url = resolved["venue_url"]
                 identity = venue_url_identity(venue_url)
