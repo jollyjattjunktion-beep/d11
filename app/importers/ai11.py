@@ -214,6 +214,7 @@ def parse_analysis(html: str):
     series_format = re.search(r"\b(T20|ODI|TEST)\s+series\b", fmt_hint_text, re.I)
     chosen_format = table_format.group(1) if table_format else series_format.group(1) if series_format else None
     fmt = (chosen_format or ("TEST" if re.search(r"\btest\b", fmt_hint_text, re.I)
+          else "T10" if re.search(r"\bT10\b", fmt_hint_text, re.I)
           else "T20" if re.search(r"\bT20\b", fmt_hint_text, re.I) else "ODI")).upper()
 
     venue = None
