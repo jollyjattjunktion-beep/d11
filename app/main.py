@@ -3032,6 +3032,23 @@ FEATURED_CRICBUZZ_VENUES = [
 
 
 
+
+def _cricbuzz_team_slug_aliases(value: str | None) -> set[str]:
+    words = re.findall(r"[a-z0-9]+", str(value or "").casefold())
+    if not words:
+        return set()
+    ignored = {"women", "womens", "woman", "men", "mens", "team"}
+    words = [word for word in words if word not in ignored]
+    aliases = {"".join(words), "".join(word[0] for word in words)}
+    if words:
+        aliases.add(words[0][:2] + "".join(word[0] for word in words[1:]))
+    return {alias for alias in aliases if len(alias) >= 2}
+
+
+def _slug_side_matches(side: str, aliases: set[str]) -> bool:
+    side = re.sub(r"[^a-z0-9]", "", side.casefold())
+    return any(side == alias or side.startswith(alias) for alias in aliases)
+
 @app.post("/api/v1/admin/matches/integrate-sources")
 def integrate_match_sources(payload: MatchSourceIntegrationRequest,
                             _admin: bool = Depends(require_admin),
@@ -3073,26 +3090,10 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
     if payload.import_ai11:
         ai_result = import_ai11(
             AI11ImportRequest(
-                analysis_url=payload.ai11_analysis_url,
-                target_match_id=tg_match_id,
-            ),
-            True,
-            db,
-        )
-        result["sources"]["ai11"] = {
-            "imported": bool(ai_result.get("imported")),
-            "players_in_ai11": ai_result.get("players_in_ai11"),
-            "players_matched": ai_result.get("players_matched"),
-            "players_unmatched": ai_result.get("players_unmatched"),
-            "profiles_saved": ai_result.get("profiles_saved"),
-            "fantasy_fetch_status": ai_result.get("fantasy_fetch_status"),
-        }
-
-    # 3) Cricbuzz venue: use explicit URL when supplied; otherwise resolve this fixture's match page from the public schedule.
-    if payload.import_cricbuzz_venue:
+                analysis    if payload.import_cricbuzz_venue:
         try:
             match_facts_source_url = None
-            venue_url = payload.cricbuzz_venue_url
+            venue_url = payload.cricbuzz_venue_url or ""
             if venue_url:
                 identity = venue_url_identity(venue_url)
             else:
@@ -3160,6 +3161,23 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
         data.update(analysis_context_fields(venue_analysis))
         if intel_row is None:
             db.add(MatchIntelligence(match_id=match.id, data=data))
+        else:
+            intel_row.data = data
+        db.commit()
+        result["sources"]["cricbuzz"] = {
+            "imported": True,
+            "venue": venue_row.name,
+            "venue_id": venue_row.provider_venue_id,
+            "series_id": identity["series_id"],
+            "format": venue_analysis.get("format"),
+            "pitch_available": venue_analysis.get("available"),
+            "pitch_recommendation": venue_analysis.get("pitch_recommendation"),
+            "confidence": venue_analysis.get("confidence"),
+            "source_url": venue_url,
+            "match_detail_source_url": match_facts_source_url,
+        }
+
+     db.add(MatchIntelligence(match_id=match.id, data=data))
         else:
             intel_row.data = data
         db.commit()
