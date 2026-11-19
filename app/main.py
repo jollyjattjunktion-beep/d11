@@ -1241,6 +1241,7 @@ def _save_ai11_match_performance(db: Session, match_id: str, player_id: str,
     return "inserted"
 
 
+@app.post("/api/v1/admin/import/ai11")
 def import_ai11(payload: AI11ImportRequest, _admin: bool = Depends(require_admin),
                 db: Session = Depends(get_db)):
     try:
