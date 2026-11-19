@@ -28,7 +28,8 @@ from app.importers.cricbuzz import (fetch_cricbuzz_venue_page, fetch_cricbuzz_se
     fetch_cricbuzz_series_index, parse_cricbuzz_venue, parse_cricbuzz_series_venues,
     parse_cricbuzz_series_index, venue_url_identity, fetch_cricbuzz_match_schedule,
     parse_cricbuzz_match_schedule, parse_cricbuzz_match_detail_venue,
-    fetch_cricbuzz_match_detail_page)
+    fetch_cricbuzz_match_detail_page, cricbuzz_team_slug_aliases,
+    cricbuzz_slug_side_matches)
 from app.importers.cricbuzz_series import (
     fetch_series_index, fetch_series_matches, parse_series_index, parse_series_matches,
     enrich_fixture_source_links, upsert_cricbuzz_series,
@@ -3034,30 +3035,6 @@ FEATURED_CRICBUZZ_VENUES = [
 
 
 
-def _cricbuzz_team_slug_aliases(value: str | None) -> set[str]:
-    words = re.findall(r"[a-z0-9]+", str(value or "").casefold())
-    if not words:
-        return set()
-    ignored = {"women", "womens", "woman", "men", "mens", "team"}
-    words = [word for word in words if word not in ignored]
-    aliases = {"".join(words), "".join(word[0] for word in words)}
-    if words:
-        aliases.add(words[0][:2] + "".join(word[0] for word in words[1:]))
-        aliases.add("".join(word[0] for word in words) + "w")
-        aliases.add("".join(word[0] for word in words) + "m")
-        aliases.add(words[0][:2])
-        aliases.add(words[0][:3])
-        aliases.add(words[0][:2] + "w")
-        aliases.add(words[0][:3] + "w")
-        aliases.add(words[0][:2] + "m")
-        aliases.add(words[0][:3] + "m")
-    return {alias for alias in aliases if len(alias) >= 2}
-
-
-def _slug_side_matches(side: str, aliases: set[str]) -> bool:
-    side = re.sub(r"[^a-z0-9]", "", side.casefold())
-    return any(side == alias or side.startswith(alias) for alias in aliases)
-
 @app.post("/api/v1/admin/matches/integrate-sources")
 def integrate_match_sources(payload: MatchSourceIntegrationRequest,
                             _admin: bool = Depends(require_admin),
@@ -3108,15 +3085,15 @@ def integrate_match_sources(payload: MatchSourceIntegrationRequest,
             else:
                 schedule_html = fetch_cricbuzz_match_schedule()
                 scheduled = parse_cricbuzz_match_schedule(schedule_html)
-                left_aliases = _cricbuzz_team_slug_aliases(match.team_a)
-                right_aliases = _cricbuzz_team_slug_aliases(match.team_b)
+                left_aliases = cricbuzz_team_slug_aliases(match.team_a)
+                right_aliases = cricbuzz_team_slug_aliases(match.team_b)
                 matched = []
                 for fixture in scheduled:
                     sides = fixture["slug"].split("-vs-")
                     if len(sides) != 2:
                         continue
-                    direct = _slug_side_matches(sides[0], left_aliases) and _slug_side_matches(sides[1], right_aliases)
-                    reverse = _slug_side_matches(sides[0], right_aliases) and _slug_side_matches(sides[1], left_aliases)
+                    direct = cricbuzz_slug_side_matches(sides[0], left_aliases) and cricbuzz_slug_side_matches(sides[1], right_aliases)
+                    reverse = cricbuzz_slug_side_matches(sides[0], right_aliases) and cricbuzz_slug_side_matches(sides[1], left_aliases)
                     if direct or reverse:
                         matched.append(fixture)
                 if len(matched) != 1:
