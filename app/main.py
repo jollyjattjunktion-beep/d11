@@ -17,7 +17,7 @@ from app.database import Base, engine, get_db, SessionLocal
 from app.models import Match, Competition, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue
 from app.models_player_collector import CollectorJob, PlayerIdentity, PlayerSourceIdentity, PlayerProfileSnapshot, PlayerMatchRecord, utcnow
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
-                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, CricbuzzSeriesDiscoverRequest, CricbuzzSeriesPreviewRequest, CricbuzzFixtureSeriesImportRequest, VenueEnrichRequest)
+                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, CricbuzzSeriesDiscoverRequest, CricbuzzSeriesPreviewRequest, CricbuzzFixtureSeriesImportRequest, VenueEnrichRequest, MatchSourceIntegrationRequest)
 from app.predictor import predict_match
 from app.ai11_analysis import build_ai11_match_analysis
 from app.optimizer import build_teams, build_team_diagnostic
@@ -3024,6 +3024,143 @@ FEATURED_CRICBUZZ_VENUES = [
     "https://www.cricbuzz.com/cricket-series/13430/nepal-premier-league-2026/venues/458/tribhuvan-university-international-cricket-ground",
     "https://www.cricbuzz.com/cricket-series/12677/womens-big-bash-league-2026/venues/122/junction-oval",
 ]
+
+
+
+
+
+@app.post("/api/v1/admin/matches/integrate-sources")
+def integrate_match_sources(payload: MatchSourceIntegrationRequest,
+                            _admin: bool = Depends(require_admin),
+                            db: Session = Depends(get_db)):
+    """Import AI11 analysis, Team Generation XI and Cricbuzz venue onto one existing D11 match."""
+    result = {
+        "imported": True,
+        "sources": {},
+        "authority": {
+            "player_history_and_match_analysis": "AI11",
+            "playing_xi_and_player_ids": "TEAM_GENERATION",
+            "stadium_and_pitch_history": "CRICBUZZ",
+        },
+    }
+
+    # Team Generation first: it establishes the canonical D11 match and player IDs.
+    if payload.import_teamgeneration:
+        tg_payload = _teamgeneration_request(
+            "https://v2.tgsoftware-api.online/matches/" + payload.teamgeneration_match_id
+        )
+        match_data = tg_payload.get("match") if isinstance(tg_payload, dict) else None
+        if not isinstance(match_data, dict):
+            raise HTTPException(502, "Team Generation did not return a match object.")
+        imported = import_teamgeneration_match(payload.teamgeneration_match_id, True, db)
+        result["match_id"] = payload.teamgeneration_match_id
+        result["sources"]["teamgeneration"] = {
+            "imported": bool(imported.get("imported")),
+            "players_imported": imported.get("players_imported"),
+            "lineup_confirmed": imported.get("lineup_confirmed"),
+            "credits_ready_for_team_builder": imported.get("credits_ready_for_team_builder"),
+        }
+    else:
+        raise HTTPException(422, "Team Generation import is required to establish the canonical D11 match and XI.")
+
+    match = db.get(Match, payload.teamgeneration_match_id)
+    if not match:
+        raise HTTPException(500, "Team Generation import did not persist the D11 match.")
+
+    # AI11 attaches to the existing TG fixture; do not create a second AI11-only match.
+    if payload.import_ai11:
+        ai_result = import_ai11(
+            AI11ImportRequest(
+                analysis_url=payload.ai11_analysis_url,
+                target_match_id=payload.teamgeneration_match_id,
+            ),
+            True,
+            db,
+        )
+        result["sources"]["ai11"] = {
+            "imported": bool(ai_result.get("imported")),
+            "players_in_ai11": ai_result.get("players_in_ai11"),
+            "players_matched": ai_result.get("players_matched"),
+            "players_unmatched": ai_result.get("players_unmatched"),
+            "profiles_saved": ai_result.get("profiles_saved"),
+            "fantasy_fetch_status": ai_result.get("fantasy_fetch_status"),
+        }
+
+    # Cricbuzz venue is linked by explicit canonical URL + provider venue ID.
+    if payload.import_cricbuzz_venue:
+        try:
+            identity = venue_url_identity(payload.cricbuzz_venue_url)
+            venue_html = fetch_cricbuzz_venue_page(payload.cricbuzz_venue_url)
+            report = parse_cricbuzz_venue(venue_html, payload.cricbuzz_venue_url)
+        except ValueError as exc:
+            raise HTTPException(422, "Cricbuzz venue URL rejected: " + str(exc)[:300])
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(502, detail={
+                "message": "Cricbuzz venue page could not be fetched.",
+                "upstream_status": exc.response.status_code,
+            })
+        except httpx.RequestError as exc:
+            raise HTTPException(502, "Cricbuzz venue fetch failed: " + type(exc).__name__)
+
+        if str(report.get("provider_venue_id")) != identity["venue_id"]:
+            raise HTTPException(422, detail={
+                "message": "Cricbuzz parser venue ID did not match the supplied canonical URL.",
+                "url_venue_id": identity["venue_id"],
+                "parsed_venue_id": report.get("provider_venue_id"),
+            })
+
+        venue_row = _save_cricbuzz_venue(db, report)
+        match.venue = report["name"]
+        venue_analysis = analyse_venue(report, match.format)
+        intel_row = db.get(MatchIntelligence, match.id)
+        data = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+        # Preserve TG XI, AI11 source contexts and manual settings.
+        data["cricbuzz_venue_report"] = report
+        data["venue_report_source_url"] = payload.cricbuzz_venue_url
+        data["venue_provider"] = "CRICBUZZ"
+        data["venue_id"] = venue_row.provider_key
+        data["venue_series_id"] = identity["series_id"]
+        data["venue_cricbuzz_id"] = identity["venue_id"]
+        data["auto_venue_analysis"] = venue_analysis
+        data.update(analysis_context_fields(venue_analysis))
+        if intel_row is None:
+            db.add(MatchIntelligence(match_id=match.id, data=data))
+        else:
+            intel_row.data = data
+        db.commit()
+        result["sources"]["cricbuzz"] = {
+            "imported": True,
+            "venue": venue_row.name,
+            "venue_id": venue_row.provider_venue_id,
+            "series_id": identity["series_id"],
+            "format": venue_analysis.get("format"),
+            "pitch_available": venue_analysis.get("available"),
+            "pitch_recommendation": venue_analysis.get("pitch_recommendation"),
+            "confidence": venue_analysis.get("confidence"),
+            "source_url": payload.cricbuzz_venue_url,
+        }
+
+    # Return one match-level summary and confirm that each dataset is now attached.
+    db.refresh(match)
+    intel_row = db.get(MatchIntelligence, match.id)
+    intel = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+    squad_rows = db.scalars(select(MatchSquad).where(MatchSquad.match_id == match.id)).all()
+    result["match_id"] = match.id
+    result["match"] = {
+        "name": match.name,
+        "format": match.format,
+        "venue": match.venue,
+        "team_a": match.team_a,
+        "team_b": match.team_b,
+    }
+    result["playing_xi"] = {
+        "lineup_confirmed": bool(intel.get("lineup_confirmed")),
+        "selected_count": len(intel.get("lineup_selected_player_ids") or []),
+        "players_in_squad": len(squad_rows),
+    }
+    result["pitch_analysis"] = intel.get("auto_venue_analysis")
+    result["note"] = "All imported sources are attached to the same D11 match. Team Generation remains the Playing XI authority; AI11 supplies analysis/player profiles; Cricbuzz supplies venue/pitch records."
+    return result
 
 
 @app.post("/api/v1/admin/venues/import")
