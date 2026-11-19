@@ -17,7 +17,7 @@ from app.database import Base, engine, get_db, SessionLocal
 from app.models import Match, Competition, Player, MatchSquad, PlayerMatchStats, MatchIntelligence, PlayerSourceProfile, Venue
 from app.models_player_collector import CollectorJob, PlayerIdentity, PlayerSourceIdentity, PlayerProfileSnapshot, PlayerMatchRecord, utcnow
 from app.schemas import (MatchIn, PlayerIdentityIn, SquadImport, StatsImport,
-                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, CricbuzzSeriesDiscoverRequest, CricbuzzSeriesPreviewRequest, CricbuzzFixtureSeriesImportRequest, VenueEnrichRequest)
+                         TeamRequest, MatchIntelligenceIn, SquadPlayerEdit, AI11ImportRequest, MatchSourceBundleIn, HistoricalBatchImport, ManualCreditUpdate, PlayingXIUpdate, AdminMatchUpdate, CricbuzzVenueImportRequest, CricbuzzSeriesImportRequest, CricbuzzSeriesIndexImportRequest, CricbuzzSeriesDiscoverRequest, CricbuzzSeriesPreviewRequest, CricbuzzFixtureSeriesImportRequest, VenueEnrichRequest)
 from app.predictor import predict_match
 from app.ai11_analysis import build_ai11_match_analysis
 from app.optimizer import build_teams, build_team_diagnostic
@@ -1239,6 +1239,59 @@ def _save_ai11_match_performance(db: Session, match_id: str, player_id: str,
         source="AI11_MATCH_PERFORMANCE",
     ))
     return "inserted"
+
+
+@app.post("/api/v1/admin/import/source-bundle")
+def import_match_source_bundle(payload: MatchSourceBundleIn,
+                               _admin: bool = Depends(require_admin),
+                               db: Session = Depends(get_db)):
+    """Import a fixture using explicit source ownership: TG lineup/squad, AI11 player profiles, Cricbuzz ground data."""
+    def validated_match_id(url: str) -> str:
+        parsed_url = urlparse(url)
+        if parsed_url.scheme != "https" or parsed_url.netloc.lower() not in {"teamgeneration.in", "www.teamgeneration.in"}:
+            raise HTTPException(422, "TeamGeneration URL must be an HTTPS teamgeneration.in match URL.")
+        match = re.search(r"/match/([A-Za-z0-9_-]+)/?$", parsed_url.path)
+        if not match:
+            raise HTTPException(422, "TeamGeneration URL must contain /match/{match_id}.")
+        return match.group(1)
+
+    def validate_source_url(url: str, allowed_hosts: set[str], label: str) -> None:
+        parsed_url = urlparse(url)
+        if parsed_url.scheme != "https" or parsed_url.netloc.lower() not in allowed_hosts:
+            raise HTTPException(422, f"{label} URL must use HTTPS and an approved {label} host.")
+
+    tg_match_id = validated_match_id(payload.teamgeneration_url)
+    validate_source_url(payload.ai11_url, {"ai11.in", "www.ai11.in"}, "AI11")
+    validate_source_url(payload.cricbuzz_venue_url, {"cricbuzz.com", "www.cricbuzz.com"}, "Cricbuzz")
+    if tg_match_id not in payload.teamgeneration_url:
+        raise HTTPException(422, "TeamGeneration match URL could not be resolved.")
+
+    # Preserve source boundaries and call the existing tested importers in order.
+    tg_result = import_teamgeneration_match(tg_match_id, _admin=True, db=db)
+    ai_result = import_ai11(
+        AI11ImportRequest(analysis_url=payload.ai11_url, target_match_id=tg_match_id),
+        _admin=True,
+        db=db,
+    )
+    venue_result = import_cricbuzz_venue_report(
+        tg_match_id,
+        CricbuzzVenueImportRequest(url=payload.cricbuzz_venue_url),
+        _admin=True,
+        db=db,
+    )
+    return {
+        "imported": True,
+        "match_id": tg_match_id,
+        "source_ownership": {
+            "AI11": "player analysis/profile, match context and provider statistics",
+            "Team Generation": "fixture, player squad, credits and official Playing XI",
+            "Cricbuzz": "stadium profile, format-specific venue statistics and pitch analysis",
+        },
+        "teamgeneration": tg_result,
+        "ai11": ai_result,
+        "cricbuzz": venue_result,
+        "note": "Sources are attached to one TeamGeneration match ID. AI11 does not overwrite TeamGeneration lineup or credits; Cricbuzz venue analysis is stored as ground intelligence."
+    }
 
 
 @app.post("/api/v1/admin/import/ai11")
