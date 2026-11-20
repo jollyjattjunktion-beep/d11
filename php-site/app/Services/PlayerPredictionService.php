@@ -15,6 +15,8 @@ final class PlayerPredictionService
 {
     public const MODEL_VERSION = 'hybrid-context-stat-v2';
 
+    public function __construct(private PDO $db) {}
+
     private static function bounded(float $v, float $low, float $high): float {
         return max($low, min($high, $v));
     }
