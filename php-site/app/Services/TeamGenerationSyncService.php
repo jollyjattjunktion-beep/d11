@@ -142,7 +142,7 @@ final class TeamGenerationSyncService
 
                 $role = $this->role($entry['role'] ?? null);
                 $credits = isset($entry['credits']) && is_numeric($entry['credits']) ? (float)$entry['credits'] : null;
-                if ($credits === null || $credits <= 0 || $credits > 20) throw new RuntimeException('TeamGeneration credits must be between 0 and 20.');
+                if ($credits !== null && ($credits <= 0 || $credits > 20)) throw new RuntimeException('TeamGeneration credits must be between 0 and 20.');
                 $selectionPct = isset($entry['selection_pct']) && is_numeric($entry['selection_pct']) ? (float)$entry['selection_pct'] : null;
                 if ($selectionPct !== null && ($selectionPct < 0 || $selectionPct > 100)) throw new RuntimeException('Selection percentage must be between 0 and 100.');
                 $playerId = $this->upsertPlayer($entry['player']);
@@ -165,7 +165,8 @@ final class TeamGenerationSyncService
                 $tgProfile = array_intersect_key($entry, array_flip([
                     'image', 'fantasy_ids', 'captain_pct', 'vice_captain_pct',
                     'batting_position', 'expected_overs', 'involvement_score', 'matchup_score',
-                    'source_url', 'source_player_id'
+                    'source_url', 'source_player_id', 'player_type', 'lineup_order',
+                    'last_play', 'in_dream_team', 'points'
                 ]));
                 if ($tgProfile) {
                     $profileJson = json_encode($tgProfile, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
