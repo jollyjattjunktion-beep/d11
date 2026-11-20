@@ -50,12 +50,10 @@ jobs:
       - name: Test MySQL migrations and cricket sync services
         run: php php-site/tests/mysql_integration_test.php
       - name: Package PHP installer ZIP
-        if: always()
         run: |
           cd php-site
           zip -qr ../d11-php-installer.zip . -x 'config/config.php' 'storage/installed.lock'
       - name: Upload PHP installer ZIP
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: d11-php-installer
