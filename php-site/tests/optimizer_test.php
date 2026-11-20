@@ -28,7 +28,7 @@ $failed=false;
 try { $engine->generate($players,[],'balanced',['P1'],['P1']); } catch (InvalidArgumentException) { $failed=true; }
 if (!$failed) throw new RuntimeException('Lock/exclude conflict must fail.');
 $failed=false;
-try { $engine->generate($players,[],'balanced',[],[], 'P22'); } catch (InvalidArgumentException|RuntimeException) { $failed=true; }
+try { $engine->generate($players,[],'balanced',[],[], 'NOT_IN_SQUAD'); } catch (InvalidArgumentException|RuntimeException) { $failed=true; }
 if (!$failed) throw new RuntimeException('Invalid manual captain must fail.');
 $failed=false;
 try { $engine->generate($players,[],'balanced',[],[],null,null,false); } catch (InvalidArgumentException) { $failed=true; }
