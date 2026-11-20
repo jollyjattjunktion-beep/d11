@@ -729,6 +729,10 @@ def admin_list_matches(q: str | None = None, status: str | None = None,
             "venue_linked": bool(venue_row or report),
             "venue_data_available": bool(analysis and analysis.get("available")),
             "venue_pitch_recommendation": analysis.get("pitch_recommendation") if analysis else None,
+            "ai11_source_url": intel.get("ai11_source_url"),
+            "ai11_profiles_linked": int(intel.get("ai11_profiles_linked") or 0),
+            "ai11_profiles_unmatched": intel.get("ai11_profiles_unmatched") or [],
+            "ai11_imported_at": intel.get("ai11_imported_at"),
             "venue_innings_recommendation": analysis.get("recommended_innings_label") if analysis else None,
         })
     return {"count": len(results), "total_matches": len(rows), "matches": results, "fixture_sync": fixture_sync}
@@ -887,6 +891,37 @@ def admin_save_match_player_source(match_id: str, payload: dict,
     return {"saved": True, "match_id": match_id, "scorecard_url": scorecard_url,
             "squads_url": squads_url, "jobs": queued,
             "message": "Cricbuzz URLs saved. Scorecard and squad discovery jobs have been queued."}
+
+
+@app.post("/api/v1/admin/matches/{match_id}/ai11-source")
+def admin_save_match_ai11_source(match_id: str, payload: dict,
+                                 _admin: bool = Depends(require_admin),
+                                 db: Session = Depends(get_db)):
+    """Save a manually supplied AI11 analysis URL against an existing D11 fixture."""
+    match = db.get(Match, match_id)
+    if match is None:
+        raise HTTPException(404, "Match not found")
+    source_url = str(payload.get("url") or "").strip()
+    parsed = urlparse(source_url)
+    if parsed.scheme != "https" or parsed.hostname not in {"ai11.in", "www.ai11.in"}:
+        raise HTTPException(422, "Use a secure AI11 URL from www.ai11.in.")
+    if not re.fullmatch(r"/cricket/series/[^/]+/match/[^/]+/?", parsed.path):
+        raise HTTPException(422, "Paste the AI11 cricket series match analysis URL, not a series or unrelated page.")
+    intel_row = db.get(MatchIntelligence, match_id)
+    data = dict(intel_row.data or {}) if intel_row and isinstance(intel_row.data, dict) else {}
+    data["ai11_source_url"] = source_url
+    data["ai11_url_saved_at"] = datetime.now(timezone.utc).isoformat()
+    if intel_row is None:
+        db.add(MatchIntelligence(match_id=match_id, data=data))
+    else:
+        intel_row.data = data
+    db.commit()
+    return {
+        "saved": True,
+        "match_id": match_id,
+        "ai11_source_url": source_url,
+        "message": "AI11 match URL saved against this existing D11 match. Sync it to import player intelligence.",
+    }
 
 
 @app.post("/api/v1/admin/public-matches/sync")
