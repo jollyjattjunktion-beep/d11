@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__) . '/app/Database/MigrationRunner.php';
 require dirname(__DIR__) . '/app/Services/TeamGenerationSyncService.php';
 require dirname(__DIR__) . '/app/Services/Ai11ProfileService.php';
+require dirname(__DIR__) . '/app/Services/PlayerPredictionService.php';
 
 use D11\Database\MigrationRunner;
 use D11\Services\TeamGenerationSyncService;
@@ -63,7 +64,7 @@ if ((float)$credit->fetchColumn() !== 10.0 || $lockedResult['squad_locked_preser
 
 $ai11 = new Ai11ProfileService($pdo);
 $result = $ai11->sync($matchId, [
-    ['name' => 'A Player', 'source_player_id' => 'AI11-PLAYER-1', 'profile_url' => 'https://www.ai11.in/player/a', 'career' => ['matches' => 20]],
+    ['name' => 'A Player', 'source_player_id' => 'AI11-PLAYER-1', 'profile_url' => 'https://www.ai11.in/player/a', 'ai11_statistics' => ['matches' => 20, 'batting_average' => 36, 'batting_strike_rate' => 140]],
     ['name' => 'Not In Squad', 'source_player_id' => 'AI11-UNMATCHED', 'profile_url' => 'https://www.ai11.in/player/missing'],
 ]);
 if ($result['profiles_linked'] !== 1 || $result['unmatched_count'] !== 1) {
@@ -71,5 +72,31 @@ if ($result['profiles_linked'] !== 1 || $result['unmatched_count'] !== 1) {
 }
 $count = (int)$pdo->query("SELECT COUNT(*) FROM match_squads WHERE match_id = {$matchId}")->fetchColumn();
 if ($count !== 2) throw new RuntimeException('AI11 must never create selectable squad players.');
+
+// Three historical T20 fantasy records unlock a numeric projection for A Player.
+$playerQ = $pdo->prepare('SELECT id FROM players WHERE external_source = ? AND external_id = ?');
+$playerQ->execute(['TEAMGENERATION', 'CI-PLAYER-1']);
+$playerId = (int)$playerQ->fetchColumn();
+for ($i = 1; $i <= 3; $i++) {
+    $pastId = 'CI-HISTORY-' . $i;
+    $pastSlug = 'ci-history-' . $i;
+    $insertMatch = $pdo->prepare('INSERT INTO matches (match_title, slug, format, d11_format, status, external_source, external_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    $insertMatch->execute(['Historical match ' . $i, $pastSlug, 'T20', 'T20', 'completed', 'CI_HISTORY', $pastId]);
+    $historyMatchId = (int)$pdo->lastInsertId();
+    $insertStats = $pdo->prepare('INSERT INTO player_match_stats (match_id, player_id, format, fantasy_points, match_date, source) VALUES (?, ?, ?, ?, ?, ?)');
+    $insertStats->execute([$historyMatchId, $playerId, 'T20', 40 + ($i * 5), '2026-10-' . (10 + $i), 'CI_TEST']);
+}
+$predictionService = new PlayerPredictionService($pdo);
+$predictions = $predictionService->predictMatch($matchId);
+$predictionA = array_values(array_filter($predictions, fn($p) => (int)$p['player_id'] === $playerId))[0] ?? null;
+if (!$predictionA || $predictionA['matches_used'] !== 3 || $predictionA['expected_points'] === null) {
+    throw new RuntimeException('PHP predictor must produce a format-matched estimate after three history records.');
+}
+if ($predictionA['model_version'] !== PlayerPredictionService::MODEL_VERSION) {
+    throw new RuntimeException('PHP predictor model version must be explicit.');
+}
+$saved = $predictionService->savePredictions($matchId);
+if (count($saved) !== 2) throw new RuntimeException('Prediction save must return all squad player records, including provisional ones.');
+
 
 echo "PHP MySQL integration tests passed.\n";
