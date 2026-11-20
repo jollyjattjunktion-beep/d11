@@ -133,6 +133,9 @@ final class TeamOptimizerService
         $lockedScore=array_sum(array_map(fn($p)=>self::score($p,$strategy),$lockedRows));
         $search(0,$lockedRows,$lockedCredits,$lockedScore);
         if ($best===null) throw new RuntimeException('No legal XI found within search limit; verify squad depth and constraints.');
+        $bestIds=array_column($best,'player_id');
+        if ($manualCaptainId !== null && !in_array($manualCaptainId,$bestIds,true)) throw new InvalidArgumentException('Manual captain must be in the selected XI.');
+        if ($manualViceCaptainId !== null && !in_array($manualViceCaptainId,$bestIds,true)) throw new InvalidArgumentException('Manual vice-captain must be in the selected XI.');
         $ranked=$best;
         usort($ranked, fn($a,$b)=>self::score($b,$strategy)<=>self::score($a,$strategy));
         $captain = $manualCaptainId !== null ? $byId[$manualCaptainId] : $ranked[0];
