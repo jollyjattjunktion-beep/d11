@@ -59,6 +59,18 @@ final class TeamGenerationSyncService
         return (int)$this->db->lastInsertId();
     }
 
+    private function role(mixed $value): string {
+        $key = strtoupper(trim((string)$value));
+        $key = preg_replace('/[^A-Z]/', '', $key) ?? $key;
+        return match ($key) {
+            'WK', 'WICKETKEEPER', 'KEEPER' => 'WK',
+            'BAT', 'BATSMAN', 'BATTER' => 'BAT',
+            'AR', 'ALLROUNDER' => 'AR',
+            'BOWL', 'BOWLER', 'FASTBOWLER', 'SPINNER' => 'BOWL',
+            default => throw new RuntimeException('Unrecognised TeamGeneration fantasy role: ' . (string)$value),
+        };
+    }
+
     private function status(string $value): string
     {
         $value = strtolower(trim($value));
@@ -128,6 +140,11 @@ final class TeamGenerationSyncService
                 if ($teamId <= 0) throw new RuntimeException('Squad team does not match either fixture team.');
                 if (!in_array($teamId, [$teamA, $teamB], true)) throw new RuntimeException('Squad team is not one of the fixture teams.');
 
+                $role = $this->role($entry['role'] ?? null);
+                $credits = isset($entry['credits']) && is_numeric($entry['credits']) ? (float)$entry['credits'] : null;
+                if ($credits === null || $credits <= 0 || $credits > 20) throw new RuntimeException('TeamGeneration credits must be between 0 and 20.');
+                $selectionPct = isset($entry['selection_pct']) && is_numeric($entry['selection_pct']) ? (float)$entry['selection_pct'] : null;
+                if ($selectionPct !== null && ($selectionPct < 0 || $selectionPct > 100)) throw new RuntimeException('Selection percentage must be between 0 and 100.');
                 $playerId = $this->upsertPlayer($entry['player']);
                 $lookup = $this->db->prepare('SELECT id, is_manually_locked FROM match_squads WHERE match_id = ? AND team_id = ? AND player_id = ? LIMIT 1');
                 $lookup->execute([$matchId, $teamId, $playerId]);
@@ -136,7 +153,7 @@ final class TeamGenerationSyncService
                 if ($row) {
                     if ((int)$row['is_manually_locked'] === 1) { $locked++; continue; }
                     $update = $this->db->prepare('UPDATE match_squads SET squad_status = ?, role = ?, credits = ?, selection_pct = ?, player_status = ?, source = ? WHERE id = ?');
-                    $update->execute([$squadStatus, $entry['role'] ?? null, $entry['credits'] ?? null, $entry['selection_pct'] ?? null, $entry['status'] ?? 'unknown', 'TEAMGENERATION', (int)$row['id']]);
+                    $update->execute([$squadStatus, $role, $credits, $selectionPct, $entry['status'] ?? 'unknown', 'TEAMGENERATION', (int)$row['id']]);
                     $updated++;
                 } else {
                     $insert = $this->db->prepare('INSERT INTO match_squads (match_id, team_id, player_id, squad_status, role, credits, selection_pct, player_status, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
