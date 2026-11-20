@@ -31,6 +31,8 @@ $failed=false;
 try { $engine->generate($players,[],'balanced',[],[], 'NOT_IN_SQUAD'); } catch (InvalidArgumentException|RuntimeException) { $failed=true; }
 if (!$failed) throw new RuntimeException('Invalid manual captain must fail.');
 $failed=false;
-try { $engine->generate($players,[],'balanced',[],[],null,null,false); } catch (InvalidArgumentException) { $failed=true; }
+$provisionalPlayers=$players;
+$provisionalPlayers[0]['expected_points']=null;
+try { $engine->generate($provisionalPlayers,[],'balanced',[],[],null,null,false); } catch (InvalidArgumentException) { $failed=true; }
 if (!$failed) throw new RuntimeException('AI mode must reject provisional candidates.');
 echo "PHP optimizer tests passed.\n";
