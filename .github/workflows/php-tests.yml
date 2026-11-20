@@ -47,6 +47,8 @@ jobs:
         run: find php-site -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Test migration runner
         run: php php-site/tests/migration_runner_test.php
+      - name: Test PHP optimizer constraints and strategies
+        run: php php-site/tests/optimizer_test.php
       - name: Test MySQL migrations and cricket sync services
         run: php php-site/tests/mysql_integration_test.php
       - name: Package PHP installer ZIP
