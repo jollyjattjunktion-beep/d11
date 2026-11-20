@@ -58,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             require D11_ROOT . '/app/Database/MigrationRunner.php';
-            $migrationRunner = new \\D11\\Database\\MigrationRunner($pdo, D11_ROOT . '/database/migrations');
+            $migrationRunner = new \D11\Database\MigrationRunner($pdo, D11_ROOT . '/database/migrations');
             $migrationRunner->run();
 
             $stmt = $pdo->prepare('INSERT INTO admin_users (name, email, password_hash, role) VALUES (?, ?, ?, ?)');
