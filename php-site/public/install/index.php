@@ -89,11 +89,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $schema = file_get_contents(D11_ROOT . '/database/schema.sql');
             if ($schema === false) throw new RuntimeException('Could not read the database schema.');
-            foreach (\D11\Database\\MigrationRunner::splitSql($schema) as $statement) {
+            foreach (\D11\Database\MigrationRunner::splitSql($schema) as $statement) {
                 $pdo->exec($statement);
             }
 
-            $runner = new \D11\Database\\MigrationRunner($pdo, D11_ROOT . '/database/migrations');
+            $runner = new \D11\Database\MigrationRunner($pdo, D11_ROOT . '/database/migrations');
             $runner->run();
 
             $config = [
@@ -110,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'charset' => 'utf8mb4',
                 ],
             ];
-            $configPhp = "<?php\\ndeclare(strict_types=1);\\nreturn " . var_export($config, true) . ";\\n";
+            $configPhp = "<?php\ndeclare(strict_types=1);\nreturn " . var_export($config, true) . ";\n";
             $configTemp = $configFile . '.tmp-' . bin2hex(random_bytes(6));
             $lockTemp = $lockFile . '.tmp-' . bin2hex(random_bytes(6));
 
