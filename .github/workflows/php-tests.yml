@@ -1,0 +1,31 @@
+name: D11 PHP checks
+
+on:
+  push:
+    branches:
+      - "php/**"
+  pull_request:
+    paths:
+      - "php-site/**"
+      - ".github/workflows/php-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  php-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo, pdo_mysql, mbstring
+          coverage: none
+      - name: Lint PHP source
+        run: find php-site -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Test migration runner
+        run: php php-site/tests/migration_runner_test.php
