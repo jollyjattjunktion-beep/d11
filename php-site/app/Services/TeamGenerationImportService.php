@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace D11\\Services;
+namespace D11\Services;
 
 use DateTimeImmutable;
 use DateTimeZone;
@@ -39,7 +39,7 @@ final class TeamGenerationImportService
         if (!is_string($value) || trim($value) === '') return null;
         try {
             return (new DateTimeImmutable($value))->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
-        } catch (\\Throwable) {
+        } catch (\Throwable) {
             return null;
         }
     }
