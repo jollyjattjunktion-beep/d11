@@ -55,7 +55,7 @@ jobs:
           zip -qr "$RUNNER_TEMP/d11-php-installer.zip" . -x 'd11-php-installer.zip' 'config/config.php' 'config/config.php.*' 'storage/installed.lock' 'storage/*.log' 'storage/*.tmp-*' '.env' '.env.*'
           unzip -t "$RUNNER_TEMP/d11-php-installer.zip"
           unzip -Z1 "$RUNNER_TEMP/d11-php-installer.zip" | grep -Fxq 'public/install/index.php'
-          if unzip -Z1 "$RUNNER_TEMP/d11-php-installer.zip" | grep -Eq '(^|/)(config/config.php|storage/installed.lock|d11-php-installer.zip); then
+          if unzip -Z1 "$RUNNER_TEMP/d11-php-installer.zip" | grep -Eq '(^|/)(config/config.php|storage/installed.lock|d11-php-installer.zip)'; then
             echo 'Installer ZIP contains a forbidden runtime file or nested archive.' >&2
             exit 1
           fi
