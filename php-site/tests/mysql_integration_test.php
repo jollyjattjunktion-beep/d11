@@ -11,6 +11,9 @@ require dirname(__DIR__) . '/app/Services/HistoricalStatsService.php';
 use D11\Database\MigrationRunner;
 use D11\Services\TeamGenerationSyncService;
 use D11\Services\Ai11ProfileService;
+use D11\Services\MatchIntelligenceService;
+use D11\Services\HistoricalStatsService;
+use D11\Services\PlayerPredictionService;
 
 $host = getenv('D11_TEST_DB_HOST') ?: '127.0.0.1';
 $name = getenv('D11_TEST_DB_NAME') ?: 'd11_php_test';
