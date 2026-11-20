@@ -143,6 +143,22 @@ final class TeamGenerationSyncService
                     $insert->execute([$matchId, $teamId, $playerId, $squadStatus, $entry['role'] ?? null, $entry['credits'] ?? null, $entry['selection_pct'] ?? null, $entry['status'] ?? 'unknown', 'TEAMGENERATION']);
                     $created++;
                 }
+
+                // Preserve TeamGeneration-only role/usage evidence separately from AI11.
+                $tgProfile = array_intersect_key($entry, array_flip([
+                    'image', 'fantasy_ids', 'captain_pct', 'vice_captain_pct',
+                    'batting_position', 'expected_overs', 'involvement_score', 'matchup_score',
+                    'source_url', 'source_player_id'
+                ]));
+                if ($tgProfile) {
+                    $profileJson = json_encode($tgProfile, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+                    $profileUpsert = $this->db->prepare(
+                        'INSERT INTO player_source_profiles (match_id, player_id, source, profile_json, source_url)
+                         VALUES (?, ?, ?, ?, ?)
+                         ON DUPLICATE KEY UPDATE profile_json = VALUES(profile_json), source_url = VALUES(source_url), updated_at = CURRENT_TIMESTAMP'
+                    );
+                    $profileUpsert->execute([$matchId, $playerId, 'TEAM_GENERATION', $profileJson, $entry['source_url'] ?? null]);
+                }
             }
 
             $this->db->commit();
