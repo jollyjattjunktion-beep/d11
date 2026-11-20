@@ -63,3 +63,17 @@ The existing PHP foundation uses numeric auto-increment IDs, while Python uses s
 ## Current implementation status
 
 This branch starts from the PHP importer foundation. The initial parity migration is additive and is not yet a complete schema port. No claim of feature parity should be made until every delivery gate and regression suite passes.
+
+
+## Implemented PHP services (work in progress)
+
+- app/Database/MigrationRunner.php: ordered SQL migrations, migration ledger, quoted-string-aware SQL splitting, and resumable duplicate-column handling for additive ALTER statements.
+- app/Services/TeamGenerationSyncService.php: idempotent fixture/squad sync using TeamGeneration external IDs; preserves manually locked squad values.
+- app/Services/Ai11ProfileService.php: match-scoped AI11 enrichment; exact normalized-name matching only when unique; unmatched/ambiguous players are reported and never added to squads.
+- app/Services/PlayerPredictionService.php: PHP port of format-matched recent-form predictor, bounded pitch/weather adjustments, AI11 career/series supporting factor, provisional-vs-statistical distinction, and persisted model-versioned predictions.
+
+## Current automated coverage
+
+The PHP workflow runs PHP 8.3 syntax checks, migration parser/safety tests, and a MySQL 8 integration test covering migration repeatability, TeamGeneration re-import identity, manual squad lock preservation, AI11 linking/unmatched reporting, and historical prediction generation.
+
+These services are the first vertical slice only. The optimizer, C/VC portfolio strategy, complete match-intelligence adapters, provider-specific ingestion, public pages/API parity, and remaining admin workflows are still outstanding. Do not deploy this branch as a complete D11 replacement until the full parity checklist passes.
