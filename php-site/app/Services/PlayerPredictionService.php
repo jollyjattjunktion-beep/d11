@@ -114,8 +114,6 @@ final class PlayerPredictionService
 
     public function predictMatch(int $matchId): array {
         if ($matchId <= 0) throw new RuntimeException('Valid match ID required.');
-        // One bounded history query for the whole squad; PHP groups the latest
-        // 12 format-matched rows per player in memory, avoiding N+1 queries.
         $matchQ = $this->db->prepare('SELECT id, format, d11_format, d11_intelligence_json FROM matches WHERE id = ? LIMIT 1');
         $matchQ->execute([$matchId]); $match = $matchQ->fetch(PDO::FETCH_ASSOC);
         if (!$match) return [];
@@ -157,6 +155,7 @@ final class PlayerPredictionService
             $form = self::form($history[$pid] ?? [], $format);
             [$conditionFactor, $conditionReasons] = self::condition(strtoupper((string)($squad['role'] ?? '')), $context);
             $status = strtolower((string)($squad['player_status'] ?? 'unknown'));
+            $confirmedStatuses = ['playing','playing_xi','confirmed'];
             $base = [
                 'match_id'=>$matchId,'player_id'=>$pid,'player_name'=>$squad['full_name'],
                 'team'=>$squad['team_name'],'role'=>$squad['role'],'status'=>$squad['player_status'],
@@ -182,13 +181,13 @@ final class PlayerPredictionService
                 ];
                 continue;
             }
-            $availability = in_array($status,['playing','confirmed'],true) ? 1.0 : (in_array($status,['probable','likely','available'],true) ? 0.94 : 0.88);
+            $availability = in_array($status,$confirmedStatuses,true) ? 1.0 : (in_array($status,['probable','likely','available'],true) ? 0.94 : 0.88);
             $expected = max(0.0,(float)$form['expected_points']*$conditionFactor*$availability)*$aiFactor;
             $floor = max(0.0,(float)$form['floor_points']*$conditionFactor*$availability*$aiFactor);
             $ceiling = max($expected,(float)$form['ceiling_points']*$conditionFactor*$availability*$aiFactor);
             $reasons = [sprintf('Format-matched recent form: %d records; recency-weighted mean %.1f',$form['matches_used'],$form['expected_points'])];
             $reasons = array_merge($reasons,$aiReasons,$conditionReasons);
-            if (in_array($status,['playing','confirmed'],true)) $reasons[] = 'Playing status confirmed';
+            if (in_array($status,$confirmedStatuses,true)) $reasons[] = 'Playing status confirmed';
             elseif (!in_array($status,['probable','likely','available'],true)) $reasons[] = 'Playing status is not confirmed';
             if (($tg['batting_position'] ?? null) !== null) $reasons[] = 'Imported expected batting position: ' . $tg['batting_position'];
             if (($tg['expected_overs'] ?? null) !== null) $reasons[] = 'Imported expected bowling workload: ' . $tg['expected_overs'] . ' overs';
