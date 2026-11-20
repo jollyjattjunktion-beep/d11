@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace D11\\Services;
+namespace D11\Services;
 
 use RuntimeException;
 
@@ -24,7 +24,7 @@ final class TeamGenerationApiClient
 
     private function get(string $path): array
     {
-        if (!preg_match('#^/(matches(?:/([A-Za-z0-9_-]+))?(?:\\?sport=cricket)?)$#', $path, $m)) {
+        if (!preg_match('#^/(matches(?:/([A-Za-z0-9_-]+))?(?:\?sport=cricket)?)$#', $path, $m)) {
             throw new RuntimeException('Invalid TeamGeneration API path.');
         }
         if (!function_exists('curl_init')) {
@@ -65,7 +65,7 @@ final class TeamGenerationApiClient
         }
         try {
             $data = json_decode((string)$body, true, 64, JSON_THROW_ON_ERROR);
-        } catch (\\JsonException $e) {
+        } catch (\JsonException $e) {
             throw new RuntimeException('TeamGeneration returned invalid JSON.', 0, $e);
         }
         if (!is_array($data)) {
