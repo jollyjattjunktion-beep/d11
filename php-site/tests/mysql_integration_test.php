@@ -111,6 +111,9 @@ $predictionA = array_values(array_filter($predictions, fn($p) => (int)$p['player
 if (!$predictionA || $predictionA['matches_used'] !== 3 || $predictionA['expected_points'] === null) {
     throw new RuntimeException('PHP predictor must produce a format-matched estimate after three history records.');
 }
+if (!in_array('Playing status confirmed', $predictionA['reasons'], true)) {
+    throw new RuntimeException('TeamGeneration playing_xi status must be treated as confirmed availability.');
+}
 if ($predictionA['model_version'] !== PlayerPredictionService::MODEL_VERSION) {
     throw new RuntimeException('PHP predictor model version must be explicit.');
 }
