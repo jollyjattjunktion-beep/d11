@@ -1,4 +1,6 @@
-# D11 PHP Cricket Platform — importer foundation
+# D11 PHP Cricket Platform — PHP/MySQL installation and importer foundation
+
+**Installation guide:** see [INSTALLATION.md](INSTALLATION.md) for hosting requirements, secure deployment layout, first-time setup, and database safety.
 
 This is the separate PHP + MySQL application. It does not modify the Python D11 application or its production PostgreSQL database.
 

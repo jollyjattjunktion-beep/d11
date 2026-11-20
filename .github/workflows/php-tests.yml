@@ -1,0 +1,69 @@
+name: D11 PHP checks
+
+on:
+  push:
+    branches:
+      - "php/**"
+  pull_request:
+    paths:
+      - "php-site/**"
+      - ".github/workflows/php-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  php-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: d11_php_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      D11_TEST_DB_HOST: 127.0.0.1
+      D11_TEST_DB_NAME: d11_php_test
+      D11_TEST_DB_USER: root
+      D11_TEST_DB_PASSWORD: root
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo, pdo_mysql, mbstring
+          coverage: none
+      - name: Lint PHP source
+        run: find php-site -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Test migration runner
+        run: php php-site/tests/migration_runner_test.php
+      - name: Test PHP optimizer constraints and strategies
+        run: php php-site/tests/optimizer_test.php
+      - name: Test MySQL migrations and cricket sync services
+        run: php php-site/tests/mysql_integration_test.php
+      - name: Package PHP installer ZIP
+        run: |
+          cd php-site
+          zip -qr "$RUNNER_TEMP/d11-php-installer.zip" . -x 'd11-php-installer.zip' 'config/config.php' 'config/config.php.*' 'storage/installed.lock' 'storage/*.log' 'storage/*.tmp-*' '.env' '.env.*'
+          unzip -t "$RUNNER_TEMP/d11-php-installer.zip"
+          unzip -Z1 "$RUNNER_TEMP/d11-php-installer.zip" | grep -Fxq 'public/install/index.php'
+          if unzip -Z1 "$RUNNER_TEMP/d11-php-installer.zip" | grep -Eq '(^|/)(config/config.php|storage/installed.lock|d11-php-installer.zip)'; then
+            echo 'Installer ZIP contains a forbidden runtime file or nested archive.' >&2
+            exit 1
+          fi
+      - name: Upload PHP installer ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: d11-php-installer
+          path: ${{ runner.temp }}/d11-php-installer.zip
+          if-no-files-found: error
