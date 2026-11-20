@@ -89,11 +89,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $schema = file_get_contents(D11_ROOT . '/database/schema.sql');
             if ($schema === false) throw new RuntimeException('Could not read the database schema.');
-            foreach (\\D11\\Database\\MigrationRunner::splitSql($schema) as $statement) {
+            foreach (\D11\Database\\MigrationRunner::splitSql($schema) as $statement) {
                 $pdo->exec($statement);
             }
 
-            $runner = new \\D11\\Database\\MigrationRunner($pdo, D11_ROOT . '/database/migrations');
+            $runner = new \D11\Database\\MigrationRunner($pdo, D11_ROOT . '/database/migrations');
             $runner->run();
 
             $config = [
