@@ -1,14 +1,8 @@
 <?php
 declare(strict_types=1);
-
 require dirname(__DIR__) . '/app/bootstrap.php';
 require D11_ROOT . '/app/Database/MigrationRunner.php';
-
-$runner = new \\D11\\Database\\MigrationRunner(
-    d11_db(),
-    D11_ROOT . '/database/migrations'
-);
-
+$runner = new \D11\Database\MigrationRunner(d11_db(), D11_ROOT . '/database/migrations');
 try {
     $result = $runner->run();
     echo 'Applied: ' . ($result['applied'] ? implode(', ', $result['applied']) : 'none') . PHP_EOL;
