@@ -194,13 +194,13 @@ final class PlayerPredictionService
             if ($form['matches_used'] < 5) $warnings[] = 'Small historical sample';
             if (!$context) $warnings[] = 'No pitch/weather/venue intelligence imported';
             if (!in_array($format,['T20','ODI','TEST'],true)) $warnings[] = 'Unrecognised match format; verify format-specific data';
-            $output[] = $base + $form + [
+            $output[] = array_merge($base, $form, [
                 'expected_points'=>round($expected,2),'floor_points'=>round($floor,2),
                 'median_points'=>round($expected,2),'ceiling_points'=>round($ceiling,2),
                 'upside'=>round($ceiling,2),'condition_factor'=>round($conditionFactor,3),
                 'reasons'=>$reasons,'warnings'=>$warnings,'model_version'=>self::MODEL_VERSION,
                 'prediction_type'=>'format_specific_statistical_estimate',
-            ];
+            ]);
         }
         return $output;
     }
