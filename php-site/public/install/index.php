@@ -77,14 +77,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 PDO::ATTR_EMULATE_PREPARES => false,
             ]);
 
-            // Do not adopt an existing D11 database or overwrite an existing admin account.
-            $tableCheck = $pdo->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'admin_users'");
+            // Installation must use a newly-created, empty database. This prevents
+            // accidental adoption of an existing site or partial production schema.
+            $tableCheck = $pdo->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()");
             $tableCheck->execute();
             if ((int)$tableCheck->fetchColumn() > 0) {
-                $adminCount = (int)$pdo->query('SELECT COUNT(*) FROM admin_users')->fetchColumn();
-                if ($adminCount > 0) {
-                    throw new RuntimeException('This database already contains an administrator. Choose a new, empty database.');
-                }
+                throw new RuntimeException('This database is not empty. Create a new, dedicated MySQL database for this D11 installation.');
             }
 
             $schema = file_get_contents(D11_ROOT . '/database/schema.sql');
