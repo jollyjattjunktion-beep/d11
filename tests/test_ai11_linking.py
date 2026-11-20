@@ -186,3 +186,57 @@ def test_both_innings_without_toss_builds_both_possible_batting_orders(monkeypat
     finally:
         db.close()
         engine.dispose()
+
+
+
+def test_ai11_match_url_is_saved_to_existing_match_intelligence():
+    engine, db = make_db()
+    try:
+        db.add(Match(
+            id="tg-ai11-url", name="Hobart Hurricanes Women vs Perth Scorchers Women",
+            format="T20", team_a="HHW", team_b="PSW", status="upcoming",
+            source="TEAM_GENERATION",
+        ))
+        db.commit()
+
+        result = main.admin_save_match_ai11_source(
+            "tg-ai11-url",
+            {"url": "https://www.ai11.in/cricket/series/women-s-big-bash-league-2026-27/match/hobart-hurricanes-women-vs-perth-scorchers-women-26th-match-2026"},
+            _admin=True,
+            db=db,
+        )
+
+        assert result["saved"] is True
+        saved = db.get(MatchIntelligence, "tg-ai11-url").data
+        assert saved["ai11_source_url"].startswith("https://www.ai11.in/cricket/series/")
+        assert saved["ai11_url_saved_at"]
+        assert db.get(Match, "tg-ai11-url").source == "TEAM_GENERATION"
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_ai11_match_url_rejects_non_ai11_or_non_match_pages():
+    engine, db = make_db()
+    try:
+        db.add(Match(
+            id="tg-ai11-invalid", name="A vs B", format="T20",
+            team_a="A", team_b="B", status="upcoming",
+        ))
+        db.commit()
+
+        from fastapi import HTTPException
+        try:
+            main.admin_save_match_ai11_source(
+                "tg-ai11-invalid",
+                {"url": "https://www.ai11.in/cricket/series/wbbl-2026-27"},
+                _admin=True,
+                db=db,
+            )
+            assert False, "Expected an invalid AI11 URL to be rejected"
+        except HTTPException as exc:
+            assert exc.status_code == 422
+        assert db.get(MatchIntelligence, "tg-ai11-invalid") is None
+    finally:
+        db.close()
+        engine.dispose()

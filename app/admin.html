@@ -186,6 +186,14 @@
         <div class="match-edit-field" style="align-self:end"><label>&nbsp;</label><button class="btn" id="saveCricbuzzPlayerUrl" type="button" style="width:100%">Save URLs & fetch player data</button></div>
       </div>
       <div class="helper">Add the direct Cricbuzz scorecard URL for this fixture. D11 saves it against this match and queues player profiles and historical scorecards before pitch analysis or team generation.</div>
+      <div class="match-edit-grid" style="margin-top:11px">
+        <div class="match-edit-field" style="grid-column:span 2"><label for="editAI11MatchUrl">AI11 match analysis URL — player statistics and C/VC trends</label><input id="editAI11MatchUrl" type="url" placeholder="https://www.ai11.in/cricket/series/.../match/..."></div>
+        <div class="match-edit-field" style="align-self:end"><label>&nbsp;</label><button class="btn outline" id="saveAI11MatchUrl" type="button" style="width:100%">Save AI11 URL</button></div>
+      </div>
+      <div class="match-edit-actions" style="margin-top:9px">
+        <button class="btn green" id="syncAI11MatchData" type="button">Sync AI11 data to this match</button>
+        <span class="helper" id="ai11MatchStatus">Paste the AI11 match URL, save it, then sync its player intelligence into this existing TeamGeneration match.</span>
+      </div>
       <div class="match-edit-actions"><button class="btn green" id="saveAdminMatch" type="button">Save match changes</button><button class="btn secondary" id="openAdminMatch" type="button">Open in team workspace</button><span class="helper">When you link a stadium, pitch and first-innings/chase recommendations are recalculated from that format's saved records.</span></div>
       <div id="adminMatchEditNotice" class="notice" style="display:none"></div>
     </div>
@@ -414,6 +422,11 @@ function openAdminMatchEditor(m){
  $('editVenueUrl').value='';
  $('editCricbuzzMatchUrl').value=m.cricbuzz_scorecard_url||m.cricbuzz_match_url||'';
  $('editCricbuzzSquadsUrl').value=m.cricbuzz_squads_url||'';
+ $('editAI11MatchUrl').value=m.ai11_source_url||'';
+ const ai11Unmatched=(m.ai11_profiles_unmatched||[]);
+ $('ai11MatchStatus').textContent=m.ai11_profiles_linked
+  ? 'AI11 synced: '+m.ai11_profiles_linked+' matched player profiles • '+ai11Unmatched.length+' unmatched • Last sync: '+(m.ai11_imported_at||'time unavailable')
+  : (m.ai11_source_url?'AI11 URL saved. Sync has not completed yet.':'Paste the AI11 match URL, save it, then sync its player intelligence into this existing TeamGeneration match.');
  $('adminMatchEditNotice').style.display='none';
  $('adminMatchEditor').scrollIntoView({behavior:'smooth',block:'center'});
 }
@@ -428,6 +441,34 @@ async function saveCricbuzzPlayerUrl(){
   await loadAdminMatches();
  }catch(e){adminLibraryNotice('adminMatchEditNotice',e.message,'error');}
  finally{button.disabled=false;button.textContent='Save URLs & fetch player data';}
+}
+async function saveAI11MatchUrl(){
+ const id=$('editMatchId').value,url=$('editAI11MatchUrl').value.trim();if(!id)return;
+ if(!url){adminLibraryNotice('adminMatchEditNotice','Paste the AI11 match analysis URL first.','warn');return;}
+ const button=$('saveAI11MatchUrl');button.disabled=true;button.textContent='Saving…';
+ try{
+  const d=await api('/api/v1/admin/matches/'+encodeURIComponent(id)+'/ai11-source',{method:'POST',body:JSON.stringify({url})});
+  adminLibraryNotice('adminMatchEditNotice',d.message,'good');
+  await loadAdminMatches();
+  const current=adminMatches.find(x=>x.id===id);if(current)openAdminMatchEditor(current);
+ }catch(e){adminLibraryNotice('adminMatchEditNotice',e.message,'error');}
+ finally{button.disabled=false;button.textContent='Save AI11 URL';}
+}
+async function syncAI11MatchData(){
+ const id=$('editMatchId').value,url=$('editAI11MatchUrl').value.trim();if(!id)return;
+ if(!url){adminLibraryNotice('adminMatchEditNotice','Paste and save the AI11 match analysis URL first.','warn');return;}
+ const button=$('syncAI11MatchData');button.disabled=true;button.textContent='Syncing AI11…';
+ try{
+  const d=await api('/api/v1/admin/import/ai11',{method:'POST',body:JSON.stringify({analysis_url:url,target_match_id:id})});
+  state.matchId=id;await loadWizard();
+  await loadAdminMatches();
+  const current=adminMatches.find(x=>x.id===id);if(current)openAdminMatchEditor(current);
+  const unmatched=(d.players_unmatched||[]);
+  const summary='AI11 synced to existing match: '+d.players_matched+' player profiles matched; '+unmatched.length+' unmatched. TeamGeneration credits, roles, teams and Playing XI were preserved.';
+  adminLibraryNotice('adminMatchEditNotice',summary+(unmatched.length?' Unmatched: '+unmatched.slice(0,10).join(', '):''),unmatched.length?'warn':'good');
+  $('ai11MatchStatus').textContent=summary;
+ }catch(e){adminLibraryNotice('adminMatchEditNotice',e.message,'error');}
+ finally{button.disabled=false;button.textContent='Sync AI11 data to this match';}
 }
 async function saveAdminMatch(){
  const id=$('editMatchId').value;if(!id)return;
@@ -463,6 +504,8 @@ $('adminMatchSearch').addEventListener('keydown',e=>{if(e.key==='Enter')loadAdmi
 $('closeAdminMatchEditor').onclick=()=>{$('adminMatchEditor').hidden=true;};
 $('saveAdminMatch').onclick=saveAdminMatch;
 $('saveCricbuzzPlayerUrl').onclick=saveCricbuzzPlayerUrl;
+$('saveAI11MatchUrl').onclick=saveAI11MatchUrl;
+$('syncAI11MatchData').onclick=syncAI11MatchData;
 $('importVenueForMatch').onclick=async()=>{
  const id=$('editMatchId').value,url=$('editVenueUrl').value.trim(),button=$('importVenueForMatch');
  if(!url){adminLibraryNotice('adminMatchEditNotice','Paste the Cricbuzz venue profile URL first.','warn');return;}
