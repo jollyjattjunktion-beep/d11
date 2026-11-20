@@ -5,6 +5,8 @@ require dirname(__DIR__) . '/app/Database/MigrationRunner.php';
 require dirname(__DIR__) . '/app/Services/TeamGenerationSyncService.php';
 require dirname(__DIR__) . '/app/Services/Ai11ProfileService.php';
 require dirname(__DIR__) . '/app/Services/PlayerPredictionService.php';
+require dirname(__DIR__) . '/app/Services/MatchIntelligenceService.php';
+require dirname(__DIR__) . '/app/Services/HistoricalStatsService.php';
 
 use D11\Database\MigrationRunner;
 use D11\Services\TeamGenerationSyncService;
@@ -86,6 +88,20 @@ for ($i = 1; $i <= 3; $i++) {
     $insertStats = $pdo->prepare('INSERT INTO player_match_stats (match_id, player_id, format, fantasy_points, match_date, source) VALUES (?, ?, ?, ?, ?, ?)');
     $insertStats->execute([$historyMatchId, $playerId, 'T20', 40 + ($i * 5), '2026-10-' . (10 + $i), 'CI_TEST']);
 }
+$intelligence = new MatchIntelligenceService($pdo);
+$intelligenceResult = $intelligence->save($matchId, ['batting_friendly'=>0.7, 'pace_friendly'=>0.55, 'rain_probability'=>10, 'dew_likely'=>false, 'pitch_report'=>'Test surface']);
+if (!$intelligenceResult['updated'] || $intelligence->get($matchId)['pitch_report'] !== 'Test surface') {
+    throw new RuntimeException('Match intelligence must validate and persist.');
+}
+
+$historyService = new HistoricalStatsService($pdo);
+$historyRecord = ['match_id'=>$matchId, 'player_id'=>$playerId, 'format'=>'T20', 'fantasy_points'=>51, 'runs'=>32, 'balls'=>20, 'match_date'=>'2026-11-19'];
+$historyOne = $historyService->import([$historyRecord], 'CI_HISTORY');
+$historyTwo = $historyService->import([$historyRecord], 'CI_HISTORY');
+if ($historyOne['created'] !== 1 || $historyTwo['updated'] !== 1) {
+    throw new RuntimeException('Historical stats import must be idempotent.');
+}
+
 $predictionService = new PlayerPredictionService($pdo);
 $predictions = $predictionService->predictMatch($matchId);
 $predictionA = array_values(array_filter($predictions, fn($p) => (int)$p['player_id'] === $playerId))[0] ?? null;
