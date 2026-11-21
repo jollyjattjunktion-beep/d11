@@ -3,9 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../app/Services/PitchIntelligenceService.php';
 
-use D11\Services\PitchIntelligenceService;
-
-$engine = new PitchIntelligenceService();
+$engine = new \D11\Services\PitchIntelligenceService();
 $result = $engine->analyse([
     'venue_history' => [
         'total_matches' => 12,
