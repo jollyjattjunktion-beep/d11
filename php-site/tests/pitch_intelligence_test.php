@@ -29,8 +29,8 @@ assert(!isset($result['adjustments']['spin_friendly']));
 $withEvidence = $engine->analyse([
     'venue_history' => [
         'total_matches' => 30,
-        'matches_won_batting_first' => 18,
-        'matches_won_bowling_first' => 12,
+        'matches_won_batting_first' => 20,
+        'matches_won_bowling_first' => 10,
         'average_first_innings_score' => 160,
         'average_second_innings_score' => 145,
         'tournament_average_first_innings' => 145,
