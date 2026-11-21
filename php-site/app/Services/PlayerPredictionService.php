@@ -13,7 +13,7 @@ use RuntimeException;
  */
 final class PlayerPredictionService
 {
-    public const MODEL_VERSION = 'hybrid-context-stat-v2';
+    public const MODEL_VERSION = 'hybrid-pitch-stat-v3';
 
     public function __construct(private PDO $db) {}
 
@@ -120,6 +120,12 @@ final class PlayerPredictionService
         $format = strtoupper((string)($match['d11_format'] ?: $match['format'] ?: 'T20'));
         $context = json_decode((string)($match['d11_intelligence_json'] ?? '{}'), true);
         if (!is_array($context)) $context = [];
+
+        // Derive evidence-based venue factors once per match, then feed the same
+        // normalized factors into every player's bounded condition adjustment.
+        $pitch = (new PitchIntelligenceService())->analyse($context, $format);
+        $context = array_merge($context, $pitch['adjustments'] ?? []);
+
         $squadQ = $this->db->prepare(
             'SELECT ms.player_id, ms.role, ms.credits, ms.selection_pct, ms.player_status, ms.team_id,
                     p.full_name, t.name AS team_name
@@ -168,6 +174,7 @@ final class PlayerPredictionService
                 'ai11_profile_factor'=>round($aiFactor,3),'team_generation_image'=>$tg['image'] ?? null,
                 'batting_position'=>$tg['batting_position'] ?? null,'expected_overs'=>$tg['expected_overs'] ?? null,
                 'involvement_score'=>$tg['involvement_score'] ?? null,'matchup_score'=>$tg['matchup_score'] ?? null,
+                'pitch_intelligence'=>$pitch,
             ];
             if ($form['expected_points'] === null) {
                 $reasons = ['Fewer than three imported match-level records; a fantasy-point projection is not available'];
@@ -176,7 +183,7 @@ final class PlayerPredictionService
                 if (!$context) $warnings[] = 'No pitch/weather/venue intelligence imported';
                 $output[] = $base + $form + [
                     'median_points'=>null,'condition_factor'=>round($conditionFactor,3),
-                    'reasons'=>array_merge($reasons,$aiReasons,$conditionReasons),'warnings'=>$warnings,
+                    'reasons'=>array_merge($reasons, $pitch['reasons'] ?? [], $aiReasons, $conditionReasons),'warnings'=>$warnings,
                     'model_version'=>self::MODEL_VERSION,'prediction_type'=>'provisional_selection_support_only',
                 ];
                 continue;
@@ -186,7 +193,7 @@ final class PlayerPredictionService
             $floor = max(0.0,(float)$form['floor_points']*$conditionFactor*$availability*$aiFactor);
             $ceiling = max($expected,(float)$form['ceiling_points']*$conditionFactor*$availability*$aiFactor);
             $reasons = [sprintf('Format-matched recent form: %d records; recency-weighted mean %.1f',$form['matches_used'],$form['expected_points'])];
-            $reasons = array_merge($reasons,$aiReasons,$conditionReasons);
+            $reasons = array_merge($reasons, $pitch['reasons'] ?? [], $aiReasons, $conditionReasons);
             if (in_array($status,$confirmedStatuses,true)) $reasons[] = 'Playing status confirmed';
             elseif (!in_array($status,['probable','likely','available'],true)) $reasons[] = 'Playing status is not confirmed';
             if (($tg['batting_position'] ?? null) !== null) $reasons[] = 'Imported expected batting position: ' . $tg['batting_position'];
