@@ -40,7 +40,8 @@ final class PlayerPredictionService
         ] as $rule) {
             $value = self::number($context[$rule['field']] ?? null);
             if ($value !== null && in_array($role, $rule['roles'], true)) {
-                $delta = ($value - 0.5) * $rule['weight'];
+                $weight = ($role === 'AR' && $rule['field'] === 'batting_friendly') ? 0.06 : $rule['weight'];
+                $delta = ($value - 0.5) * $weight;
                 $factor += $delta;
                 if (abs($delta) >= 0.015) $reasons[] = $delta > 0 ? $rule['positive'] : $rule['negative'];
             }
