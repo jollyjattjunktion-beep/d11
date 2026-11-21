@@ -34,7 +34,7 @@ final class PlayerPredictionService
     private static function condition(string $role, array $context): array {
         $factor = 1.0; $reasons = [];
         foreach ([
-            ['field' => 'batting_friendly', 'roles' => ['BAT','WK'], 'weight' => 0.12, 'positive' => 'Pitch batting suitability positive', 'negative' => 'Pitch batting suitability negative'],
+            ['field' => 'batting_friendly', 'roles' => ['BAT','WK','AR'], 'weight' => 0.12, 'positive' => 'Pitch batting suitability positive', 'negative' => 'Pitch batting suitability negative'],
             ['field' => 'pace_friendly', 'roles' => ['BOWL','AR'], 'weight' => 0.08, 'positive' => 'Pace conditions favour seam bowling', 'negative' => 'Pace conditions less favourable to pace'],
             ['field' => 'spin_friendly', 'roles' => ['BOWL','AR'], 'weight' => 0.08, 'positive' => 'Spin conditions favour spin bowling', 'negative' => 'Spin conditions less favourable to spin'],
         ] as $rule) {
