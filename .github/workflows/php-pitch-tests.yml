@@ -1,0 +1,31 @@
+name: D11 PHP pitch intelligence tests
+
+on:
+  push:
+    paths:
+      - 'php-site/app/Services/PitchIntelligenceService.php'
+      - 'php-site/app/Services/PlayerPredictionService.php'
+      - 'php-site/tests/pitch_intelligence_test.php'
+      - '.github/workflows/php-pitch-tests.yml'
+  pull_request:
+    paths:
+      - 'php-site/app/Services/PitchIntelligenceService.php'
+      - 'php-site/app/Services/PlayerPredictionService.php'
+      - 'php-site/tests/pitch_intelligence_test.php'
+      - '.github/workflows/php-pitch-tests.yml'
+
+jobs:
+  php-pitch-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - name: PHP syntax checks
+        run: |
+          php -l php-site/app/Services/PitchIntelligenceService.php
+          php -l php-site/app/Services/PlayerPredictionService.php
+          php -l php-site/tests/pitch_intelligence_test.php
+      - name: Pitch intelligence unit tests
+        run: php -d zend.assertions=1 -d assert.exception=1 php-site/tests/pitch_intelligence_test.php
