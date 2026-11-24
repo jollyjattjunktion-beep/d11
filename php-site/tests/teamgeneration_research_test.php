@@ -98,8 +98,8 @@ $optimizerPlayers = [
 ];
 $optimizer = new \D11\Services\TeamOptimizerService();
 $locked = ['P1','P2','P3','P4','P5','P6','P7','P8','P9','P10'];
-$withoutResearch = $optimizer->generate($optimizerPlayers, [], 'grand_league', $locked);
-$withResearch = $optimizer->generate($optimizerPlayers, [], 'grand_league', $locked, [], null, null, true, $hints);
+$withoutResearch = $optimizer->generate($optimizerPlayers, [], 'grand_league', $locked, [], null, null, true, [], ['enabled'=>false]);
+$withResearch = $optimizer->generate($optimizerPlayers, [], 'grand_league', $locked, [], null, null, true, $hints, ['enabled'=>false]);
 if (!in_array('P12', array_column($withResearch['players'], 'player_id'), true)) {
     throw new RuntimeException('Grand League optimizer did not apply the more frequent 5-low/6-high research split.');
 }
