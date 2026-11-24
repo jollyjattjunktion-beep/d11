@@ -220,7 +220,7 @@ final class TeamGenerationResearchService
         if (!in_array($scopeType, self::SCOPE_TYPES, true)) {
             throw new RuntimeException('Choose a valid research scope type.');
         }
-        if ($scopeKey === '' || mb_strlen($scopeKey) > 190) {
+        if ($scopeKey === '' || strlen($scopeKey) > 190) {
             throw new RuntimeException('A scope key of 1–190 characters is required.');
         }
         $format = strtoupper(trim((string)($scope['format'] ?? '')));
