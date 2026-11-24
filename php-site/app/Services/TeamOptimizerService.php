@@ -148,6 +148,7 @@ final class TeamOptimizerService
         array $researchHints = [], array $formationOptions = []): array
     {
         if (!in_array($strategy, self::STRATEGIES, true)) throw new InvalidArgumentException('Unknown optimizer strategy.');
+        $providedRules = $rules;
         $rules = array_replace([
             'team_size'=>11, 'max_credits'=>100.0, 'max_from_one_team'=>7,
             'min_role'=>['WK'=>1,'BAT'=>3,'AR'=>1,'BOWL'=>3],
@@ -176,7 +177,8 @@ final class TeamOptimizerService
         if ($manualCaptainId !== null && $manualCaptainId === $manualViceCaptainId) throw new InvalidArgumentException('Captain and vice-captain must be different.');
         foreach ([$manualCaptainId,$manualViceCaptainId] as $id) if ($id !== null && !isset($byId[$id])) throw new InvalidArgumentException('Manual leadership choice is not in the squad.');
 
-        $pool = array_values(array_filter($byId, fn($p) => !in_array($p['player_id'], $excluded, true)));
+        $lockedSet = array_fill_keys($locked, true);
+        $pool = array_values(array_filter($byId, fn($p) => !in_array($p['player_id'], $excluded, true) && !isset($lockedSet[$p['player_id']])));
         $lockedRows = array_map(fn($id) => $byId[$id], $locked);
         if (count($lockedRows) > 11) throw new InvalidArgumentException('More locked players than team size.');
         foreach ($lockedRows as $p) {
@@ -190,7 +192,7 @@ final class TeamOptimizerService
             'formations'=>self::DEFAULT_FORMATIONS,
             'rotation_offset'=>null,
             'variation_points'=>3.2,
-            'respect_min_role'=>false,
+            'respect_min_role'=>array_key_exists('min_role', $providedRules),
             'search_limit_per_formation'=>250000,
         ], $formationOptions);
 
@@ -235,7 +237,6 @@ final class TeamOptimizerService
         $selectedFormationCounts = null;
         $selectedNodes = 0;
         $selectedTruncated = false;
-        $lockedSet = array_fill_keys($locked, true);
         $lockedCredits = array_sum(array_map(fn($p)=>(float)$p['credits'], $lockedRows));
         if ($lockedCredits > (float)$rules['max_credits']) throw new InvalidArgumentException('Locked players exceed maximum credits.');
 
