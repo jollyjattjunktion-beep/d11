@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS d11_research_overview_snapshots (
   payload_sha256 CHAR(64) NOT NULL,
   payload_json LONGTEXT NOT NULL,
   imported_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_d11_tg_research_snapshot (source, scope_type, scope_key, payload_sha256),
+  UNIQUE KEY uq_d11_tg_research_snapshot (source, scope_key, payload_sha256),
   KEY idx_d11_tg_research_latest (source, scope_type, scope_key, imported_at),
   KEY idx_d11_tg_research_competition (competition_name, season, format)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
