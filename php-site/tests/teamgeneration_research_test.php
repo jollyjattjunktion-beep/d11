@@ -40,7 +40,7 @@ $payload = [
         'groupBottom' => [['label'=>'<=1 of bottom 2','count'=>209,'pct'=>85.31]],
         'partitionFreq' => [['pattern'=>'6:5','count'=>82,'pct'=>33.47],['pattern'=>'7:4','count'=>76,'pct'=>31.02]],
         'combinationFreq' => [['pattern'=>'1-3-4-3','count'=>18,'pct'=>7.35]],
-        'percentageSplitFreq' => [['pattern'=>'5-6','count'=>62,'pct'=>25.31]],
+        'percentageSplitFreq' => [['pattern'=>'5-6','count'=>62,'pct'=>25.31],['pattern'=>'6-5','count'=>51,'pct'=>20.82]],
         'avgLowOwned' => 5.05,
         'avgHighOwned' => 5.95,
         'credit' => ['avgDtCredits'=>89.26,'bandP10'=>84.5,'bandP90'=>92.5],
@@ -79,5 +79,38 @@ try { TeamGenerationResearchService::normalizeOverview([
     'totalMatches'=>3,'context'=>['tossWonMatchWonPct'=>140],'dreamTeam'=>[]
 ]); } catch (RuntimeException) { $failed = true; }
 if (!$failed) throw new RuntimeException('Out-of-range percentage must be rejected.');
+
+require dirname(__DIR__) . '/app/Services/TeamOptimizerService.php';
+
+$optimizerPlayers = [
+    ['player_id'=>'P1','team'=>'A','role'=>'WK','credits'=>8.0,'expected_points'=>50,'status'=>'playing','selection_pct'=>20],
+    ['player_id'=>'P2','team'=>'B','role'=>'BAT','credits'=>8.0,'expected_points'=>50,'status'=>'playing','selection_pct'=>20],
+    ['player_id'=>'P3','team'=>'A','role'=>'BAT','credits'=>8.0,'expected_points'=>50,'status'=>'playing','selection_pct'=>20],
+    ['player_id'=>'P4','team'=>'B','role'=>'BAT','credits'=>8.0,'expected_points'=>50,'status'=>'playing','selection_pct'=>80],
+    ['player_id'=>'P5','team'=>'A','role'=>'AR','credits'=>8.0,'expected_points'=>50,'status'=>'playing','selection_pct'=>80],
+    ['player_id'=>'P6','team'=>'B','role'=>'AR','credits'=>8.0,'expected_points'=>50,'status'=>'playing','selection_pct'=>20],
+    ['player_id'=>'P7','team'=>'A','role'=>'BOWL','credits'=>8.0,'expected_points'=>50,'status'=>'playing','selection_pct'=>80],
+    ['player_id'=>'P8','team'=>'B','role'=>'BOWL','credits'=>8.0,'expected_points'=>50,'status'=>'playing','selection_pct'=>80],
+    ['player_id'=>'P9','team'=>'A','role'=>'BOWL','credits'=>8.0,'expected_points'=>50,'status'=>'playing','selection_pct'=>20],
+    ['player_id'=>'P10','team'=>'B','role'=>'BAT','credits'=>8.0,'expected_points'=>50,'status'=>'playing','selection_pct'=>80],
+    ['player_id'=>'P11','team'=>'A','role'=>'AR','credits'=>8.0,'expected_points'=>50,'status'=>'playing','selection_pct'=>20],
+    ['player_id'=>'P12','team'=>'B','role'=>'AR','credits'=>8.0,'expected_points'=>50,'status'=>'playing','selection_pct'=>80],
+];
+$optimizer = new \D11\Services\TeamOptimizerService();
+$locked = ['P1','P2','P3','P4','P5','P6','P7','P8','P9','P10'];
+$withoutResearch = $optimizer->generate($optimizerPlayers, [], 'grand_league', $locked);
+$withResearch = $optimizer->generate($optimizerPlayers, [], 'grand_league', $locked, [], null, null, true, $hints);
+if (!in_array('P12', array_column($withResearch['players'], 'player_id'), true)) {
+    throw new RuntimeException('Grand League optimizer did not apply the more frequent 5-low/6-high research split.');
+}
+if (empty($withResearch['diagnostics']['research_ownership_prior_applied'])) {
+    throw new RuntimeException('Optimizer diagnostics did not record the applied research prior.');
+}
+if ($withResearch['diagnostics']['research_ownership_prior_bonus'] <= 0) {
+    throw new RuntimeException('Research ownership prior bonus should be positive.');
+}
+if (in_array('P12', array_column($withoutResearch['players'], 'player_id'), true)) {
+    throw new RuntimeException('Baseline optimizer should not consume research hints when none are provided.');
+}
 
 echo "TeamGeneration research overview tests passed.\n";
