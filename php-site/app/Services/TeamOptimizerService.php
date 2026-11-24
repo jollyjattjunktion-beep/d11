@@ -7,15 +7,28 @@ use InvalidArgumentException;
 use RuntimeException;
 
 /**
- * Constraint-safe PHP team builder.
+ * Constraint-safe PHP team builder with randomized tactical formations.
  *
- * This is a deterministic first implementation of the optimizer contract.
- * It intentionally exposes strategy scoring and diagnostics separately from
- * provider ingestion. Python golden parity is a release gate, not implied here.
+ * Formation order is WK-BAT-AR-BOWL. A fresh random offset determines which
+ * feasible formation is attempted first. Fixed/locked players are never
+ * randomized or removed. The bounded variation is the average jitter over
+ * non-core players in a completed XI, so the total lineup adjustment stays
+ * within +/- variation_points (default 3.2).
  */
 final class TeamOptimizerService
 {
     private const STRATEGIES = ['strongest','safe','balanced','grand_league'];
+    private const ROLE_ORDER = ['WK','BAT','AR','BOWL'];
+    private const DEFAULT_FORMATIONS = [
+        '1-3-4-3',
+        '1-3-3-4',
+        '1-2-4-4',
+        '2-3-3-3',
+        '1-4-3-3',
+        '1-3-2-5',
+        '2-3-2-4',
+        '2-2-4-3',
+    ];
 
     private static function num(mixed $v, float $default = 0.0): float
     {
@@ -35,17 +48,16 @@ final class TeamOptimizerService
         $patterns = $researchHints['ownership_percentage_split_frequency'] ?? [];
         if (!is_array($patterns) || !$patterns) return 0.0;
 
-        $low = 0; $high = 0; $known = 0;
+        $low = 0; $known = 0;
         foreach ($chosen as $player) {
             $owned = $player['selection_pct'] ?? null;
             if (!is_numeric($owned)) return 0.0;
             $known++;
             if ((float)$owned < 50.0) $low++;
-            else $high++;
         }
         if ($known !== 11) return 0.0;
 
-        $pattern = $low . '-' . $high;
+        $pattern = $low . '-' . (11 - $low);
         $frequency = 0.0; $maxFrequency = 0.0;
         foreach ($patterns as $row) {
             if (!is_array($row)) continue;
@@ -55,8 +67,7 @@ final class TeamOptimizerService
         }
         if ($frequency <= 0.0 || $maxFrequency <= 0.0) return 0.0;
 
-        // Maximum +0.5% of the lineup score: a tie-breaker, never a substitute
-        // for expected points, role constraints, availability or player evidence.
+        // Small advisory tie-breaker; it cannot replace player evidence.
         return max(0.0, $baseScore) * 0.015 * min(1.0, $frequency / $maxFrequency);
     }
 
@@ -100,14 +111,41 @@ final class TeamOptimizerService
         return $value * $availability * (0.90 + 0.10*$opportunity);
     }
 
+    /** @return array{0:string,1:array<string,int>} */
+    private static function normalizeFormation(mixed $raw): array
+    {
+        if (is_string($raw)) {
+            $parts = explode('-', trim($raw));
+            if (count($parts) !== 4) throw new InvalidArgumentException('Formation strings must use WK-BAT-AR-BOWL, e.g. 1-3-4-3.');
+            $values = array_map(static fn($v) => filter_var($v, FILTER_VALIDATE_INT), $parts);
+            if (in_array(false, $values, true)) throw new InvalidArgumentException('Formation counts must be integers.');
+            $counts = array_combine(self::ROLE_ORDER, $values);
+        } elseif (is_array($raw)) {
+            $counts = [];
+            foreach (self::ROLE_ORDER as $role) {
+                $value = filter_var($raw[$role] ?? null, FILTER_VALIDATE_INT);
+                if ($value === false || $value < 0) throw new InvalidArgumentException('Formation requires non-negative WK, BAT, AR and BOWL counts.');
+                $counts[$role] = $value;
+            }
+        } else {
+            throw new InvalidArgumentException('Each formation must be a WK-BAT-AR-BOWL string or role-count object.');
+        }
+
+        if (array_sum($counts) !== 11) throw new InvalidArgumentException('Every tactical formation must contain exactly 11 players.');
+        return [implode('-', array_values($counts)), $counts];
+    }
+
     /**
      * @param array $players normalized squad predictions
      * @param array $rules team_size,max_credits,max_from_one_team,min_role,max_role
+     * @param array $researchHints optional TeamGeneration aggregate research hints
+     * @param array $formationOptions enabled,formations,rotation_offset,variation_points,
+     *        respect_min_role,search_limit_per_formation
      */
     public function generate(array $players, array $rules = [], string $strategy = 'balanced',
         array $lockedIds = [], array $excludedIds = [], ?string $manualCaptainId = null,
         ?string $manualViceCaptainId = null, bool $allowProvisional = true,
-        array $researchHints = []): array
+        array $researchHints = [], array $formationOptions = []): array
     {
         if (!in_array($strategy, self::STRATEGIES, true)) throw new InvalidArgumentException('Unknown optimizer strategy.');
         $rules = array_replace([
@@ -116,12 +154,17 @@ final class TeamOptimizerService
             'max_role'=>['WK'=>4,'BAT'=>6,'AR'=>4,'BOWL'=>6],
             'team_a'=>null, 'team_a_count'=>null, 'playing_xi_only'=>false,
         ], $rules);
+
+        if ((int)$rules['team_size'] !== 11) {
+            throw new InvalidArgumentException('The supplied tactical formations are for an 11-player team.');
+        }
+
         $byId = [];
         foreach ($players as $p) {
             $id = (string)($p['player_id'] ?? '');
             if ($id === '' || isset($byId[$id])) throw new InvalidArgumentException('Every player needs a unique player_id.');
             $role = strtoupper((string)($p['role'] ?? ''));
-            if (!in_array($role, ['WK','BAT','AR','BOWL'], true)) throw new InvalidArgumentException("Unsupported player role for {$id}.");
+            if (!in_array($role, self::ROLE_ORDER, true)) throw new InvalidArgumentException("Unsupported player role for {$id}.");
             if (!is_numeric($p['credits'] ?? null) || (float)$p['credits'] <= 0) throw new InvalidArgumentException("Missing/invalid credits for {$id}.");
             if (!$allowProvisional && ($p['expected_points'] ?? null) === null) throw new InvalidArgumentException('AI Prediction mode requires numeric expected points for every candidate.');
             $p['role'] = $role; $p['player_id'] = $id; $byId[$id] = $p;
@@ -135,71 +178,257 @@ final class TeamOptimizerService
 
         $pool = array_values(array_filter($byId, fn($p) => !in_array($p['player_id'], $excluded, true)));
         $lockedRows = array_map(fn($id) => $byId[$id], $locked);
-        if (count($lockedRows) > (int)$rules['team_size']) throw new InvalidArgumentException('More locked players than team size.');
+        if (count($lockedRows) > 11) throw new InvalidArgumentException('More locked players than team size.');
         foreach ($lockedRows as $p) {
-            if (!empty($rules['playing_xi_only']) && !in_array(strtolower((string)($p['status'] ?? '')), ['playing','playing_xi','confirmed'], true)) throw new InvalidArgumentException('Locked player is not confirmed in Playing XI.');
+            if (!empty($rules['playing_xi_only']) && !in_array(strtolower((string)($p['status'] ?? '')), ['playing','playing_xi','confirmed'], true)) {
+                throw new InvalidArgumentException('Locked player is not confirmed in Playing XI.');
+            }
         }
-        $best = null; $bestScore = -INF; $bestResearchBonus = 0.0; $nodes = 0; $limit = 250000;
-        $search = function(int $start, array $chosen, float $credits, float $score) use (&$search,&$best,&$bestScore,&$bestResearchBonus,&$nodes,$limit,$pool,$lockedRows,$rules,$strategy,$researchHints): void {
-            if (++$nodes > $limit) return;
-            $need = (int)$rules['team_size'] - count($chosen);
-            if ($need === 0) {
-                $counts=[]; $teams=[];
-                foreach ($chosen as $p) { $counts[$p['role']]=($counts[$p['role']]??0)+1; $teams[$p['team']??'']=($teams[$p['team']??'']??0)+1; }
-                foreach ($rules['min_role'] as $r=>$n) if (($counts[$r]??0)<$n) return;
-                foreach ($rules['max_role'] as $r=>$n) if (($counts[$r]??0)>$n) return;
-                if ($teams && max($teams)>(int)$rules['max_from_one_team']) return;
-                if ($rules['team_a_count'] !== null && ($teams[$rules['team_a']??'']??0)!==(int)$rules['team_a_count']) return;
-                $researchBonus = self::researchOwnershipBonus($chosen, $researchHints, $strategy, $score);
-                $candidateScore = $score + $researchBonus;
-                if ($candidateScore>$bestScore) {
-                    $best=$chosen; $bestScore=$candidateScore; $bestResearchBonus=$researchBonus;
+
+        $options = array_replace([
+            'enabled'=>true,
+            'formations'=>self::DEFAULT_FORMATIONS,
+            'rotation_offset'=>null,
+            'variation_points'=>3.2,
+            'respect_min_role'=>false,
+            'search_limit_per_formation'=>250000,
+        ], $formationOptions);
+
+        $formationEnabled = (bool)$options['enabled'];
+        $variationLimit = self::num($options['variation_points'], 3.2);
+        if ($variationLimit < 0.0 || $variationLimit > 3.2) {
+            throw new InvalidArgumentException('variation_points must be between 0 and 3.2.');
+        }
+        $searchLimit = filter_var($options['search_limit_per_formation'], FILTER_VALIDATE_INT);
+        if ($searchLimit === false || $searchLimit < 1) throw new InvalidArgumentException('search_limit_per_formation must be a positive integer.');
+
+        $formations = [];
+        if ($formationEnabled) {
+            $rawFormations = $options['formations'];
+            if (!is_array($rawFormations) || !$rawFormations) throw new InvalidArgumentException('At least one tactical formation is required.');
+            foreach ($rawFormations as $rawFormation) $formations[] = self::normalizeFormation($rawFormation);
+        } else {
+            $formations[] = [null, null];
+        }
+
+        $offset = 0;
+        if ($formationEnabled) {
+            if ($options['rotation_offset'] === null) {
+                $offset = random_int(0, count($formations) - 1);
+            } else {
+                $providedOffset = filter_var($options['rotation_offset'], FILTER_VALIDATE_INT);
+                if ($providedOffset === false || $providedOffset < 0 || $providedOffset >= count($formations)) {
+                    throw new InvalidArgumentException('rotation_offset must be between zero and the number of configured formations minus one.');
                 }
-                return;
+                $offset = $providedOffset;
             }
-            if ($start >= count($pool) || count($pool)-$start < $need) return;
-            for ($i=$start; $i<=count($pool)-$need; $i++) {
-                $p=$pool[$i];
-                if (in_array($p['player_id'], array_column($chosen,'player_id'), true)) continue;
-                $newCredits=$credits+(float)$p['credits'];
-                if ($newCredits>(float)$rules['max_credits']) continue;
-                $roleCount=0; $teamCount=0;
-                foreach ($chosen as $q) { if ($q['role']===$p['role']) $roleCount++; if (($q['team']??'')===($p['team']??'')) $teamCount++; }
-                if ($roleCount >= (int)($rules['max_role'][$p['role']] ?? $rules['team_size'])) continue;
-                if ($teamCount >= (int)$rules['max_from_one_team']) continue;
-                $search($i+1, [...$chosen,$p], $newCredits, $score+self::score($p,$strategy));
-                if ($nodes>$limit) return;
+        }
+
+        $attemptedFormations = [];
+        $totalNodes = 0;
+        $best = null;
+        $bestScore = -INF;
+        $bestBaseScore = 0.0;
+        $bestVariation = 0.0;
+        $bestResearchBonus = 0.0;
+        $selectedFormation = null;
+        $selectedFormationCounts = null;
+        $selectedNodes = 0;
+        $selectedTruncated = false;
+        $lockedSet = array_fill_keys($locked, true);
+        $lockedCredits = array_sum(array_map(fn($p)=>(float)$p['credits'], $lockedRows));
+        if ($lockedCredits > (float)$rules['max_credits']) throw new InvalidArgumentException('Locked players exceed maximum credits.');
+
+        $attemptOrder = [];
+        for ($i=0; $i<count($formations); $i++) {
+            $attemptOrder[] = ($offset + $i) % count($formations);
+        }
+
+        foreach ($attemptOrder as $formationIndex) {
+            [$formationLabel, $targetCounts] = $formations[$formationIndex];
+            $attemptedFormations[] = $formationLabel ?? 'legacy-role-rules';
+
+            $formationRules = $rules;
+            if ($formationEnabled) {
+                $lockedCounts = array_fill_keys(self::ROLE_ORDER, 0);
+                foreach ($lockedRows as $row) $lockedCounts[$row['role']]++;
+                $maxRole = is_array($rules['max_role'] ?? null) ? $rules['max_role'] : [];
+                $minRole = is_array($rules['min_role'] ?? null) ? $rules['min_role'] : [];
+
+                $compatible = true;
+                foreach (self::ROLE_ORDER as $role) {
+                    $maximum = (int)($maxRole[$role] ?? 11);
+                    if ($targetCounts[$role] > $maximum || $lockedCounts[$role] > $targetCounts[$role]) {
+                        $compatible = false;
+                        break;
+                    }
+                    if (!empty($options['respect_min_role']) && $targetCounts[$role] < (int)($minRole[$role] ?? 0)) {
+                        $compatible = false;
+                        break;
+                    }
+                }
+                if (!$compatible) continue;
+
+                // A formation is an exact role-count target. It supersedes the
+                // engine's default composition preference minimums; platform
+                // maximum role limits remain enforced above.
+                $formationRules['min_role'] = $targetCounts;
+                $formationRules['max_role'] = $targetCounts;
             }
-        };
-        $lockedCredits=array_sum(array_map(fn($p)=>(float)$p['credits'],$lockedRows));
-        if ($lockedCredits>(float)$rules['max_credits']) throw new InvalidArgumentException('Locked players exceed maximum credits.');
-        $lockedScore=array_sum(array_map(fn($p)=>self::score($p,$strategy),$lockedRows));
-        $search(0,$lockedRows,$lockedCredits,$lockedScore);
-        if ($best===null) throw new RuntimeException('No legal XI found within search limit; verify squad depth and constraints.');
-        $bestIds=array_column($best,'player_id');
-        if ($manualCaptainId !== null && !in_array($manualCaptainId,$bestIds,true)) throw new InvalidArgumentException('Manual captain must be in the selected XI.');
-        if ($manualViceCaptainId !== null && !in_array($manualViceCaptainId,$bestIds,true)) throw new InvalidArgumentException('Manual vice-captain must be in the selected XI.');
-        $ranked=$best;
+
+            $formationBest = null;
+            $formationBestScore = -INF;
+            $formationBaseScore = 0.0;
+            $formationVariation = 0.0;
+            $formationResearchBonus = 0.0;
+            $nodes = 0;
+            $limit = (int)$searchLimit;
+            $search = function(int $start, array $chosen, float $credits, float $score) use (
+                &$search, &$formationBest, &$formationBestScore, &$formationBaseScore,
+                &$formationVariation, &$formationResearchBonus, &$nodes, $limit,
+                $pool, $lockedRows, $lockedSet, $formationRules, $strategy,
+                $researchHints, $variationLimit
+            ): void {
+                if (++$nodes > $limit) return;
+                $need = (int)$formationRules['team_size'] - count($chosen);
+                if ($need === 0) {
+                    $counts = []; $teams = [];
+                    foreach ($chosen as $p) {
+                        $counts[$p['role']] = ($counts[$p['role']] ?? 0) + 1;
+                        $teamKey = (string)($p['team'] ?? '');
+                        $teams[$teamKey] = ($teams[$teamKey] ?? 0) + 1;
+                    }
+                    foreach ($formationRules['min_role'] as $role=>$minimum) {
+                        if (($counts[$role] ?? 0) < (int)$minimum) return;
+                    }
+                    foreach ($formationRules['max_role'] as $role=>$maximum) {
+                        if (($counts[$role] ?? 0) > (int)$maximum) return;
+                    }
+                    if ($teams && max($teams) > (int)$formationRules['max_from_one_team']) return;
+                    if ($formationRules['team_a_count'] !== null &&
+                        ($teams[(string)($formationRules['team_a'] ?? '')] ?? 0) !== (int)$formationRules['team_a_count']) return;
+
+                    $nonCoreJitter = [];
+                    foreach ($chosen as $player) {
+                        if (!isset($lockedSet[$player['player_id']]) && $variationLimit > 0.0) {
+                            $nonCoreJitter[] = random_int(
+                                (int)round(-$variationLimit * 1000),
+                                (int)round($variationLimit * 1000)
+                            ) / 1000.0;
+                        }
+                    }
+                    $variation = $nonCoreJitter ? array_sum($nonCoreJitter) / count($nonCoreJitter) : 0.0;
+                    $researchBonus = self::researchOwnershipBonus($chosen, $researchHints, $strategy, $score);
+                    $candidateScore = $score + $variation + $researchBonus;
+                    if ($candidateScore > $formationBestScore) {
+                        $formationBest = $chosen;
+                        $formationBestScore = $candidateScore;
+                        $formationBaseScore = $score;
+                        $formationVariation = $variation;
+                        $formationResearchBonus = $researchBonus;
+                    }
+                    return;
+                }
+                if ($start >= count($pool) || count($pool) - $start < $need) return;
+
+                for ($i=$start; $i<=count($pool)-$need; $i++) {
+                    $player = $pool[$i];
+                    if (in_array($player['player_id'], array_column($chosen, 'player_id'), true)) continue;
+                    $newCredits = $credits + (float)$player['credits'];
+                    if ($newCredits > (float)$formationRules['max_credits']) continue;
+
+                    $roleCount = 0; $teamCount = 0;
+                    foreach ($chosen as $selected) {
+                        if ($selected['role'] === $player['role']) $roleCount++;
+                        if ((string)($selected['team'] ?? '') === (string)($player['team'] ?? '')) $teamCount++;
+                    }
+                    if ($roleCount >= (int)($formationRules['max_role'][$player['role']] ?? $formationRules['team_size'])) continue;
+                    if ($teamCount >= (int)$formationRules['max_from_one_team']) continue;
+
+                    $search($i+1, [...$chosen, $player], $newCredits, $score + self::score($player, $strategy));
+                    if ($nodes > $limit) return;
+                }
+            };
+
+            $search(0, $lockedRows, $lockedCredits, array_sum(array_map(fn($p)=>self::score($p,$strategy), $lockedRows)));
+            $totalNodes += $nodes;
+            if ($formationBest !== null) {
+                $best = $formationBest;
+                $bestScore = $formationBestScore;
+                $bestBaseScore = $formationBaseScore;
+                $bestVariation = $formationVariation;
+                $bestResearchBonus = $formationResearchBonus;
+                $selectedFormation = $formationLabel;
+                $selectedFormationCounts = $targetCounts;
+                $selectedNodes = $nodes;
+                $selectedTruncated = $nodes > $limit;
+                break;
+            }
+        }
+
+        if ($best === null) {
+            throw new RuntimeException(
+                'No legal XI could be built from the configured tactical formations. Check locked core roles, squad depth, credits, team limits, and search budget.'
+            );
+        }
+
+        $bestIds = array_column($best, 'player_id');
+        if ($manualCaptainId !== null && !in_array($manualCaptainId, $bestIds, true)) throw new InvalidArgumentException('Manual captain must be in the selected XI.');
+        if ($manualViceCaptainId !== null && !in_array($manualViceCaptainId, $bestIds, true)) throw new InvalidArgumentException('Manual vice-captain must be in the selected XI.');
+
+        // C/VC ranking deliberately uses the unrandomized player score.
+        $ranked = $best;
         usort($ranked, fn($a,$b)=>self::score($b,$strategy)<=>self::score($a,$strategy));
         $captain = $manualCaptainId !== null ? $byId[$manualCaptainId] : $ranked[0];
-        $viceCandidates=array_values(array_filter($ranked,fn($p)=>$p['player_id']!==$captain['player_id']));
+        $viceCandidates = array_values(array_filter($ranked, fn($p)=>$p['player_id'] !== $captain['player_id']));
         if ($manualViceCaptainId !== null) {
-            $vice = current(array_filter($viceCandidates,fn($p)=>$p['player_id']===$manualViceCaptainId));
+            $vice = current(array_filter($viceCandidates, fn($p)=>$p['player_id'] === $manualViceCaptainId));
             if (!$vice) throw new InvalidArgumentException('Manual vice-captain must be in the selected XI.');
-        } else { $vice=$viceCandidates[0]??null; }
+        } else {
+            $vice = $viceCandidates[0] ?? null;
+        }
         if (!$vice) throw new RuntimeException('Could not select distinct captain and vice-captain.');
-        $roleCounts=[]; $teamCounts=[];
-        foreach ($best as $p) { $roleCounts[$p['role']]=($roleCounts[$p['role']]??0)+1; $teamCounts[$p['team']??'']=($teamCounts[$p['team']??'']??0)+1; }
+
+        $roleCounts = []; $teamCounts = [];
+        foreach ($best as $p) {
+            $roleCounts[$p['role']] = ($roleCounts[$p['role']] ?? 0) + 1;
+            $teamKey = (string)($p['team'] ?? '');
+            $teamCounts[$teamKey] = ($teamCounts[$teamKey] ?? 0) + 1;
+        }
+        $totalCredits = array_sum(array_map(fn($p)=>(float)$p['credits'], $best));
+
         return [
-            'strategy'=>$strategy,'players'=>$best,'captain_id'=>$captain['player_id'],'vice_captain_id'=>$vice['player_id'],
-            'total_credits'=>round($lockedCredits + array_sum(array_map(fn($p)=>(float)$p['credits'],array_filter($best,fn($p)=>!in_array($p['player_id'],$locked,true)))),2),
-            'team_strength_score'=>round($bestScore,3),'role_counts'=>$roleCounts,'team_split'=>$teamCounts,
-            'diagnostics'=>['search_nodes'=>$nodes,'search_limit'=>$limit,'search_truncated'=>$nodes>$limit,
-                'locked_player_ids'=>$locked,'excluded_player_ids'=>$excluded,'provisional'=>count(array_filter($best,fn($p)=>($p['expected_points']??null)===null))>0,
+            'strategy'=>$strategy,
+            'players'=>$best,
+            'captain_id'=>$captain['player_id'],
+            'vice_captain_id'=>$vice['player_id'],
+            'total_credits'=>round($totalCredits,2),
+            'team_strength_score'=>round($bestScore,3),
+            'base_team_score'=>round($bestBaseScore,3),
+            'role_counts'=>$roleCounts,
+            'team_split'=>$teamCounts,
+            'formation'=>$selectedFormation,
+            'formation_role_order'=>'WK-BAT-AR-BOWL',
+            'formation_role_counts'=>$selectedFormationCounts,
+            'diagnostics'=>[
+                'search_nodes'=>$selectedNodes,
+                'total_search_nodes'=>$totalNodes,
+                'search_limit_per_formation'=>$limit,
+                'search_truncated'=>$selectedTruncated,
+                'formation_rotation_offset'=>$offset,
+                'formation_attempt_order'=>$attemptedFormations,
+                'selected_formation'=>$selectedFormation,
+                'locked_player_ids'=>$locked,
+                'excluded_player_ids'=>$excluded,
+                'fixed_core_preserved'=>true,
+                'non_core_variation_points'=>round($bestVariation,3),
+                'non_core_variation_limit'=>round($variationLimit,3),
                 'research_ownership_prior_applied'=>$bestResearchBonus > 0.0,
                 'research_ownership_prior_bonus'=>round($bestResearchBonus,4),
                 'research_hint_sample_matches'=>(int)($researchHints['sample_matches'] ?? 0),
-                'score_meaning'=> 'selection-priority score; not a guaranteed fantasy-points outcome']
+                'provisional'=>count(array_filter($best,fn($p)=>($p['expected_points']??null)===null))>0,
+                'score_meaning'=>'selection-priority score; not a guaranteed fantasy-points outcome',
+            ],
         ];
     }
 }
