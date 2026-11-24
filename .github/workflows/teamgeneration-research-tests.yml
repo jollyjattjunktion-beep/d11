@@ -1,0 +1,36 @@
+name: D11 TeamGeneration research tests
+
+on:
+  push:
+    paths:
+      - 'php-site/app/Services/TeamGenerationResearchService.php'
+      - 'php-site/app/Services/TeamOptimizerService.php'
+      - 'php-site/public/admin/engine/index.php'
+      - 'php-site/database/migrations/002_teamgeneration_research_overview.sql'
+      - 'php-site/tests/teamgeneration_research_test.php'
+      - '.github/workflows/teamgeneration-research-tests.yml'
+  pull_request:
+    paths:
+      - 'php-site/app/Services/TeamGenerationResearchService.php'
+      - 'php-site/app/Services/TeamOptimizerService.php'
+      - 'php-site/public/admin/engine/index.php'
+      - 'php-site/database/migrations/002_teamgeneration_research_overview.sql'
+      - 'php-site/tests/teamgeneration_research_test.php'
+      - '.github/workflows/teamgeneration-research-tests.yml'
+
+jobs:
+  research-import-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - name: PHP syntax checks
+        run: |
+          php -l php-site/app/Services/TeamGenerationResearchService.php
+          php -l php-site/app/Services/TeamOptimizerService.php
+          php -l php-site/public/admin/engine/index.php
+          php -l php-site/tests/teamgeneration_research_test.php
+      - name: Research mapping and optimizer tests
+        run: php -d zend.assertions=1 -d assert.exception=1 php-site/tests/teamgeneration_research_test.php
