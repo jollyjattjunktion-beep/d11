@@ -1,0 +1,33 @@
+name: D11 tactical formation tests
+
+on:
+  push:
+    paths:
+      - 'php-site/app/Services/TeamOptimizerService.php'
+      - 'php-site/tests/optimizer_test.php'
+      - 'php-site/tests/tactical_formations_test.php'
+      - '.github/workflows/tactical-formation-tests.yml'
+  pull_request:
+    paths:
+      - 'php-site/app/Services/TeamOptimizerService.php'
+      - 'php-site/tests/optimizer_test.php'
+      - 'php-site/tests/tactical_formations_test.php'
+      - '.github/workflows/tactical-formation-tests.yml'
+
+jobs:
+  tactical-formations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - name: PHP syntax checks
+        run: |
+          php -l php-site/app/Services/TeamOptimizerService.php
+          php -l php-site/tests/optimizer_test.php
+          php -l php-site/tests/tactical_formations_test.php
+      - name: Existing optimizer regression tests
+        run: php php-site/tests/optimizer_test.php
+      - name: Tactical formations tests
+        run: php php-site/tests/tactical_formations_test.php
