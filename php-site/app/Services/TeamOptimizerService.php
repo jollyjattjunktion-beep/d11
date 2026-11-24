@@ -22,6 +22,43 @@ final class TeamOptimizerService
         return is_numeric($v) ? (float)$v : $default;
     }
 
+    /**
+     * Tiny portfolio-level tie-breaker for Grand League only.
+     * percentageSplitFreq is interpreted as low-owned/high-owned because the
+     * same payload explicitly reports avgLowOwned and avgHighOwned.
+     * It is ignored unless every selected player has a selection percentage.
+     */
+    private static function researchOwnershipBonus(array $chosen, array $researchHints, string $strategy, float $baseScore): float
+    {
+        if ($strategy !== 'grand_league' || count($chosen) !== 11) return 0.0;
+        $patterns = $researchHints['ownership_percentage_split_frequency'] ?? [];
+        if (!is_array($patterns) || !$patterns) return 0.0;
+
+        $low = 0; $high = 0; $known = 0;
+        foreach ($chosen as $player) {
+            $owned = $player['selection_pct'] ?? null;
+            if (!is_numeric($owned)) return 0.0;
+            $known++;
+            if ((float)$owned < 50.0) $low++;
+            else $high++;
+        }
+        if ($known !== 11) return 0.0;
+
+        $pattern = $low . '-' . $high;
+        $frequency = 0.0; $maxFrequency = 0.0;
+        foreach ($patterns as $row) {
+            if (!is_array($row)) continue;
+            $pct = self::num($row['pct'] ?? null);
+            $maxFrequency = max($maxFrequency, $pct);
+            if ((string)($row['pattern'] ?? '') === $pattern) $frequency = $pct;
+        }
+        if ($frequency <= 0.0 || $maxFrequency <= 0.0) return 0.0;
+
+        // Maximum +0.5% of the lineup score: a tie-breaker, never a substitute
+        // for expected points, role constraints, availability or player evidence.
+        return max(0.0, $baseScore) * 0.005 * min(1.0, $frequency / $maxFrequency);
+    }
+
     private static function score(array $p, string $strategy): float
     {
         $expected = $p['expected_points'] ?? null;
@@ -68,7 +105,8 @@ final class TeamOptimizerService
      */
     public function generate(array $players, array $rules = [], string $strategy = 'balanced',
         array $lockedIds = [], array $excludedIds = [], ?string $manualCaptainId = null,
-        ?string $manualViceCaptainId = null, bool $allowProvisional = true): array
+        ?string $manualViceCaptainId = null, bool $allowProvisional = true,
+        array $researchHints = []): array
     {
         if (!in_array($strategy, self::STRATEGIES, true)) throw new InvalidArgumentException('Unknown optimizer strategy.');
         $rules = array_replace([
@@ -100,8 +138,8 @@ final class TeamOptimizerService
         foreach ($lockedRows as $p) {
             if (!empty($rules['playing_xi_only']) && !in_array(strtolower((string)($p['status'] ?? '')), ['playing','playing_xi','confirmed'], true)) throw new InvalidArgumentException('Locked player is not confirmed in Playing XI.');
         }
-        $best = null; $bestScore = -INF; $nodes = 0; $limit = 250000;
-        $search = function(int $start, array $chosen, float $credits, float $score) use (&$search,&$best,&$bestScore,&$nodes,$limit,$pool,$lockedRows,$rules,$strategy): void {
+        $best = null; $bestScore = -INF; $bestResearchBonus = 0.0; $nodes = 0; $limit = 250000;
+        $search = function(int $start, array $chosen, float $credits, float $score) use (&$search,&$best,&$bestScore,&$bestResearchBonus,&$nodes,$limit,$pool,$lockedRows,$rules,$strategy,$researchHints): void {
             if (++$nodes > $limit) return;
             $need = (int)$rules['team_size'] - count($chosen);
             if ($need === 0) {
@@ -111,7 +149,11 @@ final class TeamOptimizerService
                 foreach ($rules['max_role'] as $r=>$n) if (($counts[$r]??0)>$n) return;
                 if ($teams && max($teams)>(int)$rules['max_from_one_team']) return;
                 if ($rules['team_a_count'] !== null && ($teams[$rules['team_a']??'']??0)!==(int)$rules['team_a_count']) return;
-                if ($score>$bestScore) { $best=$chosen; $bestScore=$score; }
+                $researchBonus = self::researchOwnershipBonus($chosen, $researchHints, $strategy, $score);
+                $candidateScore = $score + $researchBonus;
+                if ($candidateScore>$bestScore) {
+                    $best=$chosen; $bestScore=$candidateScore; $bestResearchBonus=$researchBonus;
+                }
                 return;
             }
             if ($start >= count($pool) || count($pool)-$start < $need) return;
@@ -153,6 +195,9 @@ final class TeamOptimizerService
             'team_strength_score'=>round($bestScore,3),'role_counts'=>$roleCounts,'team_split'=>$teamCounts,
             'diagnostics'=>['search_nodes'=>$nodes,'search_limit'=>$limit,'search_truncated'=>$nodes>$limit,
                 'locked_player_ids'=>$locked,'excluded_player_ids'=>$excluded,'provisional'=>count(array_filter($best,fn($p)=>($p['expected_points']??null)===null))>0,
+                'research_ownership_prior_applied'=>$bestResearchBonus > 0.0,
+                'research_ownership_prior_bonus'=>round($bestResearchBonus,4),
+                'research_hint_sample_matches'=>(int)($researchHints['sample_matches'] ?? 0),
                 'score_meaning'=> 'selection-priority score; not a guaranteed fantasy-points outcome']
         ];
     }
