@@ -250,9 +250,9 @@ final class TeamGenerationResearchService
 
         $check = $this->db->prepare(
             'SELECT id FROM d11_research_overview_snapshots
-             WHERE source = ? AND scope_type = ? AND scope_key = ? AND payload_sha256 = ? LIMIT 1'
+             WHERE source = ? AND scope_key = ? AND payload_sha256 = ? LIMIT 1'
         );
-        $check->execute(['TEAM_GENERATION', $scopeType, $scopeKey, $hash]);
+        $check->execute(['TEAM_GENERATION', $scopeKey, $hash]);
         $existingId = $check->fetchColumn();
         if ($existingId !== false) {
             return [
