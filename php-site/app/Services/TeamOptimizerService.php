@@ -57,7 +57,7 @@ final class TeamOptimizerService
 
         // Maximum +0.5% of the lineup score: a tie-breaker, never a substitute
         // for expected points, role constraints, availability or player evidence.
-        return max(0.0, $baseScore) * 0.005 * min(1.0, $frequency / $maxFrequency);
+        return max(0.0, $baseScore) * 0.015 * min(1.0, $frequency / $maxFrequency);
     }
 
     private static function score(array $p, string $strategy): float
@@ -93,7 +93,7 @@ final class TeamOptimizerService
         if (($p['risk'] ?? '') === 'high') {
             $value *= $strategy === 'safe' ? 0.86 : ($strategy === 'grand_league' ? 1.035 : ($strategy === 'strongest' ? 0.97 : 0.94));
         }
-        if ($strategy === 'grand_league') $value *= 1.0 + max(-0.045, min(0.055, (45.0-$ownership)/1000.0));
+        if ($strategy === 'grand_league') $value *= 1.0 + max(-0.012, min(0.012, (45.0-$ownership)/2000.0));
         $status = strtolower((string)($p['status'] ?? 'unknown'));
         $availability = in_array($status, ['playing','playing_xi','confirmed'], true) ? 1.0
             : (in_array($status, ['probable','likely','available'], true) ? 0.90 : 0.72);
