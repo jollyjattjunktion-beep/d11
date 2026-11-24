@@ -52,7 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'venue_name' => (string)($_POST['research_venue'] ?? ''),
                 'source_url' => 'https://v2.tgsoftware-api.online/research/overview',
             ];
-            $result = (new \\D11\\Services\\TeamGenerationResearchService($pdo))->importOverview($research, $scope);
+            $result = (new \D11\Services\TeamGenerationResearchService($pdo))->importOverview($research, $scope);
         } elseif ($action === 'predict') {
             $matchId = filter_input(INPUT_POST, 'match_id', FILTER_VALIDATE_INT);
             if (!$matchId) throw new RuntimeException('Enter a valid match ID.');
