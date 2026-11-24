@@ -31,6 +31,7 @@ final class TeamOptimizerService
     private static function researchOwnershipBonus(array $chosen, array $researchHints, string $strategy, float $baseScore): float
     {
         if ($strategy !== 'grand_league' || count($chosen) !== 11) return 0.0;
+        if ((int)($researchHints['sample_matches'] ?? 0) < 30) return 0.0;
         $patterns = $researchHints['ownership_percentage_split_frequency'] ?? [];
         if (!is_array($patterns) || !$patterns) return 0.0;
 
