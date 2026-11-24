@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/app/Services/TeamGenerationSyncService.php';
 require dirname(__DIR__, 2) . '/app/Services/TeamGenerationApiClient.php';
 require dirname(__DIR__, 2) . '/app/Services/TeamGenerationImportService.php';
 require dirname(__DIR__, 2) . '/app/Services/Ai11ProfileService.php';
+require dirname(__DIR__, 2) . '/app/Services/TeamGenerationResearchService.php';
 require dirname(__DIR__, 2) . '/app/Services/PlayerPredictionService.php';
 
 $admin = d11_require_admin();
@@ -37,6 +38,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $profiles = engine_json('profiles_json');
             if (!$matchId || !array_is_list($profiles)) throw new RuntimeException('Enter a valid existing match ID and a profiles list.');
             $result = (new \D11\Services\Ai11ProfileService($pdo))->sync((int)$matchId, $profiles);
+        } elseif ($action === 'tg_research') {
+            $research = engine_json('research_json');
+            if (array_is_list($research)) throw new RuntimeException('Research overview JSON must be an object.');
+            $scope = [
+                'scope_type' => (string)($_POST['research_scope_type'] ?? ''),
+                'scope_key' => (string)($_POST['research_scope_key'] ?? ''),
+                'scope_name' => (string)($_POST['research_scope_name'] ?? ''),
+                'competition_name' => (string)($_POST['research_competition'] ?? ''),
+                'season' => (string)($_POST['research_season'] ?? ''),
+                'format' => (string)($_POST['research_format'] ?? ''),
+                'gender' => (string)($_POST['research_gender'] ?? ''),
+                'venue_name' => (string)($_POST['research_venue'] ?? ''),
+                'source_url' => 'https://v2.tgsoftware-api.online/research/overview',
+            ];
+            $result = (new \\D11\\Services\\TeamGenerationResearchService($pdo))->importOverview($research, $scope);
         } elseif ($action === 'predict') {
             $matchId = filter_input(INPUT_POST, 'match_id', FILTER_VALIDATE_INT);
             if (!$matchId) throw new RuntimeException('Enter a valid match ID.');
@@ -67,6 +83,30 @@ $profileExample = [
 <form method="post"><input type="hidden" name="csrf" value="<?=d11_e($csrf)?>"><input type="hidden" name="action" value="teamgeneration"><label for="teamgeneration_match_id">TeamGeneration match ID</label><input id="teamgeneration_match_id" name="teamgeneration_match_id" value="<?=d11_e((string)($_POST['teamgeneration_match_id'] ?? 'm11c_120583'))?>" maxlength="50" pattern="[A-Za-z0-9_-]+" required><button type="submit">Fetch and import match</button></form></section>
 <section class="panel"><h2>2. Enrich existing match with AI11 profiles</h2><p class="muted">AI11 profiles are linked only to a unique matching player already in the TeamGeneration squad. Unmatched and ambiguous players are reported, not added.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?=d11_e($csrf)?>"><input type="hidden" name="action" value="ai11"><label>Existing D11 match</label><select name="match_id" required><option value="">Select match</option><?php foreach($matches as $m):?><option value="<?=$m['id']?>">#<?=$m['id']?> · <?=d11_e($m['match_title'])?></option><?php endforeach;?></select><label>AI11 profiles JSON</label><textarea name="profiles_json" required><?=d11_e(json_encode($profileExample,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES))?></textarea><button type="submit">Link AI11 profiles</button></form></section>
-<section class="panel"><h2>3. Generate player predictions</h2><p class="muted">Numeric projections require at least three format-matched historical fantasy-point records per player.</p>
+<section class="panel"><h2>3. Import TeamGeneration Research overview</h2>
+<p class="muted">Paste the JSON response from <code>https://v2.tgsoftware-api.online/research/overview</code>. This stores an immutable, duplicate-safe research snapshot. The JSON does not identify its own competition or venue, so enter the correct scope metadata. Do not label it venue- or competition-specific unless that is what the API query represents.</p>
+<form method="post">
+<input type="hidden" name="csrf" value="<?=d11_e($csrf)?>">
+<input type="hidden" name="action" value="tg_research">
+<label>Research scope type</label>
+<select name="research_scope_type" required>
+<option value="global">Global / multi-competition aggregate</option>
+<option value="competition">Competition</option>
+<option value="season">Competition season</option>
+<option value="format">Format</option>
+<option value="venue">Venue</option>
+<option value="match">Single match</option>
+</select>
+<label>Unique scope key</label><input name="research_scope_key" required maxlength="190" placeholder="e.g. ilt20-2026-27 or tg-global-overview-v1">
+<label>Scope display name</label><input name="research_scope_name" maxlength="190" placeholder="e.g. ILT20 2026/27 research">
+<label>Competition</label><input name="research_competition" maxlength="190">
+<label>Season</label><input name="research_season" maxlength="60">
+<label>Format (optional)</label><select name="research_format"><option value="">Unknown / not specified</option><option value="T20">T20</option><option value="T20I">T20I</option><option value="ODI">ODI</option><option value="TEST">Test</option><option value="THE_HUNDRED">The Hundred</option></select>
+<label>Gender (optional)</label><select name="research_gender"><option value="">Unknown</option><option value="men">Men</option><option value="women">Women</option><option value="mixed">Mixed</option></select>
+<label>Venue (only for venue-specific research)</label><input name="research_venue" maxlength="190">
+<label>Research overview JSON</label><textarea name="research_json" required placeholder="Paste the complete JSON response here"></textarea>
+<button type="submit">Validate and import research snapshot</button>
+</form></section>
+<section class="panel"><h2>4. Generate player predictions</h2><p class="muted">Numeric projections require at least three format-matched historical fantasy-point records per player.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?=d11_e($csrf)?>"><input type="hidden" name="action" value="predict"><label>Existing D11 match</label><select name="match_id" required><option value="">Select match</option><?php foreach($matches as $m):?><option value="<?=$m['id']?>">#<?=$m['id']?> · <?=d11_e($m['match_title'])?></option><?php endforeach;?></select><button type="submit">Generate and save predictions</button></form></section>
 </main></body></html>
