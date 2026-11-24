@@ -198,6 +198,7 @@ final class TeamOptimizerService
 
         $formationEnabled = (bool)$options['enabled'];
         $variationLimit = self::num($options['variation_points'], 3.2);
+        if (!$formationEnabled) $variationLimit = 0.0;
         if ($variationLimit < 0.0 || $variationLimit > 3.2) {
             throw new InvalidArgumentException('variation_points must be between 0 and 3.2.');
         }
