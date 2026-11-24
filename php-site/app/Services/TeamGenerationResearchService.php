@@ -197,6 +197,7 @@ final class TeamGenerationResearchService
             'average_low_owned_players' => $dream['average_low_owned_players'] ?? null,
             'average_high_owned_players' => $dream['average_high_owned_players'] ?? null,
             'ownership_percentage_split_frequency' => $dream['ownership_percentage_split_frequency'] ?? [],
+            'ownership_split_order' => 'low_owned-high_owned (inferred from avgLowOwned/avgHighOwned field names)',
             'team_partition_frequency' => $dream['team_partition_frequency'] ?? [],
             'role_combination_frequency_unmapped' => $dream['role_combination_frequency_unmapped'] ?? [],
             'captain_role_pct_unmapped' => $dream['captain_role_pct_unmapped'] ?? [],
@@ -249,9 +250,9 @@ final class TeamGenerationResearchService
 
         $check = $this->db->prepare(
             'SELECT id FROM d11_research_overview_snapshots
-             WHERE source = ? AND scope_key = ? AND payload_sha256 = ? LIMIT 1'
+             WHERE source = ? AND scope_type = ? AND scope_key = ? AND payload_sha256 = ? LIMIT 1'
         );
-        $check->execute(['TEAM_GENERATION', $scopeKey, $hash]);
+        $check->execute(['TEAM_GENERATION', $scopeType, $scopeKey, $hash]);
         $existingId = $check->fetchColumn();
         if ($existingId !== false) {
             return [
